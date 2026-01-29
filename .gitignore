@@ -1,0 +1,23 @@
+# Node
+node_modules/
+.next/
+out/
+dist/
+.turbo/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.mypy_cache/
+
+# Local env
+.env
+
+# Data directory (keep placeholder files)
+data/**
+!data/.gitkeep
+!data/db/.gitkeep
+!data/projects/.gitkeep
+!data/cache/.gitkeep
