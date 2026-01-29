@@ -1,0 +1,109 @@
+# generated: 2026-01-28
+# project: video-helper
+# project_key: video-helper
+# tracking_system: file-system
+# story_location: _bmad-output/implementation-artifacts
+
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+#
+# Epic Status Transitions:
+#   - backlog → in-progress: Automatically when first story is created (via create-story)
+#   - in-progress → done: Manually when all stories reach 'done' status
+#
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created in stories folder
+#   - in-progress: Developer actively working on implementation
+#   - review: Ready for code review (via Dev's code-review workflow)
+#   - done: Story completed
+#
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+#
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when first story is created
+# - Stories can be worked in parallel if team capacity allows
+# - Re-run sprint-planning to refresh auto-detected statuses
+
+generated: 2026-01-28
+project: video-helper
+project_key: video-helper
+tracking_system: file-system
+story_location: _bmad-output/implementation-artifacts
+
+development_status:
+  epic-1: in-progress
+  1-1-be-core-health-check: ready-for-dev
+  1-2-fe-web-health-banner: ready-for-dev
+  epic-1-retrospective: optional
+
+  epic-2: in-progress
+  2-1-be-core-project-list-detail: ready-for-dev
+  2-2-fe-web-project-pages: ready-for-dev
+  2-3-be-core-delete-project: ready-for-dev
+  2-4-fe-web-delete-project-ui: ready-for-dev
+  epic-2-retrospective: optional
+
+  epic-3: in-progress
+  3-1-be-core-create-job-url: ready-for-dev
+  3-2-be-core-create-job-upload: ready-for-dev
+  3-3-fe-web-ingest-page: ready-for-dev
+  3-4-be-core-video-metadata: ready-for-dev
+  epic-3-retrospective: optional
+
+  epic-4: in-progress
+  4-1-be-core-job-get: ready-for-dev
+  4-2-be-core-job-sse: ready-for-dev
+  4-3-fe-web-sse-fallback: ready-for-dev
+  4-4-be-core-job-logs-tail: ready-for-dev
+  4-5-fe-web-job-page: ready-for-dev
+  4-6-be-core-job-cancel-retry: ready-for-dev
+  epic-4-retrospective: optional
+
+  epic-5: in-progress
+  5-1-be-core-worker-queue: ready-for-dev
+  5-2-be-core-transcribe: ready-for-dev
+  5-3-be-core-segment-chapters: ready-for-dev
+  5-4-be-core-stage-mapping: ready-for-dev
+  epic-5-retrospective: optional
+
+  epic-6: in-progress
+  6-1-be-core-keyframes: ready-for-dev
+  6-2-be-core-highlights: ready-for-dev
+  epic-6-retrospective: optional
+
+  epic-7: in-progress
+  7-1-be-core-mindmap: ready-for-dev
+  epic-7-retrospective: optional
+
+  epic-8: in-progress
+  8-1-contract-result-assets-api: ready-for-dev
+  8-2-be-core-assets-api: ready-for-dev
+  8-3-be-core-result-assemble: ready-for-dev
+  8-4-fe-web-results-page: ready-for-dev
+  8-5-fe-web-floating-player: ready-for-dev
+  8-6-fe-web-seek-chapter-keyframe: ready-for-dev
+  epic-8-retrospective: optional
+
+  epic-9: in-progress
+  9-1-be-core-note-save: ready-for-dev
+  9-2-fe-web-tiptap-autosave: ready-for-dev
+  9-3-be-core-mindmap-save: ready-for-dev
+  9-4-fe-web-reactflow-autosave: ready-for-dev
+  9-5-be-core-chapter-edit: ready-for-dev
+  9-6-be-core-asset-binding: ready-for-dev
+  epic-9-retrospective: optional
+
+  epic-10: in-progress
+  10-1-be-core-search: ready-for-dev
+  10-2-fe-web-search-ui: ready-for-dev
+  10-3-be-core-settings-validate: ready-for-dev
+  10-4-fe-web-settings-page: ready-for-dev
+  epic-10-retrospective: optional
