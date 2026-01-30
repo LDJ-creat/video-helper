@@ -1,6 +1,6 @@
 # Story 8.1: [Contract] 固化 Result/Assets 读取契约（补全 api.md 并锁定字段）
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -16,13 +16,13 @@ so that 前后端/多 agent 并行实现不会漂移。
 
 ## Tasks / Subtasks
 
-- [ ] 在 `api.md` 增补：
+- [x] 在 `api.md` 增补：
   - `GET /api/v1/projects/{projectId}/results/latest`
   - `GET /api/v1/assets/{assetId}`（metadata）
   - `GET /api/v1/assets/{assetId}/content`（stream）
   (AC: 1,2)
-- [ ] 写清字段名（camelCase）、ID/时间戳规则、错误 envelope (AC: 1,2)
-- [ ] 将 stage 集合与 SSE event schema 作为引用链接到统一标准 (AC: 3)
+- [x] 写清字段名（camelCase）、ID/时间戳规则、错误 envelope (AC: 1,2)
+- [x] 将 stage 集合与 SSE event schema 作为引用链接到统一标准 (AC: 3)
 
 ## Dev Notes
 
@@ -40,3 +40,24 @@ so that 前后端/多 agent 并行实现不会漂移。
 ### Agent Model Used
 
 GPT-5.2
+
+### Completion Notes
+
+- `api.md` 补全 Result latest / Assets metadata+content 契约（含示例 payload）
+- 统一错误 envelope 字段为 camelCase：`requestId`
+- 在 SSE/stage 段落引用统一标准：`_bmad-output/implementation-artifacts/00-standards-and-parallel-plan.md`
+
+### Tests
+
+- `services/core/tests/test_contract_api_md.py`（回归锁定 api.md 关键契约片段）
+
+## File List
+
+- api.md
+- _bmad-output/implementation-artifacts/sprint-status.yaml
+- _bmad-output/implementation-artifacts/8-1-contract-result-assets-api.md
+- services/core/tests/test_contract_api_md.py
+
+## Change Log
+
+- 2026-01-29：补全 Result/Assets 读取契约并锁定字段命名（camelCase）与标准引用。

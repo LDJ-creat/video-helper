@@ -71,7 +71,7 @@ development_status:
   5-1-be-core-worker-queue: ready-for-dev
   5-2-be-core-transcribe: ready-for-dev
   5-3-be-core-segment-chapters: ready-for-dev
-  5-4-be-core-stage-mapping: ready-for-dev
+  5-4-be-core-stage-mapping: review
   epic-5-retrospective: optional
 
   epic-6: in-progress
@@ -84,7 +84,7 @@ development_status:
   epic-7-retrospective: optional
 
   epic-8: in-progress
-  8-1-contract-result-assets-api: ready-for-dev
+  8-1-contract-result-assets-api: review
   8-2-be-core-assets-api: ready-for-dev
   8-3-be-core-result-assemble: ready-for-dev
   8-4-fe-web-results-page: ready-for-dev

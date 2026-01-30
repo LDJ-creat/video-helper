@@ -1,6 +1,6 @@
 # Story 5.4: [BE/core] Stage 命名与进度映射对齐（api.md）
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -15,10 +15,10 @@ so that 前端无需猜测流程即可正确展示。
 
 ## Tasks / Subtasks
 
-- [ ] 冻结对外 stage 集合：`ingest/transcribe/segment/analyze/assemble_result/extract_keyframes` (AC: 1)
-- [ ] 定义后端内部 stage → 对外 stage 的映射（如内部更细）(AC: 1)
-- [ ] SSE progress 事件与 job 状态接口使用同一套 stage/progress 来源（避免漂移）(AC: 1,2)
-- [ ] 前端文案映射建议输出（写入统一标准或 contracts）(AC: 1)
+- [x] 冻结对外 stage 集合：`ingest/transcribe/segment/analyze/assemble_result/extract_keyframes` (AC: 1)
+- [x] 定义后端内部 stage → 对外 stage 的映射（如内部更细）(AC: 1)
+- [x] SSE progress 事件与 job 状态接口使用同一套 stage/progress 来源（避免漂移）(AC: 1,2)
+- [x] 前端文案映射建议输出（写入统一标准或 contracts）(AC: 1)
 
 ## Dev Notes
 
@@ -35,3 +35,30 @@ so that 前端无需猜测流程即可正确展示。
 ### Agent Model Used
 
 GPT-5.2
+
+### Completion Notes
+
+- 冻结对外 stage：`core.contracts.stages.PublicStage`
+- 固化 internal→public 映射表：`core.contracts.stages.INTERNAL_STAGE_TO_PUBLIC_STAGE` + `to_public_stage()`
+- 固化 progress 语义（0..1 或 None）与单调 best-effort：`core.contracts.progress.ProgressTracker`
+- 文档更新：api.md 与统一标准补充 progress 单调语义 + FE 文案建议
+
+### Tests
+
+- `services/core/tests/test_contract_stage.py`
+- `services/core/tests/test_contract_progress.py`
+
+## File List
+
+- api.md
+- _bmad-output/implementation-artifacts/00-standards-and-parallel-plan.md
+- _bmad-output/implementation-artifacts/sprint-status.yaml
+- services/core/src/core/contracts/__init__.py
+- services/core/src/core/contracts/stages.py
+- services/core/src/core/contracts/progress.py
+- services/core/tests/test_contract_stage.py
+- services/core/tests/test_contract_progress.py
+
+## Change Log
+
+- 2026-01-29：冻结 stage/progress 契约（含映射/单调语义）并补齐文档与单元测试。

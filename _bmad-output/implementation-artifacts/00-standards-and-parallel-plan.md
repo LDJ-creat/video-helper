@@ -2,6 +2,8 @@
 
 本文件是所有 Story 的“统一真相（single source of truth）”。并行开发时，任何涉及接口/数据契约/错误码/事件字段/阶段名的改动，必须先改这里或引用的契约文件，再落到代码，避免多 agent 漂移。
 
+冻结版本点：2026-01-30（WT-00：stage/progress + result/assets contracts + error codes/envelope）
+
 ## 1) 必须统一（先由单个 Agent 定标准）
 
 ### 1.1 API 基础约束（强约束）
@@ -19,11 +21,24 @@
 - Endpoint：`GET /api/v1/jobs/{jobId}/events`
 - 事件类型仅：`heartbeat | progress | log | state`
 - payload 字段 **camelCase**，必须包含：`eventId, tsMs, jobId, projectId, stage`，可选：`progress, message`
+- **progress 语义**：`progress` 允许为空；若不为空则必须在 0..1；对同一 `stage` best-effort 单调不回退（后端对外输出必须保证）
 - 支持 `Last-Event-ID` best-effort 续传（无法续传时也要稳定降级为“从当前状态继续”）
 
 ### 1.3 Job stage 命名（对外稳定）
 对外 stage 建议集合（允许内部更细，但对外必须映射到稳定集合）：
 - `ingest` / `transcribe` / `segment` / `analyze` / `assemble_result` / `extract_keyframes`
+
+推荐前端显示文案（建议，仅供 UI 映射；可本地化/可替换）：
+- `ingest`：导入
+- `transcribe`：转写
+- `segment`：分章
+- `analyze`：分析
+- `assemble_result`：组装结果
+- `extract_keyframes`：提取关键帧
+
+单一真相（后端实现建议引用，不允许自行散落定义）：
+- `services/core/src/core/contracts/stages.py`（stage 枚举 + internal→public 映射）
+- `services/core/src/core/contracts/progress.py`（progress 归一化 + 单调 best-effort 规则）
 
 ### 1.4 资源与路径安全（强约束）
 - 所有资源必须落在 `DATA_DIR` 下；DB 只存相对路径
@@ -51,11 +66,17 @@
 - 权限：`UNAUTHORIZED`、`FORBIDDEN`
 - 资源越界：`PATH_TRAVERSAL_BLOCKED`
 
+单一真相（后端/前端实现建议引用，不允许自行散落定义）：
+- 后端：`services/core/src/core/contracts/error_codes.py`
+- 后端：`services/core/src/core/contracts/error_envelope.py`
+- 前端：`apps/web/src/lib/contracts/errorCodes.ts`
+- 前端：`apps/web/src/lib/contracts/errorEnvelope.ts`
+
 ### 1.5 工程结构（强约束）
 - 前端：`apps/web`（Next.js App Router + TS）
 - 后端：`services/core`（FastAPI）
 - 合同/DTO/枚举建议集中：
-  - 后端：`services/core/app/contracts/*`（DTO/schema、error codes、stage enum、SSE event schema）
+  - 后端：`services/core/src/core/contracts/*`（DTO/schema、error codes、stage enum、SSE event schema）
   - 前端：`apps/web/src/lib/contracts/*`（与后端字段一致；可手写或后续生成，但必须一致）
 
 ## 2) 并行开发的“先后顺序”与依赖图

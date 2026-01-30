@@ -1,11 +1,6 @@
-export type ApiErrorEnvelope = {
-  error: {
-    code: string;
-    message: string;
-    details?: unknown;
-    requestId?: string;
-  };
-};
+import type { ErrorEnvelope } from "../contracts/errorEnvelope";
+
+export type ApiErrorEnvelope = ErrorEnvelope;
 
 export async function apiFetch<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {
   const response = await fetch(input, init);

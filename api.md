@@ -29,7 +29,7 @@
 				"code": {"type": "string"},
 				"message": {"type": "string"},
 				"details": {"type": "object"},
-				"request_id": {"type": "string"}
+				"requestId": {"type": "string"}
 			},
 			"additionalProperties": false
 		}
@@ -46,7 +46,7 @@
 		"code": "JOB_NOT_FOUND",
 		"message": "Job does not exist",
 		"details": {"jobId": "b3b2..."},
-		"request_id": "req_01J..."
+		"requestId": "req_01J..."
 	}
 }
 ```
@@ -81,15 +81,17 @@
 
 ### SSE（Job 事件流统一）
 
-- Endpoint: `GET /jobs/{jobId}/events` (`Content-Type: text/event-stream`)
+统一标准（stage 集合、SSE event schema、字段命名）：见 `_bmad-output/implementation-artifacts/00-standards-and-parallel-plan.md`。
+
+- Endpoint: `GET /api/v1/jobs/{jobId}/events` (`Content-Type: text/event-stream`)
 - 事件类型（仅允许）：`heartbeat` | `progress` | `log` | `state`
 - Payload 字段（camelCase，统一）：
 	- `eventId` string（单调递增，用于 `Last-Event-ID`）
 	- `tsMs` number
 	- `jobId` string
 	- `projectId` string
-	- `stage` string（稳定 stage 名：ingest/transcribe/segment/analyze/assemble_result/extract_keyframes）
-	- `progress` number（0..1，可选）
+	- `stage` string（稳定 stage 名：`ingest`/`transcribe`/`segment`/`analyze`/`assemble_result`/`extract_keyframes`）
+	- `progress` number（0..1，可选；可为 null；对同一 `stage` best-effort 单调不回退）
 	- `message` string（可选）
 
 **SSE 示例：**
@@ -210,6 +212,66 @@ data: {"eventId":"13","tsMs":1738030000456,"jobId":"...","projectId":"...","stag
 	- 视频内容对应的笔记 note（tiptap json）
 	- 笔记模块/章节对应的关键帧截图信息（以 asset 引用为主）
 	- 视频内容时段划分 chapters（用于前端点击跳转到对应时间播放）
+
+#### Results API
+
+**GET /api/v1/projects/{projectId}/results/latest**
+
+- Auth：同 Base（如启用 bearer，则该接口必须受保护）
+- 若项目不存在：404（`PROJECT_NOT_FOUND`）
+- 若项目存在但尚无结果：404（`RESULT_NOT_FOUND`）
+
+响应（示例）：
+
+```json
+{
+	"resultId": "6a5c...",
+	"projectId": "2d2f...",
+	"schemaVersion": "2026-01-29",
+	"createdAtMs": 1738030000000,
+	"chapters": [
+		{
+			"chapterId": "c01...",
+			"idx": 0,
+			"title": "Intro",
+			"summary": "...",
+			"startMs": 0,
+			"endMs": 60000,
+			"keyframes": [
+				{
+					"assetId": "a01...",
+					"idx": 0,
+					"timeMs": 12000,
+					"caption": "..."
+				}
+			]
+		}
+	],
+	"highlights": [
+		{
+			"highlightId": "h01...",
+			"chapterId": "c01...",
+			"idx": 0,
+			"text": "...",
+			"timeMs": 15000
+		}
+	],
+	"mindmap": {
+		"nodes": [{"id": "n1", "label": "Intro"}],
+		"edges": [{"id": "e1", "source": "n1", "target": "n2"}]
+	},
+	"note": {
+		"type": "doc",
+		"content": []
+	},
+	"assetRefs": [
+		{
+			"assetId": "a01...",
+			"kind": "screenshot"
+		}
+	]
+}
+```
 
 备注：结果中建议保留一个“轻量版本标识”（例如 result_schema_version 或 pipeline_version 的简化形式），用于区分结果结构/算法迭代；不要求前端 UI 使用。
 
@@ -411,23 +473,29 @@ data: {"eventId":"13","tsMs":1738030000456,"jobId":"...","projectId":"...","stag
 
 ## 1) 资源元信息
 
-**GET /api/v1/projects/{projectId}/assets/{assetId}**
+**GET /api/v1/assets/{assetId}**
+
+- Auth：同 Base（如启用 bearer，则该接口必须受保护）
+- Project scope：后端必须校验该 asset 属于当前用户可访问的 project（即使路径中没有 projectId）
+- Path safety：后端仅可从 `DATA_DIR` 下的相对路径读取（safe-join / 防目录穿越）
 
 ```json
 {
 	"assetId": "...",
 	"projectId": "...",
 	"kind": "screenshot",
+	"origin": "generated",
 	"mime": "image/jpeg",
 	"width": 1280,
 	"height": 720,
-	"createdAtMs": 1738030000000
+	"createdAtMs": 1738030000000,
+	"contentUrl": "/api/v1/assets/.../content"
 }
 ```
 
 ## 2) 资源内容（支持 Range）
 
-**GET /api/v1/projects/{projectId}/assets/{assetId}/content**
+**GET /api/v1/assets/{assetId}/content**
 
 - 支持 `Range: bytes=start-end`（播放器/大文件常用）
 - 若带 Range：返回 `206 Partial Content`，并包含 `Content-Range`；否则返回 `200`
@@ -436,7 +504,7 @@ data: {"eventId":"13","tsMs":1738030000456,"jobId":"...","projectId":"...","stag
 示例（Range 请求）：
 
 ```http
-GET /api/v1/projects/..../assets/..../content
+GET /api/v1/assets/..../content
 Range: bytes=0-1048575
 ```
 

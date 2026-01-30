@@ -21,3 +21,8 @@ data/**
 !data/db/.gitkeep
 !data/projects/.gitkeep
 !data/cache/.gitkeep
+
+
+#test
+test_*.py
+tests/*
