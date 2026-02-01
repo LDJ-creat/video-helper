@@ -41,7 +41,7 @@ story_location: _bmad-output/implementation-artifacts
 development_status:
   epic-1: in-progress
   1-1-be-core-health-check: ready-for-dev
-  1-2-fe-web-health-banner: ready-for-dev
+  1-2-fe-web-health-banner: review
   epic-1-retrospective: optional
 
   epic-2: in-progress
@@ -54,7 +54,7 @@ development_status:
   epic-3: in-progress
   3-1-be-core-create-job-url: ready-for-dev
   3-2-be-core-create-job-upload: ready-for-dev
-  3-3-fe-web-ingest-page: ready-for-dev
+  3-3-fe-web-ingest-page: review
   3-4-be-core-video-metadata: ready-for-dev
   epic-3-retrospective: optional
 
