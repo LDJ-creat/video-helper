@@ -21,4 +21,5 @@ class Job(Base):
     # Job error payload (frozen envelope-ish internal), exposed as-is in DTO.
     error: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
+    created_at_ms: Mapped[int] = mapped_column(Integer, nullable=False)
     updated_at_ms: Mapped[int] = mapped_column(Integer, nullable=False)

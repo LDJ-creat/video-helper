@@ -19,3 +19,16 @@ class JobDTO(BaseModel):
     progress: float | None
     error: dict[str, Any] | None
     updatedAtMs: int
+
+
+class CreateJobRequest(BaseModel):
+    sourceType: str
+    sourceUrl: str
+    title: str | None = None
+
+
+class JobCreatedDTO(BaseModel):
+    jobId: str
+    projectId: str
+    status: JobStatus | str
+    createdAtMs: int

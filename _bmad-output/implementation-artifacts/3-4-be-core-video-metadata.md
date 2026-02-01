@@ -1,6 +1,6 @@
 # Story 3.4: [BE/core] 视频元信息抽取与持久化（duration/format）
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -15,9 +15,9 @@ so that 我能预期分析与复习成本。
 
 ## Tasks / Subtasks
 
-- [ ] 选择元信息抽取方式（ffprobe/ffmpeg best-effort）(AC: 1)
-- [ ] 持久化字段：durationMs/format（可选扩展 width/height/fps）(AC: 1)
-- [ ] 失败归因：依赖缺失 vs 文件不可读 vs 解析失败 (AC: 2)
+- [x] 选择元信息抽取方式（ffprobe/ffmpeg best-effort）(AC: 1)
+- [x] 持久化字段：durationMs/format（可选扩展 width/height/fps）(AC: 1)
+- [x] 失败归因：依赖缺失 vs 文件不可读 vs 解析失败 (AC: 2)
 
 ## Dev Notes
 
@@ -32,3 +32,23 @@ so that 我能预期分析与复习成本。
 ### Agent Model Used
 
 GPT-5.2
+
+### Completion Notes
+
+- Implemented best-effort metadata extraction via `ffprobe` (part of ffmpeg distributions).
+- Persisted `durationMs`/`format` (stored internally as `duration_ms`/`format`) on Project for upload-based jobs.
+- Failure attribution:
+	- Dependency missing → `FFMPEG_MISSING`
+	- Other failures → `VALIDATION_ERROR` with `error.details.reason`.
+- Tests: metadata extractor is mocked in upload API tests to avoid requiring ffprobe on CI.
+
+## File List
+
+- services/core/src/core/app/metadata/video_metadata.py
+- services/core/src/core/db/models/project.py
+- services/core/src/core/app/api/jobs.py
+- services/core/tests/test_jobs_create.py
+
+## Change Log
+
+- 2026-02-01: Add ffprobe-based metadata extraction and persist to Project.

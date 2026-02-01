@@ -19,8 +19,13 @@ def _default_data_dir() -> Path:
 	return Path(__file__).resolve().parents[4] / "data"
 
 
+def get_data_dir() -> Path:
+	"""Resolve the DATA_DIR used for DB and file storage."""
+	return _default_data_dir()
+
+
 def _sqlite_db_path() -> Path:
-	return _default_data_dir() / "core.sqlite3"
+	return get_data_dir() / "core.sqlite3"
 
 
 _ENGINE: Engine | None = None
@@ -81,6 +86,7 @@ def get_sessionmaker() -> sessionmaker[Session]:
 def init_db() -> None:
 	from core.db.base import Base
 	from core.db.models.job import Job  # noqa: F401
+	from core.db.models.project import Project  # noqa: F401
 
 	Base.metadata.create_all(bind=get_engine())
 

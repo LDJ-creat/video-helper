@@ -52,10 +52,10 @@ development_status:
   epic-2-retrospective: optional
 
   epic-3: in-progress
-  3-1-be-core-create-job-url: ready-for-dev
-  3-2-be-core-create-job-upload: ready-for-dev
+  3-1-be-core-create-job-url: review
+  3-2-be-core-create-job-upload: review
   3-3-fe-web-ingest-page: ready-for-dev
-  3-4-be-core-video-metadata: ready-for-dev
+  3-4-be-core-video-metadata: review
   epic-3-retrospective: optional
 
   epic-4: in-progress
