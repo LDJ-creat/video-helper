@@ -1,6 +1,6 @@
 # Story 4.2: [BE/core] Job SSE 事件流（含心跳与 Last-Event-ID）
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -16,11 +16,11 @@ so that 我能实时看到分析推进且不中断。
 
 ## Tasks / Subtasks
 
-- [ ] 定义 SSE event schema（后端 contracts）并在实现中强约束字段 (AC: 2)
-- [ ] 实现 SSE endpoint：正确设置 headers（`text/event-stream`、禁缓存、心跳）(AC: 1)
-- [ ] 设计 eventId 生成策略（单 job 单调递增或时间+序号；保证可比较）(AC: 2,3)
-- [ ] 实现 Last-Event-ID best-effort（可先不回放完整日志，但至少不报错）(AC: 3)
-- [ ] Job 不存在/无权限：返回统一错误 envelope（注意 SSE 语境下的响应时机）(AC: 1)
+- [x] 定义 SSE event schema（后端 contracts）并在实现中强约束字段 (AC: 2)
+- [x] 实现 SSE endpoint：正确设置 headers（`text/event-stream`、禁缓存、心跳）(AC: 1)
+- [x] 设计 eventId 生成策略（单 job 单调递增或时间+序号；保证可比较）(AC: 2,3)
+- [x] 实现 Last-Event-ID best-effort（可先不回放完整日志，但至少不报错）(AC: 3)
+- [x] Job 不存在/无权限：返回统一错误 envelope（注意 SSE 语境下的响应时机）(AC: 1)
 
 ## Dev Notes
 
@@ -37,3 +37,19 @@ so that 我能实时看到分析推进且不中断。
 ### Agent Model Used
 
 GPT-5.2
+
+### Completion Notes
+
+- Implemented `GET /api/v1/jobs/{jobId}/events` SSE with periodic heartbeat.
+- Enforced frozen event payload schema (camelCase required keys) via `core.contracts.sse_events`.
+- Implemented best-effort `Last-Event-ID` handling via an in-memory event buffer; falls back to current state snapshot.
+- Added test-only `once=1` query param to emit a single frame then close, keeping production behavior unchanged by default.
+- Tests: `python -m unittest discover -s tests -p "test_job_*.py" -v` (PASS).
+
+### File List
+
+- services/core/src/core/contracts/sse_events.py
+- services/core/src/core/contracts/__init__.py
+- services/core/src/core/app/sse/event_bus.py
+- services/core/src/core/app/sse/jobs_sse.py
+- services/core/tests/test_job_sse.py

@@ -1,6 +1,6 @@
 # Story 4.6: [BE/core] 取消与重试（可选取消 + 失败重试）
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -15,10 +15,10 @@ so that 我能在资源不足或配置修复后继续完成闭环。
 
 ## Tasks / Subtasks
 
-- [ ] 设计 cancel endpoint：cooperative cancellation（DB 标记 + worker 轮询检查）(AC: 1)
-- [ ] subprocess 终止 best-effort（ffmpeg/yt-dlp 等）并避免僵尸进程 (AC: 1)
-- [ ] 设计 retry endpoint：仅允许 failed/canceled（按产品选择）→ 创建新 Job 并记录 parentJobId（可选）(AC: 2)
-- [ ] 错误码：不可取消/状态不允许/不存在/并发限制等 (AC: 1,2)
+- [x] 设计 cancel endpoint：cooperative cancellation（DB 标记 + worker 轮询检查）(AC: 1)
+- [x] subprocess 终止 best-effort（ffmpeg/yt-dlp 等）并避免僵尸进程 (AC: 1)
+- [x] 设计 retry endpoint：仅允许 failed/canceled（按产品选择）→ 创建新 Job 并记录 parentJobId（可选）(AC: 2)
+- [x] 错误码：不可取消/状态不允许/不存在/并发限制等 (AC: 1,2)
 
 ## Dev Notes
 
@@ -34,3 +34,16 @@ so that 我能在资源不足或配置修复后继续完成闭环。
 ### Agent Model Used
 
 GPT-5.2
+
+### Completion Notes
+
+- Implemented `POST /api/v1/jobs/{jobId}/cancel` (running-only) returning `{ ok: true }` and marking job as `canceled`.
+- Implemented `POST /api/v1/jobs/{jobId}/retry` for `failed|canceled` jobs, creating a new queued job under the same project.
+- Emits best-effort SSE state events for FE visibility (`status=canceled` / `status=queued`).
+- `parentJobId` is intentionally omitted in MVP (optional per story) to avoid DB migration in this worktree.
+
+### File List
+
+- services/core/src/core/app/api/jobs.py
+- services/core/src/core/contracts/error_codes.py
+- services/core/tests/test_job_cancel_retry.py
