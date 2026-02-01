@@ -1,6 +1,6 @@
 # Story 1.1: [BE/core] 健康检查接口与依赖自检
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -15,10 +15,10 @@ so that 我能快速定位“不能分析”的原因。
 
 ## Tasks / Subtasks
 
-- [ ] 定义健康检查响应 schema（与统一标准对齐）(AC: 1,2)
-- [ ] 实现 `/api/v1/health`：检查 ffmpeg、yt-dlp 可执行性与版本（best-effort）(AC: 1,2)
-- [ ] 输出缺失项与建议动作（install/配置/权限）(AC: 2)
-- [ ] 确保不输出绝对路径、API Key、stacktrace（health 仍为 200）(AC: 1,2)
+- [x] 定义健康检查响应 schema（与统一标准对齐）(AC: 1,2)
+- [x] 实现 `/api/v1/health`：检查 ffmpeg、yt-dlp 可执行性与版本（best-effort）(AC: 1,2)
+- [x] 输出缺失项与建议动作（install/配置/权限）(AC: 2)
+- [x] 确保不输出绝对路径、API Key、stacktrace（health 仍为 200）(AC: 1,2)
 
 ## Dev Notes
 
@@ -43,6 +43,20 @@ GPT-5.2
 
 ### Debug Log References
 
+- Tests: `services/core` -> `$env:PYTHONPATH="...\services\core\src"; python -m unittest discover -s tests -p "test_*.py" -v`
+
 ### Completion Notes List
 
+- Added frozen 200-only health response schema (camelCase) in `core.contracts.health`.
+- Implemented reusable executable probes for ffmpeg + yt-dlp (best-effort version, no path/stacktrace leakage).
+- Updated `GET /api/v1/health` to always return 200 with `status/ready/tsMs/dependencies`.
+- Added unittest coverage for missing deps (still 200), version parsing, and no absolute path leaks.
+
 ### File List
+
+- services/core/src/core/contracts/health.py
+- services/core/src/core/app/diagnostics/__init__.py
+- services/core/src/core/app/diagnostics/executables.py
+- services/core/src/core/app/api/health.py
+- services/core/tests/test_health.py
+- _bmad-output/implementation-artifacts/sprint-status.yaml

@@ -1,0 +1,9 @@
+Metadata-Version: 2.4
+Name: core
+Version: 0.1.0
+Summary: Add your description here
+Requires-Python: >=3.12
+Description-Content-Type: text/markdown
+Requires-Dist: alembic>=1.18.2
+Requires-Dist: fastapi[standard]>=0.128.0
+Requires-Dist: sqlalchemy>=2.0.46

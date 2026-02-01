@@ -40,7 +40,7 @@ story_location: _bmad-output/implementation-artifacts
 
 development_status:
   epic-1: in-progress
-  1-1-be-core-health-check: ready-for-dev
+  1-1-be-core-health-check: review
   1-2-fe-web-health-banner: ready-for-dev
   epic-1-retrospective: optional
 
