@@ -8,5 +8,6 @@ __all__ = [
 	"error_envelope",
 	"primitives",
 	"progress",
+	"sse_events",
 	"stages",
 ]

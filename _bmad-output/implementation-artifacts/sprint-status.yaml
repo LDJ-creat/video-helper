@@ -59,12 +59,12 @@ development_status:
   epic-3-retrospective: optional
 
   epic-4: in-progress
-  4-1-be-core-job-get: ready-for-dev
-  4-2-be-core-job-sse: ready-for-dev
+  4-1-be-core-job-get: review
+  4-2-be-core-job-sse: review
   4-3-fe-web-sse-fallback: ready-for-dev
-  4-4-be-core-job-logs-tail: ready-for-dev
+  4-4-be-core-job-logs-tail: review
   4-5-fe-web-job-page: ready-for-dev
-  4-6-be-core-job-cancel-retry: ready-for-dev
+  4-6-be-core-job-cancel-retry: review
   epic-4-retrospective: optional
 
   epic-5: in-progress
