@@ -8,6 +8,9 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from core.app.sse.event_bus import GLOBAL_JOB_EVENT_BUS
+from core.app.pipeline.segment import build_chapter_error, build_chapters_from_transcript
+from core.app.pipeline.transcribe import build_placeholder_transcript
+from core.contracts.error_codes import ErrorCode
 from core.db.session import get_sessionmaker
 from core.db.repositories.job_queue import (
     claim_next_queued_job,
@@ -16,6 +19,8 @@ from core.db.repositories.job_queue import (
     mark_job_succeeded,
     requeue_running_jobs,
 )
+from core.db.models.job import Job
+from core.db.models.project import Project
 
 
 def _now_ms() -> int:
@@ -108,11 +113,151 @@ def worker_tick(*, worker_id: str, max_concurrent_jobs: int, lease_ms: int) -> l
     return claimed
 
 
+class PipelineJobProcessor:
+    """MVP pipeline runner for WT-BE-06.
+
+    Executes:
+      ingest → speech_to_text (public: transcribe) → chapters (public: segment)
+    """
+
+    def __init__(self, *, default_duration_ms: int = 60_000):
+        self._default_duration_ms = max(1, int(default_duration_ms))
+
+    async def process(self, *, job_id: str, project_id: str) -> None:
+        SessionLocal = get_sessionmaker()
+        with SessionLocal() as session:
+            job = session.get(Job, job_id)
+            project = session.get(Project, project_id)
+            if job is None or project is None:
+                return
+
+            # If canceled mid-flight, respect it.
+            if job.status == "canceled":
+                job.lease_expires_at_ms = None
+                job.updated_at_ms = _now_ms()
+                session.add(job)
+                session.commit()
+                return
+
+            try:
+                # ---- Transcribe ----
+                if job.transcript is None:
+                    job.stage = "speech_to_text"
+                    job.progress = 0.0
+                    job.updated_at_ms = _now_ms()
+                    session.add(job)
+                    session.commit()
+
+                    GLOBAL_JOB_EVENT_BUS.emit_state(
+                        job_id=job.job_id,
+                        project_id=job.project_id,
+                        stage=job.stage,
+                        message="status=running",
+                    )
+
+                    duration_ms = project.duration_ms if isinstance(project.duration_ms, int) and project.duration_ms else None
+                    if duration_ms is None:
+                        duration_ms = self._default_duration_ms
+
+                    transcript = build_placeholder_transcript(duration_ms=duration_ms)
+                    job.transcript = transcript
+                    job.progress = 0.5
+                    job.updated_at_ms = _now_ms()
+                    session.add(job)
+                    session.commit()
+
+                    GLOBAL_JOB_EVENT_BUS.emit_state(
+                        job_id=job.job_id,
+                        project_id=job.project_id,
+                        stage=job.stage,
+                        message="transcript=ready",
+                    )
+
+                # ---- Segment ----
+                if job.chapters is None:
+                    job.stage = "chapters"
+                    job.progress = max(job.progress or 0.0, 0.6)
+                    job.updated_at_ms = _now_ms()
+                    session.add(job)
+                    session.commit()
+
+                    GLOBAL_JOB_EVENT_BUS.emit_state(
+                        job_id=job.job_id,
+                        project_id=job.project_id,
+                        stage=job.stage,
+                        message="segment=running",
+                    )
+
+                    chapters = build_chapters_from_transcript(job.transcript or {})
+                    job.chapters = chapters
+                    job.progress = 0.9
+                    job.updated_at_ms = _now_ms()
+                    session.add(job)
+                    session.commit()
+
+                    GLOBAL_JOB_EVENT_BUS.emit_state(
+                        job_id=job.job_id,
+                        project_id=job.project_id,
+                        stage=job.stage,
+                        message="chapters=ready",
+                    )
+
+            except ValueError as e:
+                mark_job_failed(
+                    session,
+                    job_id=job.job_id,
+                    now_ms=_now_ms(),
+                    error={
+                        "code": ErrorCode.JOB_STAGE_FAILED,
+                        "message": str(e),
+                        "details": {"reason": "invalid_input"},
+                    },
+                )
+                session.commit()
+
+                GLOBAL_JOB_EVENT_BUS.emit_state(
+                    job_id=job.job_id,
+                    project_id=job.project_id,
+                    stage=job.stage,
+                    message="status=failed",
+                )
+                return
+            except Exception as e:  # pragma: no cover
+                mark_job_failed(
+                    session,
+                    job_id=job.job_id,
+                    now_ms=_now_ms(),
+                    error=build_chapter_error(message=str(e), details={"reason": "unexpected"}),
+                )
+                session.commit()
+
+                GLOBAL_JOB_EVENT_BUS.emit_state(
+                    job_id=job.job_id,
+                    project_id=job.project_id,
+                    stage=job.stage,
+                    message="status=failed",
+                )
+                return
+
+        # Mark succeeded after pipeline steps.
+        SessionLocal = get_sessionmaker()
+        with SessionLocal() as session:
+            mark_job_succeeded(session, job_id=job_id, now_ms=_now_ms())
+            session.commit()
+
+        GLOBAL_JOB_EVENT_BUS.emit_state(
+            job_id=job_id,
+            project_id=project_id,
+            stage="chapters",
+            message="status=succeeded",
+        )
+
+
 class WorkerService:
     def __init__(self, *, config: WorkerConfig, processor: JobProcessor | None = None):
         self._config = config
         self._worker_id = f"worker-{uuid.uuid4()}"
-        self._processor: JobProcessor = processor or NoopJobProcessor(sleep_ms=config.noop_process_ms)
+        self._processor: JobProcessor = processor or PipelineJobProcessor()
         self._stop_event = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
 

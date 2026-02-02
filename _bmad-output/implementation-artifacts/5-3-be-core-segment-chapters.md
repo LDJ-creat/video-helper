@@ -1,6 +1,6 @@
 # Story 5.3: [BE/core] 章节切片 stage（segment）产出 Chapters
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -15,10 +15,10 @@ so that 章节成为 UI 跳转与所有产物的唯一准则。
 
 ## Tasks / Subtasks
 
-- [ ] 定义 Chapters schema 与持久化方式（表/JSON 字段）(AC: 1,2)
-- [ ] 实现 segment 算法（先最小可用：按时长/话题粗分，后续可改进）(AC: 1)
-- [ ] 数据校验：时间范围、排序、非重叠（选择策略并写清错误码）(AC: 2)
-- [ ] stage/progress：对外 stage=segment，可观察推进 (AC: 1)
+- [x] 定义 Chapters schema 与持久化方式（表/JSON 字段）(AC: 1,2)
+- [x] 实现 segment 算法（先最小可用：按时长/话题粗分，后续可改进）(AC: 1)
+- [x] 数据校验：时间范围、排序、非重叠（选择策略并写清错误码）(AC: 2)
+- [x] stage/progress：对外 stage=segment，可观察推进 (AC: 1)
 
 ## Dev Notes
 
@@ -34,3 +34,26 @@ so that 章节成为 UI 跳转与所有产物的唯一准则。
 ### Agent Model Used
 
 GPT-5.2
+
+### Completion Notes
+
+- Chapters 持久化为 jobs.chapters（JSON），结构包含 chapterId/startMs/endMs/title/summary，单位 ms (AC: 1)
+- segment MVP 算法按时长均分生成章节，chapterId 采用 deterministic "ch_{idx}"，保证重跑稳定 (AC: 2)
+- 校验策略：必须非空、按 startMs 单调排序、startMs < endMs、章节不重叠；失败写入 jobs.error（code=JOB_STAGE_FAILED + details.reason）(AC: 2)
+- worker 执行时 internal stage 置为 chapters（对外映射为 segment），SSE 可观察进度推进 (AC: 1)
+
+### Tests
+
+- 运行：`python -m unittest discover -s tests -p "test_*.py"`（全绿）
+
+## File List
+
+- services/core/src/core/app/pipeline/segment.py
+- services/core/src/core/app/worker/worker_loop.py
+- services/core/src/core/db/models/job.py
+- services/core/src/core/db/session.py
+- services/core/tests/test_pipeline_transcribe_segment.py
+
+## Change Log
+
+- 2026-02-02: 增加 segment stage（chapters 产出 + 校验 + chapterId 稳定）
