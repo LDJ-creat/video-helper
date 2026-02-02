@@ -86,8 +86,10 @@ def get_sessionmaker() -> sessionmaker[Session]:
 
 def init_db() -> None:
 	from core.db.base import Base
+	from core.db.models.asset import Asset  # noqa: F401
 	from core.db.models.job import Job  # noqa: F401
 	from core.db.models.project import Project  # noqa: F401
+	from core.db.models.result import Result  # noqa: F401
 
 	Base.metadata.create_all(bind=get_engine())
 	_ensure_sqlite_schema_compat()

@@ -1,6 +1,6 @@
 # Story 8.2: [BE/core] Assets API：metadata + content（安全路径 + 可选 Range）
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -16,10 +16,10 @@ so that 不暴露绝对路径且避免目录穿越。
 
 ## Tasks / Subtasks
 
-- [ ] 实现 assets metadata endpoint（返回 mimeType/size/width/height/chapterId/timeMs 等）(AC: 1)
-- [ ] 实现 content streaming endpoint：Content-Type 正确；禁止目录穿越 (AC: 1,2)
-- [ ] safe-join/safe-open 工具集中封装，供删除/其它文件访问复用 (AC: 1,2)
-- [ ] （可选）Range 支持：处理 `Range` 头并返回 206；否则忽略 Range 也要稳定 (AC: 3)
+- [x] 实现 assets metadata endpoint（返回 mimeType/size/width/height/chapterId/timeMs 等）(AC: 1)
+- [x] 实现 content streaming endpoint：Content-Type 正确；禁止目录穿越 (AC: 1,2)
+- [x] safe-join/safe-open 工具集中封装，供删除/其它文件访问复用 (AC: 1,2)
+- [x] （可选）Range 支持：处理 `Range` 头并返回 206；否则忽略 Range 也要稳定 (AC: 3)
 
 ## Dev Notes
 
@@ -36,3 +36,30 @@ so that 不暴露绝对路径且避免目录穿越。
 ### Agent Model Used
 
 GPT-5.2
+
+### Completion Notes
+
+- 新增 `assets` 表与对应 ORM/Repo；metadata 返回 `contentUrl` 与可选 `sizeBytes`
+- 实现 `GET /api/v1/assets/{assetId}` 与 `GET /api/v1/assets/{assetId}/content`（含单 Range 206）
+- 统一使用 `resolve_under_data_dir` 防目录穿越；错误响应不泄露绝对路径
+
+### Tests
+
+- `services/core/tests/test_assets_api.py`
+
+## File List
+
+- services/core/src/core/main.py
+- services/core/src/core/app/api/assets.py
+- services/core/src/core/db/models/asset.py
+- services/core/src/core/db/repositories/assets.py
+- services/core/src/core/db/session.py
+- services/core/src/core/schemas/assets.py
+- services/core/src/core/storage/safe_paths.py
+- services/core/tests/test_assets_api.py
+- _bmad-output/implementation-artifacts/sprint-status.yaml
+- _bmad-output/implementation-artifacts/8-2-be-core-assets-api.md
+
+## Change Log
+
+- 2026-02-02：实现 Assets metadata/content API（含 safe path 与可选 Range），并补齐单测。
