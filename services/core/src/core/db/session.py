@@ -118,6 +118,25 @@ def _ensure_sqlite_schema_compat() -> None:
 			# Backfill to a sensible value for existing rows.
 			conn.execute(text("UPDATE projects SET created_at_ms = updated_at_ms WHERE created_at_ms = 0"))
 
+		# jobs claim/lease fields were added after the initial bootstrap.
+		try:
+			job_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(jobs)"))]
+		except Exception:
+			return
+
+		if "claimed_by" not in job_cols:
+			conn.execute(text("ALTER TABLE jobs ADD COLUMN claimed_by TEXT"))
+		if "claim_token" not in job_cols:
+			conn.execute(text("ALTER TABLE jobs ADD COLUMN claim_token TEXT"))
+		if "lease_expires_at_ms" not in job_cols:
+			conn.execute(text("ALTER TABLE jobs ADD COLUMN lease_expires_at_ms INTEGER"))
+		if "started_at_ms" not in job_cols:
+			conn.execute(text("ALTER TABLE jobs ADD COLUMN started_at_ms INTEGER"))
+		if "finished_at_ms" not in job_cols:
+			conn.execute(text("ALTER TABLE jobs ADD COLUMN finished_at_ms INTEGER"))
+		if "attempt" not in job_cols:
+			conn.execute(text("ALTER TABLE jobs ADD COLUMN attempt INTEGER NOT NULL DEFAULT 0"))
+
 
 def get_db_session() -> Generator[Session, None, None]:
 	SessionLocal = get_sessionmaker()

@@ -1,6 +1,6 @@
 # Story 5.1: [BE/core] Worker 队列与并发控制（MAX_CONCURRENT_JOBS=2）
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -16,10 +16,10 @@ so that 在单机环境下稳定运行且可恢复。
 
 ## Tasks / Subtasks
 
-- [ ] 设计 Job 状态机字段（queued/running/succeeded/failed/canceled）与 stage/progress/error 持久化 (AC: 1,2)
-- [ ] 实现 worker loop（后台任务/独立进程均可）扫描 queued 并 claim (AC: 1,3)
-- [ ] 并发控制：限制 running 数量；资源不足时排队或明确错误 (AC: 1)
-- [ ] 重启恢复：running 的处理策略（标记为 queued 重新跑 or 失败可归因）(AC: 2)
+- [x] 设计 Job 状态机字段（queued/running/succeeded/failed/canceled）与 stage/progress/error 持久化 (AC: 1,2)
+- [x] 实现 worker loop（后台任务/独立进程均可）扫描 queued 并 claim (AC: 1,3)
+- [x] 并发控制：限制 running 数量；资源不足时排队或明确错误 (AC: 1)
+- [x] 重启恢复：running 的处理策略（标记为 queued 重新跑 or 失败可归因）(AC: 2)
 
 ## Dev Notes
 
@@ -36,3 +36,28 @@ so that 在单机环境下稳定运行且可恢复。
 ### Agent Model Used
 
 GPT-5.2
+
+### Completion Notes
+
+- 新增 jobs 表的 DB-backed claim/lease 字段，并在 sqlite 兼容升级中自动补列，确保重启后可读取并继续展示 (AC: 2,3)
+- 实现 worker tick + 可选后台 WorkerService（默认关闭，通过 WORKER_ENABLE=1 启用），并发上限由 MAX_CONCURRENT_JOBS 控制 (AC: 1)
+- 启动时将 running 任务 best-effort 重新置为 queued（清理 claim/lease），作为重启恢复策略 (AC: 2)
+
+### Tests
+
+- 运行：`python -m unittest discover -s tests -p "test_*.py"`（全绿）
+
+## File List
+
+- services/core/src/core/app/api/jobs.py
+- services/core/src/core/app/worker/__init__.py
+- services/core/src/core/app/worker/worker_loop.py
+- services/core/src/core/db/models/job.py
+- services/core/src/core/db/repositories/job_queue.py
+- services/core/src/core/db/session.py
+- services/core/src/core/main.py
+- services/core/tests/test_worker_queue.py
+
+## Change Log
+
+- 2026-02-02: 实现 Worker 队列与并发控制基座（DB-backed claim + worker tick + 重启恢复）

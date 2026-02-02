@@ -14,12 +14,18 @@ from core.app.middleware.cors import wire_cors
 
 from core.db.session import init_db
 
+from core.app.worker.worker_loop import WorkerConfig, WorkerService
+
 
 def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         init_db()
+
+        worker = WorkerService(config=WorkerConfig.from_env())
+        await worker.start()
         yield
+        await worker.stop()
 
     app = FastAPI(title="video-helper core", lifespan=lifespan)
     wire_cors(app)

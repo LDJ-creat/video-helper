@@ -170,6 +170,7 @@ async def create_job(request: Request, session: Session = Depends(get_db_session
 			stage="ingest",
 			progress=None,
 			error=None,
+			attempt=0,
 			created_at_ms=now_ms,
 			updated_at_ms=now_ms,
 		)
@@ -281,6 +282,7 @@ async def create_job(request: Request, session: Session = Depends(get_db_session
 			stage="ingest",
 			progress=None,
 			error=None,
+			attempt=0,
 			created_at_ms=now_ms,
 			updated_at_ms=now_ms,
 		)
@@ -549,6 +551,7 @@ def retry_job(jobId: str, request: Request, session: Session = Depends(get_db_se
 		stage="ingest",
 		progress=None,
 		error=None,
+		attempt=0,
 		created_at_ms=now_ms,
 		updated_at_ms=now_ms,
 	)
