@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
+import sys
+from pathlib import Path
 from typing import Callable
 
 from core.contracts.health import DependencyProbe
@@ -36,6 +39,28 @@ def _parse_ytdlp_version(output: str) -> str | None:
     return line or None
 
 
+def _candidate_executable_names(executable: str) -> list[str]:
+    if os.name == "nt" and not executable.lower().endswith(".exe"):
+        return [executable, f"{executable}.exe"]
+    return [executable]
+
+
+def _resolve_executable(executable: str) -> str | None:
+    resolved = shutil.which(executable)
+    if resolved:
+        return resolved
+
+    # Fallback: if the process is running inside a venv, console scripts/binaries
+    # often live next to `sys.executable` (Windows: .venv\\Scripts, Linux/macOS: bin).
+    scripts_dir = Path(sys.executable).resolve().parent
+    for name in _candidate_executable_names(executable):
+        candidate = scripts_dir / name
+        if candidate.is_file():
+            return str(candidate)
+
+    return None
+
+
 def _check_executable(
     *,
     display_name: str,
@@ -46,7 +71,7 @@ def _check_executable(
     not_executable_actions: list[str],
 ) -> DependencyProbe:
     # IMPORTANT: never expose absolute paths from `shutil.which()`.
-    resolved = shutil.which(executable)
+    resolved = _resolve_executable(executable)
     if not resolved:
         return DependencyProbe(
             ok=False,
@@ -56,7 +81,7 @@ def _check_executable(
         )
 
     try:
-        output = _run_version_command([executable, *version_args])
+        output = _run_version_command([resolved, *version_args])
         version = version_parser(output)
         return DependencyProbe(ok=True, version=version, message=None, actions=[])
     except (PermissionError, OSError):
