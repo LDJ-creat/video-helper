@@ -1,7 +1,7 @@
 "use client";
 
 import { useHealthQuery } from "@/lib/api/healthQueries";
-import type { DependencyCheck, HealthCheck } from "@/lib/contracts/healthTypes";
+import type { DependencyPayload, HealthCheck } from "@/lib/contracts/healthTypes";
 import { useState } from "react";
 
 /**
@@ -17,7 +17,7 @@ export function HealthBanner() {
     const [dismissed, setDismissed] = useState(false);
 
     // Don't show if dismissed or if healthy and no issues
-    if (dismissed || (data?.status === "healthy" && !error)) {
+    if (dismissed || (data?.status === "ok" && !error)) {
         return null;
     }
 
@@ -42,7 +42,7 @@ export function HealthBanner() {
                 <div className="flex items-start justify-between gap-3">
                     <div className="flex items-start gap-3">
                         <svg
-                            className="mt-0.5 h-5 w-5 flex-shrink-0 text-red-600 dark:text-red-400"
+                            className="mt-0.5 h-5 w-5 shrink-0 text-red-600 dark:text-red-400"
                             fill="none"
                             viewBox="0 0 24 24"
                             stroke="currentColor"
@@ -83,25 +83,25 @@ export function HealthBanner() {
     const issues = collectIssues(data);
 
     // Don't show if no issues
-    if (issues.length === 0 && data.status === "healthy") {
+    if (issues.length === 0 && data.status === "ok") {
         return null;
     }
 
-    const variant = data.status === "unhealthy" ? "error" : "warning";
+    const variant = data.ready ? "warning" : "error";
 
     return (
         <div
             className={`rounded-lg border p-4 ${variant === "error"
-                    ? "border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950"
-                    : "border-yellow-200 bg-yellow-50 dark:border-yellow-900 dark:bg-yellow-950"
+                ? "border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950"
+                : "border-yellow-200 bg-yellow-50 dark:border-yellow-900 dark:bg-yellow-950"
                 }`}
         >
             <div className="flex items-start justify-between gap-3">
                 <div className="flex items-start gap-3">
                     <svg
-                        className={`mt-0.5 h-5 w-5 flex-shrink-0 ${variant === "error"
-                                ? "text-red-600 dark:text-red-400"
-                                : "text-yellow-600 dark:text-yellow-400"
+                        className={`mt-0.5 h-5 w-5 shrink-0 ${variant === "error"
+                            ? "text-red-600 dark:text-red-400"
+                            : "text-yellow-600 dark:text-yellow-400"
                             }`}
                         fill="none"
                         viewBox="0 0 24 24"
@@ -117,8 +117,8 @@ export function HealthBanner() {
                     <div>
                         <p
                             className={`font-medium ${variant === "error"
-                                    ? "text-red-900 dark:text-red-100"
-                                    : "text-yellow-900 dark:text-yellow-100"
+                                ? "text-red-900 dark:text-red-100"
+                                : "text-yellow-900 dark:text-yellow-100"
                                 }`}
                         >
                             {variant === "error" ? "系统依赖缺失" : "部分功能受限"}
@@ -128,8 +128,8 @@ export function HealthBanner() {
                                 <div
                                     key={index}
                                     className={`text-sm ${variant === "error"
-                                            ? "text-red-700 dark:text-red-300"
-                                            : "text-yellow-700 dark:text-yellow-300"
+                                        ? "text-red-700 dark:text-red-300"
+                                        : "text-yellow-700 dark:text-yellow-300"
                                         }`}
                                 >
                                     <p className="font-medium">{issue.name}:</p>
@@ -145,8 +145,8 @@ export function HealthBanner() {
                 <button
                     onClick={() => setDismissed(true)}
                     className={`rounded p-1 ${variant === "error"
-                            ? "text-red-600 hover:bg-red-100 dark:text-red-400 dark:hover:bg-red-900"
-                            : "text-yellow-600 hover:bg-yellow-100 dark:text-yellow-400 dark:hover:bg-yellow-900"
+                        ? "text-red-600 hover:bg-red-100 dark:text-red-400 dark:hover:bg-red-900"
+                        : "text-yellow-600 hover:bg-yellow-100 dark:text-yellow-400 dark:hover:bg-yellow-900"
                         }`}
                     aria-label="关闭"
                 >
@@ -168,18 +168,17 @@ type Issue = {
 function collectIssues(health: HealthCheck): Issue[] {
     const issues: Issue[] = [];
 
-    const deps: Array<[string, DependencyCheck, string]> = [
-        ["FFmpeg", health.dependencies.ffmpeg, "请安装 FFmpeg 以支持视频处理"],
-        ["yt-dlp", health.dependencies.ytdlp, "请安装 yt-dlp 以支持在线视频下载"],
-        ["Whisper", health.dependencies.whisper, "请配置 Whisper 模型以支持转写功能"],
+    const deps: Array<[string, DependencyPayload | undefined, string]> = [
+        ["FFmpeg", health.dependencies?.ffmpeg, "请安装 FFmpeg 以支持视频处理"],
+        ["yt-dlp", health.dependencies?.ytDlp, "请安装 yt-dlp 以支持在线视频下载"],
     ];
 
     for (const [name, dep, suggestion] of deps) {
-        if (dep.status === "missing" || dep.status === "error") {
+        if (dep && dep.ok === false) {
             issues.push({
                 name,
-                suggestion,
-                message: dep.message,
+                suggestion: dep.actions?.[0] || suggestion,
+                message: dep.message ?? undefined,
             });
         }
     }

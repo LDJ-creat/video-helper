@@ -9,6 +9,8 @@ from core.app.api.health import router as health_router
 from core.app.api.jobs import router as jobs_router
 from core.app.sse.jobs_sse import router as jobs_sse_router
 
+from core.app.middleware.cors import wire_cors
+
 from core.db.session import init_db
 
 
@@ -19,6 +21,7 @@ def create_app() -> FastAPI:
         yield
 
     app = FastAPI(title="video-helper core", lifespan=lifespan)
+    wire_cors(app)
     app.include_router(health_router, prefix="/api/v1")
     app.include_router(jobs_router, prefix="/api/v1")
     app.include_router(jobs_sse_router, prefix="/api/v1")

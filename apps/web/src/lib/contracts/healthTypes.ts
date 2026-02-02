@@ -1,22 +1,22 @@
 /**
- * Health check types aligned with API contract
- * Reference: api.md health endpoint specification
+ * Health check types aligned with backend /api/v1/health.
  */
 
-export type DependencyStatus = "available" | "missing" | "error";
-
-export type DependencyCheck = {
-    status: DependencyStatus;
-    version?: string;
-    message?: string;
+export type DependencyPayload = {
+    ok: boolean;
+    version: string | null;
+    message: string | null;
+    actions: string[];
 };
 
+export type HealthStatus = "ok" | "degraded" | (string & {});
+
 export type HealthCheck = {
-    status: "healthy" | "degraded" | "unhealthy";
+    status: HealthStatus;
+    ready: boolean;
+    tsMs: number;
     dependencies: {
-        ffmpeg: DependencyCheck;
-        ytdlp: DependencyCheck;
-        whisper: DependencyCheck;
+        ffmpeg: DependencyPayload;
+        ytDlp: DependencyPayload;
     };
-    timestamp: number;
 };
