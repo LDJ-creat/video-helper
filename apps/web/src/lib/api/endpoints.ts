@@ -11,4 +11,8 @@ export const endpoints = {
     jobLogs: (jobId: string) => `${API_V1}/jobs/${jobId}/logs`,
     jobCancel: (jobId: string) => `${API_V1}/jobs/${jobId}/cancel`,
     jobRetry: (jobId: string) => `${API_V1}/jobs/${jobId}/retry`,
+    // Results & Assets endpoints
+    resultLatest: (projectId: string) => `${API_V1}/projects/${projectId}/results/latest`,
+    asset: (assetId: string) => `${API_V1}/assets/${assetId}`,
+    assetContent: (assetId: string) => `${API_V1}/assets/${assetId}/content`,
 };
