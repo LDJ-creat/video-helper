@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { SseClient } from "./sseClient";
-import { endpoints } from "../api/endpoints";
 import { queryKeys } from "../api/queryKeys";
 import type { JobEvent } from "./jobEvents";
 import type { Job, JobStage, LogEntry } from "../contracts/types";
@@ -49,7 +48,10 @@ export function useJobSse(options: UseJobSseOptions): UseJobSseReturn {
 
     fallbackToPollingRef.current = false;
 
-    const url = endpoints.jobEvents(jobId);
+    // IMPORTANT: do not use /api/v1/* here in dev.
+    // next.config.ts rewrites /api/v1/:path* to backend and may buffer SSE,
+    // causing the browser to miss heartbeat/progress frames.
+    const url = `/api/sse/jobs/${encodeURIComponent(jobId)}/events`;
 
     const client = new SseClient({
       url,

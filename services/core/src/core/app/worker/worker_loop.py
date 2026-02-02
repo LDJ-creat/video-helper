@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from core.app.sse.event_bus import GLOBAL_JOB_EVENT_BUS
+from core.app.logs.job_logs import append_job_log
 from core.app.pipeline.segment import build_chapter_error, build_chapters_from_transcript
 from core.app.pipeline.transcribe import build_placeholder_transcript
 from core.contracts.error_codes import ErrorCode
@@ -25,6 +26,16 @@ from core.db.models.project import Project
 
 def _now_ms() -> int:
     return int(time.time() * 1000)
+
+
+def _log(*, job_id: str, project_id: str, stage: str, level: str, message: str) -> None:
+    ts = _now_ms()
+    append_job_log(job_id=job_id, ts_ms=ts, level=level, message=message, stage=stage)  # type: ignore[arg-type]
+    # Best-effort: also push to SSE stream
+    try:
+        GLOBAL_JOB_EVENT_BUS.emit_log(job_id=job_id, project_id=project_id, stage=stage, message=message)
+    except Exception:
+        return
 
 
 def _env_int(name: str, default: int) -> int:
@@ -90,6 +101,8 @@ class NoopJobProcessor:
             message="status=succeeded",
         )
 
+        _log(job_id=job_id, project_id=project_id, stage="ingest", level="info", message="noop job succeeded")
+
 
 def worker_tick(*, worker_id: str, max_concurrent_jobs: int, lease_ms: int) -> list[tuple[str, str]]:
     """Claim up to available slots and return (job_id, project_id) pairs."""
@@ -148,11 +161,20 @@ class PipelineJobProcessor:
                     session.add(job)
                     session.commit()
 
+                    _log(job_id=job.job_id, project_id=job.project_id, stage=job.stage, level="info", message="transcribe started")
+
                     GLOBAL_JOB_EVENT_BUS.emit_state(
                         job_id=job.job_id,
                         project_id=job.project_id,
                         stage=job.stage,
                         message="status=running",
+                    )
+                    GLOBAL_JOB_EVENT_BUS.emit_progress(
+                        job_id=job.job_id,
+                        project_id=job.project_id,
+                        stage=job.stage,
+                        progress=job.progress,
+                        message="progress=0.0",
                     )
 
                     duration_ms = project.duration_ms if isinstance(project.duration_ms, int) and project.duration_ms else None
@@ -166,11 +188,20 @@ class PipelineJobProcessor:
                     session.add(job)
                     session.commit()
 
+                    _log(job_id=job.job_id, project_id=job.project_id, stage=job.stage, level="info", message="transcribe finished")
+
                     GLOBAL_JOB_EVENT_BUS.emit_state(
                         job_id=job.job_id,
                         project_id=job.project_id,
                         stage=job.stage,
                         message="transcript=ready",
+                    )
+                    GLOBAL_JOB_EVENT_BUS.emit_progress(
+                        job_id=job.job_id,
+                        project_id=job.project_id,
+                        stage=job.stage,
+                        progress=job.progress,
+                        message="progress=0.5",
                     )
 
                 # ---- Segment ----
@@ -181,11 +212,20 @@ class PipelineJobProcessor:
                     session.add(job)
                     session.commit()
 
+                    _log(job_id=job.job_id, project_id=job.project_id, stage=job.stage, level="info", message="segment started")
+
                     GLOBAL_JOB_EVENT_BUS.emit_state(
                         job_id=job.job_id,
                         project_id=job.project_id,
                         stage=job.stage,
                         message="segment=running",
+                    )
+                    GLOBAL_JOB_EVENT_BUS.emit_progress(
+                        job_id=job.job_id,
+                        project_id=job.project_id,
+                        stage=job.stage,
+                        progress=job.progress,
+                        message="progress=0.6",
                     )
 
                     chapters = build_chapters_from_transcript(job.transcript or {})
@@ -195,11 +235,20 @@ class PipelineJobProcessor:
                     session.add(job)
                     session.commit()
 
+                    _log(job_id=job.job_id, project_id=job.project_id, stage=job.stage, level="info", message="segment finished")
+
                     GLOBAL_JOB_EVENT_BUS.emit_state(
                         job_id=job.job_id,
                         project_id=job.project_id,
                         stage=job.stage,
                         message="chapters=ready",
+                    )
+                    GLOBAL_JOB_EVENT_BUS.emit_progress(
+                        job_id=job.job_id,
+                        project_id=job.project_id,
+                        stage=job.stage,
+                        progress=job.progress,
+                        message="progress=0.9",
                     )
 
             except ValueError as e:
@@ -221,6 +270,8 @@ class PipelineJobProcessor:
                     stage=job.stage,
                     message="status=failed",
                 )
+
+                _log(job_id=job.job_id, project_id=job.project_id, stage=job.stage, level="error", message=f"job failed: {e}")
                 return
             except Exception as e:  # pragma: no cover
                 mark_job_failed(
@@ -237,6 +288,8 @@ class PipelineJobProcessor:
                     stage=job.stage,
                     message="status=failed",
                 )
+
+                _log(job_id=job.job_id, project_id=job.project_id, stage=job.stage, level="error", message=f"job failed: {e}")
                 return
 
         # Mark succeeded after pipeline steps.
@@ -251,6 +304,16 @@ class PipelineJobProcessor:
             stage="chapters",
             message="status=succeeded",
         )
+
+        GLOBAL_JOB_EVENT_BUS.emit_progress(
+            job_id=job_id,
+            project_id=project_id,
+            stage="chapters",
+            progress=1.0,
+            message="progress=1.0",
+        )
+
+        _log(job_id=job_id, project_id=project_id, stage="chapters", level="info", message="job succeeded")
 
 
 class WorkerService:

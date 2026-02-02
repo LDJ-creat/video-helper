@@ -91,6 +91,7 @@ def mark_job_succeeded(session: Session, *, job_id: str, now_ms: int) -> None:
     if job is None:
         return
     job.status = "succeeded"
+    job.progress = 1.0
     job.finished_at_ms = now_ms
     job.lease_expires_at_ms = None
     job.updated_at_ms = now_ms

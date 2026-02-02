@@ -7,6 +7,7 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,29 @@ def _default_data_dir() -> Path:
 
 def _job_log_path(job_id: str) -> Path:
     return _default_data_dir() / "logs" / "jobs" / f"{job_id}.log"
+
+
+LogLevel = Literal["info", "warn", "error", "debug"]
+
+
+def append_job_log(*, job_id: str, ts_ms: int, level: LogLevel, message: str, stage: str) -> None:
+    """Append a single JSONL log record for a job.
+
+    This is best-effort; failures should not crash the worker.
+    """
+
+    path = _job_log_path(job_id)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        record = json.dumps(
+            {"tsMs": int(ts_ms), "level": level, "message": str(message), "stage": str(stage)},
+            separators=(",", ":"),
+            ensure_ascii=False,
+        )
+        with path.open("a", encoding="utf-8") as f:
+            f.write(record + "\n")
+    except Exception:
+        return
 
 
 def _cursor_secret() -> bytes:

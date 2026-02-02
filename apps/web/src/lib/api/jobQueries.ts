@@ -31,6 +31,8 @@ export function useJobLogsQuery(jobId: string, cursor?: string) {
     return useQuery({
         queryKey: [...queryKeys.logs(jobId), cursor],
         queryFn: () => fetchJobLogs(jobId, cursor),
+        // Tail view: poll for new logs; history view (cursor set) stays static.
+        refetchInterval: cursor ? false : 2000,
         staleTime: 5000, // Logs don't change frequently
     });
 }
