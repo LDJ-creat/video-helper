@@ -72,9 +72,9 @@ development_status:
   epic-4-retrospective: optional
 
   epic-5: in-progress
-  5-1-be-core-worker-queue: ready-for-dev
-  5-2-be-core-transcribe: ready-for-dev
-  5-3-be-core-segment-chapters: ready-for-dev
+  5-1-be-core-worker-queue: review
+  5-2-be-core-transcribe: review
+  5-3-be-core-segment-chapters: review
   5-4-be-core-stage-mapping: review
   epic-5-retrospective: optional
 
