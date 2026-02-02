@@ -159,6 +159,7 @@ async def create_job(request: Request, session: Session = Depends(get_db_session
 			duration_ms=None,
 			format=None,
 			latest_result_id=None,
+			created_at_ms=now_ms,
 			updated_at_ms=now_ms,
 		)
 		job = Job(
@@ -269,6 +270,7 @@ async def create_job(request: Request, session: Session = Depends(get_db_session
 			duration_ms=meta.duration_ms,
 			format=meta.format,
 			latest_result_id=None,
+			created_at_ms=now_ms,
 			updated_at_ms=now_ms,
 		)
 		job = Job(

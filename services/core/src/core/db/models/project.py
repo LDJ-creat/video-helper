@@ -21,4 +21,5 @@ class Project(Base):
     format: Mapped[str | None] = mapped_column(String, nullable=True)
 
     latest_result_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at_ms: Mapped[int] = mapped_column(Integer, nullable=False)
     updated_at_ms: Mapped[int] = mapped_column(Integer, nullable=False)

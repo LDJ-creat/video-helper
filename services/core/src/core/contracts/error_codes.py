@@ -41,5 +41,9 @@ class ErrorCode(str, Enum):
     # Security
     PATH_TRAVERSAL_BLOCKED = "PATH_TRAVERSAL_BLOCKED"
 
+    # Filesystem
+    FILESYSTEM_PERMISSION_DENIED = "FILESYSTEM_PERMISSION_DENIED"
+    FILESYSTEM_BUSY = "FILESYSTEM_BUSY"
+
 
 ERROR_CODES: tuple[ErrorCode, ...] = tuple(ErrorCode)

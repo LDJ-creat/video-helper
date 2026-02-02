@@ -45,9 +45,9 @@ development_status:
   epic-1-retrospective: optional
 
   epic-2: in-progress
-  2-1-be-core-project-list-detail: ready-for-dev
+  2-1-be-core-project-list-detail: review
   2-2-fe-web-project-pages: ready-for-dev
-  2-3-be-core-delete-project: ready-for-dev
+  2-3-be-core-delete-project: review
   2-4-fe-web-delete-project-ui: ready-for-dev
   epic-2-retrospective: optional
 

@@ -4,6 +4,7 @@ from collections.abc import Generator
 from pathlib import Path
 
 from sqlalchemy import create_engine
+from sqlalchemy import text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -89,6 +90,33 @@ def init_db() -> None:
 	from core.db.models.project import Project  # noqa: F401
 
 	Base.metadata.create_all(bind=get_engine())
+	_ensure_sqlite_schema_compat()
+
+
+def _ensure_sqlite_schema_compat() -> None:
+	"""Best-effort schema upgrades for existing sqlite DBs.
+
+	This repo currently uses SQLAlchemy create_all without Alembic migrations.
+	To avoid breaking older local DB files, we apply small forward-compatible
+	ALTER TABLE patches.
+	"""
+
+	engine = get_engine()
+	with engine.begin() as conn:
+		# projects.created_at_ms was added after the initial bootstrap.
+		try:
+			cols = [row[1] for row in conn.execute(text("PRAGMA table_info(projects)"))]
+		except Exception:
+			return
+
+		if "created_at_ms" not in cols:
+			conn.execute(
+				text(
+					"ALTER TABLE projects ADD COLUMN created_at_ms INTEGER NOT NULL DEFAULT 0"
+				)
+			)
+			# Backfill to a sensible value for existing rows.
+			conn.execute(text("UPDATE projects SET created_at_ms = updated_at_ms WHERE created_at_ms = 0"))
 
 
 def get_db_session() -> Generator[Session, None, None]:
