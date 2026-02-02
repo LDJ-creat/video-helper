@@ -3,11 +3,13 @@ import type { JobEvent, JobEventType } from "./jobEvents";
 export type SseEventHandler = (event: JobEvent) => void;
 export type SseErrorHandler = (error: Error) => void;
 export type SseCloseHandler = () => void;
+export type SseOpenHandler = () => void;
 
 export interface SseClientOptions {
     url: string;
     lastEventId?: string;
     onEvent: SseEventHandler;
+    onOpen?: SseOpenHandler;
     onError?: SseErrorHandler;
     onClose?: SseCloseHandler;
     heartbeatTimeoutMs?: number; // Default: 30000 (30s)
@@ -26,6 +28,7 @@ export class SseClient {
         heartbeatTimeoutMs: number;
         onError: SseErrorHandler;
         onClose: SseCloseHandler;
+        onOpen: SseOpenHandler;
     };
     private closed = false;
 
@@ -33,6 +36,7 @@ export class SseClient {
         this.options = {
             ...options,
             heartbeatTimeoutMs: options.heartbeatTimeoutMs ?? 30000,
+            onOpen: options.onOpen ?? (() => { }),
             onError: options.onError ?? (() => { }),
             onClose: options.onClose ?? (() => { }),
         };
@@ -67,6 +71,7 @@ export class SseClient {
         eventSource.onopen = () => {
             console.log("[SseClient] Connected");
             this.resetHeartbeatTimer();
+            this.options.onOpen?.();
         };
 
         this.eventSource = eventSource;

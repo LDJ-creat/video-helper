@@ -4,7 +4,18 @@ import { SseClient } from "./sseClient";
 import { endpoints } from "../api/endpoints";
 import { queryKeys } from "../api/queryKeys";
 import type { JobEvent } from "./jobEvents";
-import type { Job, LogEntry } from "../contracts/types";
+import type { Job, JobStage, LogEntry } from "../contracts/types";
+
+function isJobStage(stage: string): stage is JobStage {
+  return (
+    stage === "ingest" ||
+    stage === "transcribe" ||
+    stage === "segment" ||
+    stage === "analyze" ||
+    stage === "assemble_result" ||
+    stage === "extract_keyframes"
+  );
+}
 
 export interface UseJobSseOptions {
   jobId: string;
@@ -28,12 +39,15 @@ export function useJobSse(options: UseJobSseOptions): UseJobSseReturn {
   const { jobId, enabled = true, onEvent } = options;
   const queryClient = useQueryClient();
   const sseClientRef = useRef<SseClient | null>(null);
+  const fallbackToPollingRef = useRef(false);
   const [isConnected, setIsConnected] = useState(false);
   const [connectionMode, setConnectionMode] = useState<"sse" | "polling" | "disconnected">("disconnected");
   const [lastEvent, setLastEvent] = useState<JobEvent | null>(null);
 
   useEffect(() => {
     if (!enabled) return;
+
+    fallbackToPollingRef.current = false;
 
     const url = endpoints.jobEvents(jobId);
 
@@ -49,8 +63,8 @@ export function useJobSse(options: UseJobSseOptions): UseJobSseReturn {
             if (!old) return old;
             return {
               ...old,
-              stage: event.stage as any,
-              progress: event.progress,
+              stage: isJobStage(event.stage) ? event.stage : old.stage,
+              progress: typeof event.progress === "number" ? event.progress : old.progress,
               updatedAtMs: event.tsMs,
             };
           });
@@ -65,7 +79,7 @@ export function useJobSse(options: UseJobSseOptions): UseJobSseReturn {
                 tsMs: event.tsMs,
                 level: "INFO",
                 message: event.message!,
-                stage: event.stage as any,
+                stage: isJobStage(event.stage) ? event.stage : undefined,
               };
               return old
                 ? { items: [...old.items, newLog] }
@@ -74,8 +88,13 @@ export function useJobSse(options: UseJobSseOptions): UseJobSseReturn {
           );
         }
       },
+      onOpen: () => {
+        setIsConnected(true);
+        setConnectionMode("sse");
+      },
       onError: (error) => {
         console.error("[useJobSse] SSE error, falling back to polling:", error);
+        fallbackToPollingRef.current = true;
         setIsConnected(false);
         setConnectionMode("polling");
         // React Query's polling will take over via refetchInterval
@@ -83,13 +102,13 @@ export function useJobSse(options: UseJobSseOptions): UseJobSseReturn {
       onClose: () => {
         console.log("[useJobSse] SSE connection closed");
         setIsConnected(false);
-        setConnectionMode("disconnected");
+        if (!fallbackToPollingRef.current) {
+          setConnectionMode("disconnected");
+        }
       },
     });
 
     client.connect();
-    setIsConnected(true);
-    setConnectionMode("sse");
     sseClientRef.current = client;
 
     return () => {
