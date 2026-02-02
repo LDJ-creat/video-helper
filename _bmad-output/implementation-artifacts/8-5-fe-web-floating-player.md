@@ -1,6 +1,6 @@
 # Story 8.5: [FE/web] 智能悬浮播放器（Intersection Observer）
 
-Status: ready-for-dev
+Status: completed
 
 ## Story
 
@@ -15,9 +15,9 @@ so that 我不会丢失上下文。
 
 ## Tasks / Subtasks
 
-- [ ] 用 Intersection Observer 监听主播放器容器可见性 (AC: 1)
-- [ ] 实现悬浮 player 容器（position fixed）与最小 controls (AC: 1)
-- [ ] Expand 行为：scroll into view + focus 管理 (AC: 2)
+- [x] 用 Intersection Observer 监听主播放器容器可见性 (AC: 1)
+- [x] 实现悬浮 player 容器（position fixed）与最小 controls (AC: 1)
+- [x] Expand 行为：scroll into view + focus 管理 (AC: 2)
 
 ## Dev Notes
 
@@ -32,4 +32,24 @@ so that 我不会丢失上下文。
 
 ### Agent Model Used
 
-GPT-5.2
+Claude 3.7 Sonnet (Antigravity)
+
+### Implementation Summary
+
+- 在 `results/page.tsx` 中使用 Intersection Observer 监听主播放器容器（threshold: 0.1）
+- 创建 `FloatingPlayer` 组件（position fixed, bottom-6 right-6, 320×180）
+- **关键实现**：使用 DOM 操作移动 video 元素，避免多实例问题
+  - `container.appendChild(videoElement)` 在悬浮/原位间切换
+- Expand 功能：`scrollIntoView({ behavior: 'smooth' })`
+- Close 功能：`setIsFloatingVisible(false)`
+
+### Technical Decisions
+
+- **避免多实例**：通过 DOM 操作移动同一个 video 元素，而非创建新实例
+- **动画**：使用 Tailwind 的 `animate-in fade-in slide-in-from-bottom-4`
+- **控制按钮**：最小化设计，仅保留 Expand 和 Close
+
+## File List
+
+- apps/web/src/components/features/FloatingPlayer.tsx
+- apps/web/src/app/(main)/projects/[projectId]/results/page.tsx
