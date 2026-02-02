@@ -89,8 +89,8 @@ development_status:
 
   epic-8: in-progress
   8-1-contract-result-assets-api: review
-  8-2-be-core-assets-api: ready-for-dev
-  8-3-be-core-result-assemble: ready-for-dev
+  8-2-be-core-assets-api: review
+  8-3-be-core-result-assemble: review
   8-4-fe-web-results-page: ready-for-dev
   8-5-fe-web-floating-player: ready-for-dev
   8-6-fe-web-seek-chapter-keyframe: ready-for-dev

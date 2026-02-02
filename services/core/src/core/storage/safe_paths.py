@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
+from typing import IO
 
 from core.db.session import get_data_dir
 
@@ -33,6 +35,26 @@ def resolve_under_data_dir(relative_path: str | Path) -> Path:
 	if not _is_relative_to(abs_path, data_dir):
 		raise PathTraversalBlockedError("path escapes DATA_DIR")
 	return abs_path
+
+
+def safe_stat_under_data_dir(relative_path: str | Path) -> os.stat_result:
+	"""Stat a relative path under DATA_DIR.
+
+	Raises PathTraversalBlockedError if the resolved path escapes DATA_DIR.
+	"""
+
+	abs_path = resolve_under_data_dir(relative_path)
+	return abs_path.stat()
+
+
+def safe_open_under_data_dir(relative_path: str | Path, mode: str = "rb") -> IO:
+	"""Open a relative path under DATA_DIR.
+
+	Raises PathTraversalBlockedError if the resolved path escapes DATA_DIR.
+	"""
+
+	abs_path = resolve_under_data_dir(relative_path)
+	return abs_path.open(mode)
 
 
 def validate_single_dir_name(value: str) -> None:
