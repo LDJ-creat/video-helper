@@ -70,6 +70,30 @@ def build_ffmpeg_extract_audio_command(*, input_path: Path, output_path: Path) -
 	]
 
 
+def build_ffmpeg_extract_frame_command(*, input_path: Path, output_path: Path, time_s: float) -> list[str]:
+	"""Build ffmpeg command for extracting a single video frame as JPEG.
+
+	We place -ss before -i for speed (best-effort seeking).
+	"""
+	# Use fixed-format time to keep command deterministic.
+	time_arg = f"{float(time_s):.3f}"
+	return [
+		"ffmpeg",
+		"-hide_banner",
+		"-nostdin",
+		"-y",
+		"-ss",
+		time_arg,
+		"-i",
+		str(input_path),
+		"-frames:v",
+		"1",
+		"-q:v",
+		"2",
+		str(output_path),
+	]
+
+
 def _ensure_under_data_dir(path: Path) -> tuple[Path, str]:
 	data_dir = get_data_dir().resolve()
 	abs_path = path.resolve()
@@ -136,3 +160,61 @@ def extract_audio_wav_16k_mono(
 
 	abs_path, rel = _ensure_under_data_dir(out_path)
 	return AudioExtractResult(abs_path=abs_path, rel_path=rel)
+
+
+def extract_video_frame_jpeg(
+	*,
+	input_path: Path,
+	output_path: Path,
+	time_s: float,
+	timeout_s: float = 2 * 60,
+) -> tuple[Path, str]:
+	"""Extract a single video frame to a JPEG file under DATA_DIR.
+
+	Raises FfmpegError with kinds:
+	- dependency_missing
+	- timeout
+	- content_error
+	- resource_exhausted
+	"""
+
+	if not input_path.exists() or not input_path.is_file():
+		raise FfmpegError("content_error", "input media file not readable")
+
+	if not shutil.which("ffmpeg"):
+		raise FfmpegError("dependency_missing", "ffmpeg is missing")
+
+	output_path.parent.mkdir(parents=True, exist_ok=True)
+	cmd = build_ffmpeg_extract_frame_command(input_path=input_path, output_path=output_path, time_s=time_s)
+
+	try:
+		completed = subprocess.run(
+			cmd,
+			stdout=subprocess.PIPE,
+			stderr=subprocess.STDOUT,
+			text=True,
+			timeout=float(timeout_s),
+			check=False,
+			creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+		)
+	except subprocess.TimeoutExpired:
+		raise FfmpegError("timeout", "ffmpeg timed out")
+	except (PermissionError, OSError):
+		raise FfmpegError("dependency_missing", "ffmpeg is not executable")
+
+	output = (completed.stdout or "").strip()
+	if completed.returncode != 0:
+		tail = _sanitize_output_tail(output)
+		if any(p.search(output) for p in _RESOURCE_PATTERNS):
+			raise FfmpegError(
+				"resource_exhausted",
+				"resource exhausted during ffmpeg",
+				details={"exitCode": completed.returncode, "ffmpegTail": tail},
+			)
+		raise FfmpegError("content_error", "ffmpeg failed", details={"exitCode": completed.returncode, "ffmpegTail": tail})
+
+	if not output_path.exists() or output_path.stat().st_size <= 0:
+		raise FfmpegError("content_error", "ffmpeg succeeded but output image missing")
+
+	abs_path, rel = _ensure_under_data_dir(output_path)
+	return abs_path, rel

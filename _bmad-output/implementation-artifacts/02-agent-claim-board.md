@@ -87,7 +87,8 @@
 ### WT-BE-07：analyze artifacts（highlights/mindmap/keyframes）
 - **Agent**：Pipeline Owner（可拆给 Results & Assets Owner）
 - **Branch**：`feat/be/pipeline-artifacts`
-- **Stories**：6-1-be-core-keyframes、6-2-be-core-highlights、7-1-be-core-mindmap
+- **Stories（MVP baseline）**：6-1-be-core-keyframes、6-2-be-core-highlights、7-1-be-core-mindmap
+- **Stories（真实 LLM analyze，保持契约不变）**：6-3-be-core-analyze-llm-provider、6-4-be-core-highlights-llm、7-2-be-core-mindmap-llm
 - **依赖**：WT-BE-06（chapters）、WT-BE-05（worker）、WT-00（stage/错误码）
 
 ### WT-BE-08：results + assets api + editing apis
@@ -184,6 +185,9 @@
 - **Pipeline Owner**：WT-BE-07（keyframes/highlights/mindmap）
 - **Editing UX Owner**：WT-FE-05（tiptap/reactflow autosave）
 - **Results & Assets Owner**：补齐编辑类 API（WT-BE-08 内已包含 9.x BE）
+
+### Phase 5.5（Day 3+）：真实 LLM 分析闭环（可选但推荐）
+- **Pipeline Owner**：WT-BE-07（6-3 provider + 6-4 highlights LLM + 7-2 mindmap LLM；无 Key 时允许 rules fallback）
 
 ### Phase 6（尾段）：搜索/设置
 - **Search/Settings Owner**：WT-BE-09 + WT-FE-06
