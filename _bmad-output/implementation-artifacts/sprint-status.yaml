@@ -46,7 +46,7 @@ development_status:
 
   epic-2: in-progress
   2-1-be-core-project-list-detail: review
-  2-2-fe-web-project-pages: ready-for-dev
+  2-2-fe-web-project-pages: review
   2-3-be-core-delete-project: review
   2-4-fe-web-delete-project-ui: ready-for-dev
   epic-2-retrospective: optional

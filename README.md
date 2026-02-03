@@ -19,6 +19,7 @@
 - 仓库根目录下若存在 `.venv`，通常是误创建/历史遗留，不作为标准；建议删除以避免 VS Code/命令行选错解释器。
 
 常用命令（在 `services/core` 目录执行）：
-
+激活虚拟环境: `cd services/core`
+            `python .\venv\Scripts\activate.ps1`
 - 运行后端：`uv run python main.py`
 - 运行单测：`uv run pytest -q`

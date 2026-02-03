@@ -26,3 +26,6 @@ data/**
 #test
 test_*.py
 tests/*
+www.bilibili.com_cookies.txt
+*.json
+*.sqlite3
