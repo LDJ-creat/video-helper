@@ -1,6 +1,6 @@
 # Story 7.1: [BE/core] Mindmap schema 定义与生成（nodes/edges）
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -15,12 +15,12 @@ so that 我能以结构化方式理解视频内容。
 
 ## Tasks / Subtasks
 
-- [ ] 冻结最小 mindmap schema：
+- [x] 冻结最小 mindmap schema：
   - node：`id, type, label, chapterId?, position?, data?`
   - edge：`id, source, target, label?`
   (AC: 1,2)
-- [ ] 生成策略（MVP）：先保证“章 → 要点 → 子要点”层级可渲染；布局可后续优化 (AC: 1)
-- [ ] 持久化：与 Result 组合字段兼容（8.3）(AC: 1)
+- [x] 生成策略（MVP）：先保证“章 → 要点 → 子要点”层级可渲染；布局可后续优化 (AC: 1)
+- [x] 持久化：与 Result 组合字段兼容（8.3）(AC: 1)
 
 ## Dev Notes
 

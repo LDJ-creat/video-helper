@@ -1,6 +1,6 @@
 # Story 6.1: [BE/core] 关键帧抽取与 assets 持久化
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -15,10 +15,10 @@ so that 我能用视觉锚点快速回忆上下文。
 
 ## Tasks / Subtasks
 
-- [ ] 定义 keyframe asset 记录字段：`assetId, projectId, chapterId, timeMs?, relPath, mimeType, width?, height?, createdAtMs` (AC: 1)
-- [ ] 关键帧抽取策略（MVP）：每章 N 帧（例如 3-5）或按时间间隔采样；输出稳定可复现 (AC: 1)
-- [ ] 落盘路径：`DATA_DIR/projects/{projectId}/assets/...`（仅相对路径入库）(AC: 1)
-- [ ] 错误归因：缺 ffmpeg/执行失败/输出不可读等 (AC: 2)
+- [x] 定义 keyframe asset 记录字段：`assetId, projectId, chapterId, timeMs?, relPath, mimeType, width?, height?, createdAtMs` (AC: 1)
+- [x] 关键帧抽取策略（MVP）：每章 N 帧（例如 3-5）或按时间间隔采样；输出稳定可复现 (AC: 1)
+- [x] 落盘路径：`DATA_DIR/projects/{projectId}/assets/...`（仅相对路径入库）(AC: 1)
+- [x] 错误归因：缺 ffmpeg/执行失败/输出不可读等 (AC: 2)
 
 ## Dev Notes
 

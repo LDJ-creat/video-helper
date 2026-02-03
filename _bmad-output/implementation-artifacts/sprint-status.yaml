@@ -79,12 +79,12 @@ development_status:
   epic-5-retrospective: optional
 
   epic-6: in-progress
-  6-1-be-core-keyframes: ready-for-dev
-  6-2-be-core-highlights: ready-for-dev
+  6-1-be-core-keyframes: review
+  6-2-be-core-highlights: review
   epic-6-retrospective: optional
 
   epic-7: in-progress
-  7-1-be-core-mindmap: ready-for-dev
+  7-1-be-core-mindmap: review
   epic-7-retrospective: optional
 
   epic-8: in-progress

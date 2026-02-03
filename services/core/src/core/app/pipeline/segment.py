@@ -8,6 +8,7 @@ from core.contracts.error_codes import ErrorCode
 @dataclass(frozen=True)
 class Chapter:
     chapter_id: str
+    idx: int
     start_ms: int
     end_ms: int
     title: str
@@ -16,6 +17,7 @@ class Chapter:
     def to_dict(self) -> dict:
         return {
             "chapterId": self.chapter_id,
+            "idx": int(self.idx),
             "startMs": self.start_ms,
             "endMs": self.end_ms,
             "title": self.title,
@@ -49,6 +51,7 @@ def build_chapters_from_transcript(transcript: dict) -> dict:
         chapters.append(
             Chapter(
                 chapter_id=f"ch_{idx + 1}",
+                idx=int(idx),
                 start_ms=int(start),
                 end_ms=int(end),
                 title=f"Chapter {idx + 1}",
@@ -85,6 +88,10 @@ def validate_chapters(chapters: list[dict]) -> None:
         end = ch.get("endMs")
         if not isinstance(start, int) or not isinstance(end, int):
             raise ValueError("startMs/endMs must be int")
+
+        order_idx = ch.get("idx")
+        if not isinstance(order_idx, int):
+            raise ValueError("idx must be int")
         if start < 0 or end < 0:
             raise ValueError("startMs/endMs must be >= 0")
         if start >= end:
