@@ -15,4 +15,8 @@ export const endpoints = {
     resultLatest: (projectId: string) => `${API_V1}/projects/${projectId}/results/latest`,
     asset: (assetId: string) => `${API_V1}/assets/${assetId}`,
     assetContent: (assetId: string) => `${API_V1}/assets/${assetId}/content`,
+    // Notes endpoints   
+    saveNote: (projectId: string, resultId: string) => `${API_V1}/projects/${projectId}/results/${resultId}/note`,
+    // Mindmap endpoints
+    saveMindmap: (projectId: string, resultId: string) => `${API_V1}/projects/${projectId}/results/${resultId}/mindmap`,
 };
