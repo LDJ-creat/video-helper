@@ -7,6 +7,10 @@
 - 其它 worktree 按“模块聚合 2–4 个紧密 story”并行。
 - 启动顺序以“最小可用闭环（可见性/导入/项目）”优先，其它能力可后补。
 
+技术决策（补充）：
+- **ASR（transcribe）实现选型：faster-whisper（本地）**。Phase 4/早期允许 placeholder 先跑通闭环；进入“真实视频分析闭环”前，需把 5-2 的转写 provider 切换为 faster-whisper，并保留 placeholder 作为降级路径。
+- **音频前处理：ffmpeg**。从视频抽取/重采样音频（如 16kHz mono PCM）后送入 ASR；转写产出必须带 ms 时间戳，作为 chapters/highlights/mindmap 的唯一对齐基准。
+
 ---
 
 ## 1) Agent 角色定义（语义化命名）
@@ -75,6 +79,10 @@
 - **Branch**：`feat/be/pipeline-transcribe-segment`
 - **Stories**：5-2-be-core-transcribe、5-3-be-core-segment-chapters
 - **依赖**：WT-BE-05（worker）、WT-00（stage/错误码）
+- **实现约束（补充）**：
+  - 5-2（transcribe）优先落地 faster-whisper 本地 ASR：从 `projects.source_path` 或 URL 下载产物中定位媒体文件，使用 ffmpeg 解码/重采样后转写。
+  - transcript 需输出分段 + `startMs/endMs`（ms）并持久化（DB 或文件 + DB 引用）；失败需可归因（依赖缺失/模型缺失/资源不足/内容异常）。
+  - 保留 placeholder provider 作为 dev/CI 降级（无模型/无依赖时仍可跑通阶段与可观测性）。
 
 ### WT-BE-07：analyze artifacts（highlights/mindmap/keyframes）
 - **Agent**：Pipeline Owner（可拆给 Results & Assets Owner）
@@ -167,6 +175,8 @@
 - **Pipeline Owner**：WT-BE-05（worker/queue）→ WT-BE-06（transcribe/segment）
 - **Results & Assets Owner**：WT-BE-08（assets api + assemble_result 的最小实现）
 - **Web Projects/Results UI Owner**：WT-FE-04（results UI，先 mock）
+
+注：Phase 4 的“可跑通闭环”允许 transcribe/segment 使用 placeholder；但若要进入“真实视频分析闭环”，需在 Phase 4→5 的过渡中完成 faster-whisper ASR 接入与产物对齐。
 
 合并顺序建议：BE-05 → BE-06 → BE-08 → FE-04
 

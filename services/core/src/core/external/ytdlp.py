@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import importlib.util
 import os
 import re
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -27,6 +29,22 @@ class YtDlpDownloadResult:
 _LAST_PATH_RE = re.compile(r"^(?:\[download\]\s+)?(?P<path>(?:[A-Za-z]:\\|/).+)$")
 
 
+def _sanitize_output_tail(output: str, *, max_lines: int = 14) -> str:
+	lines = [ln.rstrip() for ln in (output or "").splitlines() if ln.strip()]
+	if not lines:
+		return ""
+	tail = lines[-max_lines:]
+	# Strip absolute filesystem paths which may include usernames.
+	# - Windows drive paths: C:\...
+	# - UNC paths: \\server\share\...
+	# - POSIX absolute paths: /... (but not URLs like https:// which contain //)
+	path_re = re.compile(r"(?:[A-Za-z]:\\[^\s]+|\\\\[^\s]+|/(?!/)[^\s]+)")
+	safe: list[str] = []
+	for ln in tail:
+		safe.append(path_re.sub("<path>", ln))
+	return "\n".join(safe)
+
+
 def _redact_url(url: str) -> str:
 	"""Best-effort redaction: keep scheme+host+path; strip query/fragment."""
 	try:
@@ -40,19 +58,78 @@ def _redact_url(url: str) -> str:
 
 def build_ytdlp_command(*, url: str, output_template: Path) -> list[str]:
 	"""Build yt-dlp command args.
-
-	We rely on `--print filename` to learn the final output path.
 	"""
+	out_dir = output_template.parent
+	# Use --paths to force output placement; keep -o as a filename template
+	# to avoid Windows path parsing edge cases.
+	out_name = output_template.name
+	fmt = _env_str("YTDLP_FORMAT") or "bestaudio/best"
+	# Prefer conservative, repeatable network behavior. Keep overridable via env.
+	# Note: yt-dlp accepts integers for retries.
+	retries = _env_str("YTDLP_RETRIES") or "5"
+	fragment_retries = _env_str("YTDLP_FRAGMENT_RETRIES") or "5"
+	socket_timeout = _env_str("YTDLP_SOCKET_TIMEOUT")
 	return [
 		"yt-dlp",
+		"--ignore-config",
 		"--no-playlist",
 		"--no-progress",
-		"--print",
-		"filename",
+		"--retries",
+		retries,
+		"--fragment-retries",
+		fragment_retries,
+		"--retry-sleep",
+		"fragment:1",
+		"--format",
+		fmt,
+		*( ["--socket-timeout", socket_timeout] if socket_timeout else [] ),
+		"--paths",
+		str(out_dir),
 		"-o",
-		str(output_template),
+		out_name,
 		url,
 	]
+
+
+def _env_str(name: str) -> str | None:
+	raw = (os.environ.get(name) or "").strip()
+	return raw or None
+
+
+def _apply_optional_network_args(cmd: list[str]) -> list[str]:
+	# Optional headers/cookies for sites with anti-bot checks (e.g. bilibili 412).
+	user_agent = _env_str("YTDLP_USER_AGENT")
+	referer = _env_str("YTDLP_REFERER")
+	cookies_file = _env_str("YTDLP_COOKIES_FILE")
+	cookies_from_browser = _env_str("YTDLP_COOKIES_FROM_BROWSER")
+
+	out: list[str] = list(cmd)
+	if user_agent:
+		out.extend(["--user-agent", user_agent])
+	if referer:
+		out.extend(["--referer", referer])
+	if cookies_file:
+		out.extend(["--cookies", cookies_file])
+	if cookies_from_browser:
+		out.extend(["--cookies-from-browser", cookies_from_browser])
+	return out
+
+
+def _resolve_ytdlp_runner() -> list[str] | None:
+	# Prefer the Python module in the current environment: it's deterministic and
+	# avoids PATH picking up a mismatched/old yt-dlp executable.
+	try:
+		spec = importlib.util.find_spec("yt_dlp")
+	except Exception:
+		spec = None
+	if spec is not None:
+		return [sys.executable, "-m", "yt_dlp"]
+
+	# Fallback: standalone executable on PATH.
+	if shutil.which("yt-dlp"):
+		return ["yt-dlp"]
+
+	return None
 
 
 def _ensure_under_data_dir(path: Path) -> tuple[Path, str]:
@@ -68,8 +145,10 @@ def _ensure_under_data_dir(path: Path) -> tuple[Path, str]:
 def _pick_downloaded_file(*, output_dir: Path, base_filename: str) -> Path | None:
 	if not output_dir.exists():
 		return None
-	# Pick newest file matching base_filename.*
-	candidates = sorted(output_dir.glob(f"{base_filename}.*"), key=lambda p: p.stat().st_mtime, reverse=True)
+	# Pick newest file matching base_filename.* (search recursively because some
+	# extractors may create subfolders depending on config/playlist handling).
+	candidates = [p for p in output_dir.rglob(f"{base_filename}.*") if p.is_file()]
+	candidates = sorted(candidates, key=lambda p: p.stat().st_mtime, reverse=True)
 	return candidates[0] if candidates else None
 
 
@@ -92,12 +171,14 @@ def download_with_ytdlp(
 	- output_not_found
 	"""
 
-	if not shutil.which("yt-dlp"):
+	runner = _resolve_ytdlp_runner()
+	if not runner:
 		raise YtDlpError("dependency_missing", "yt-dlp is missing")
 
 	output_dir.mkdir(parents=True, exist_ok=True)
 	output_template = output_dir / f"{base_filename}.%(ext)s"
-	cmd = build_ytdlp_command(url=url, output_template=output_template)
+	cmd = runner + build_ytdlp_command(url=url, output_template=output_template)[1:]
+	cmd = _apply_optional_network_args(cmd)
 
 	try:
 		completed = subprocess.run(
@@ -119,10 +200,25 @@ def download_with_ytdlp(
 	if completed.returncode != 0:
 		# Keep errors non-sensitive: do not echo full URL or full command.
 		safe_url = _redact_url(url)
+		blocked = False
+		http_status: int | None = None
+		cookies_error: str | None = None
+		if "HTTP Error 412" in output or "Precondition Failed" in output:
+			blocked = True
+			http_status = 412
+		if "Could not copy Chrome cookie database" in output:
+			cookies_error = "cookie_db_copy_failed"
+		if "Failed to decrypt with DPAPI" in output:
+			cookies_error = "cookie_dpapi_decrypt_failed"
 		raise YtDlpError(
 			"content_error",
 			"yt-dlp failed",
-			details={"source": safe_url},
+			details={
+				"source": safe_url,
+				"blocked": blocked,
+				"httpStatus": http_status,
+				"cookiesError": cookies_error,
+			},
 		)
 
 	# First try: last printed filename line.
@@ -140,17 +236,22 @@ def download_with_ytdlp(
 			last_path = line
 			break
 
-	abs_path: Path | None = None
-	if last_path:
+	# Prefer filesystem discovery (works reliably with a fixed output template).
+	abs_path: Path | None = _pick_downloaded_file(output_dir=output_dir, base_filename=base_filename)
+
+	# Back-compat: if yt-dlp printed an absolute path and it exists, trust it.
+	if abs_path is None and last_path:
 		candidate = Path(last_path)
 		if candidate.exists():
 			abs_path = candidate
 
-	if abs_path is None:
-		abs_path = _pick_downloaded_file(output_dir=output_dir, base_filename=base_filename)
-
 	if abs_path is None or not abs_path.exists():
-		raise YtDlpError("output_not_found", "yt-dlp succeeded but output file not found")
+		safe_url = _redact_url(url)
+		raise YtDlpError(
+			"output_not_found",
+			"yt-dlp succeeded but output file not found",
+			details={"source": safe_url, "outputTail": _sanitize_output_tail(output)},
+		)
 
 	abs_path2, rel = _ensure_under_data_dir(abs_path)
 	return YtDlpDownloadResult(abs_path=abs_path2, rel_path=rel)

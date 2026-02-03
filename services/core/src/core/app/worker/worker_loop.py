@@ -10,7 +10,7 @@ from typing import Protocol
 from core.app.sse.event_bus import GLOBAL_JOB_EVENT_BUS
 from core.app.logs.job_logs import append_job_log
 from core.app.pipeline.segment import build_chapter_error, build_chapters_from_transcript
-from core.app.pipeline.transcribe import build_placeholder_transcript
+from core.app.pipeline.transcribe_real import map_transcribe_error, run_real_transcribe
 from core.contracts.error_codes import ErrorCode
 from core.db.session import get_sessionmaker
 from core.db.repositories.job_queue import (
@@ -137,6 +137,11 @@ class PipelineJobProcessor:
         self._default_duration_ms = max(1, int(default_duration_ms))
 
     async def process(self, *, job_id: str, project_id: str) -> None:
+        # Pipeline steps are synchronous and can be long-running (yt-dlp/ffmpeg/ASR).
+        # Run them in a thread so the FastAPI event loop stays responsive.
+        await asyncio.to_thread(self._process_sync, job_id=job_id, project_id=project_id)
+
+    def _process_sync(self, *, job_id: str, project_id: str) -> None:
         SessionLocal = get_sessionmaker()
         with SessionLocal() as session:
             job = session.get(Job, job_id)
@@ -177,12 +182,49 @@ class PipelineJobProcessor:
                         message="progress=0.0",
                     )
 
+                    def _progress_cb(value: float, msg: str) -> None:
+                        # Keep progress in [0.0, 0.5] for transcribe stage.
+                        try:
+                            value = float(value)
+                        except Exception:
+                            return
+                        value = max(0.0, min(0.5, value))
+                        job.progress = max(job.progress or 0.0, value)
+                        job.updated_at_ms = _now_ms()
+                        session.add(job)
+                        session.commit()
+                        GLOBAL_JOB_EVENT_BUS.emit_progress(
+                            job_id=job.job_id,
+                            project_id=job.project_id,
+                            stage=job.stage,
+                            progress=job.progress,
+                            message=msg,
+                        )
+
+                    def _log_cb(msg: str) -> None:
+                        _log(job_id=job.job_id, project_id=job.project_id, stage=job.stage, level="info", message=msg)
+
                     duration_ms = project.duration_ms if isinstance(project.duration_ms, int) and project.duration_ms else None
                     if duration_ms is None:
                         duration_ms = self._default_duration_ms
 
-                    transcript = build_placeholder_transcript(duration_ms=duration_ms)
-                    job.transcript = transcript
+                    artifacts = run_real_transcribe(
+                        project=project,
+                        job_id=job.job_id,
+                        default_duration_ms=duration_ms,
+                        progress_cb=_progress_cb,
+                        log_cb=_log_cb,
+                    )
+
+                    if artifacts.updated_project_source_path and not project.source_path:
+                        project.source_path = artifacts.updated_project_source_path
+                        project.updated_at_ms = _now_ms()
+                        session.add(project)
+
+                    job.transcript = artifacts.transcript
+                    job.audio_ref = artifacts.audio_ref
+                    job.transcript_ref = artifacts.transcript_ref
+                    job.transcript_meta = artifacts.transcript_meta
                     job.progress = 0.5
                     job.updated_at_ms = _now_ms()
                     session.add(job)
@@ -252,16 +294,16 @@ class PipelineJobProcessor:
                     )
 
             except ValueError as e:
-                mark_job_failed(
-                    session,
-                    job_id=job.job_id,
-                    now_ms=_now_ms(),
-                    error={
+                error = (
+                    map_transcribe_error(e)
+                    if job.stage == "speech_to_text"
+                    else {
                         "code": ErrorCode.JOB_STAGE_FAILED,
                         "message": str(e),
                         "details": {"reason": "invalid_input"},
-                    },
+                    }
                 )
+                mark_job_failed(session, job_id=job.job_id, now_ms=_now_ms(), error=error)
                 session.commit()
 
                 GLOBAL_JOB_EVENT_BUS.emit_state(
@@ -273,13 +315,9 @@ class PipelineJobProcessor:
 
                 _log(job_id=job.job_id, project_id=job.project_id, stage=job.stage, level="error", message=f"job failed: {e}")
                 return
-            except Exception as e:  # pragma: no cover
-                mark_job_failed(
-                    session,
-                    job_id=job.job_id,
-                    now_ms=_now_ms(),
-                    error=build_chapter_error(message=str(e), details={"reason": "unexpected"}),
-                )
+            except Exception as e:
+                error = map_transcribe_error(e) if job.stage == "speech_to_text" else build_chapter_error(message=str(e), details={"reason": "unexpected"})
+                mark_job_failed(session, job_id=job.job_id, now_ms=_now_ms(), error=error)
                 session.commit()
 
                 GLOBAL_JOB_EVENT_BUS.emit_state(
@@ -289,7 +327,7 @@ class PipelineJobProcessor:
                     message="status=failed",
                 )
 
-                _log(job_id=job.job_id, project_id=job.project_id, stage=job.stage, level="error", message=f"job failed: {e}")
+                _log(job_id=job.job_id, project_id=job.project_id, stage=job.stage, level="error", message="job failed")
                 return
 
         # Mark succeeded after pipeline steps.

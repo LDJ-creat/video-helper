@@ -142,6 +142,12 @@ def _ensure_sqlite_schema_compat() -> None:
 			conn.execute(text("ALTER TABLE jobs ADD COLUMN transcript TEXT"))
 		if "chapters" not in job_cols:
 			conn.execute(text("ALTER TABLE jobs ADD COLUMN chapters TEXT"))
+		if "audio_ref" not in job_cols:
+			conn.execute(text("ALTER TABLE jobs ADD COLUMN audio_ref TEXT"))
+		if "transcript_ref" not in job_cols:
+			conn.execute(text("ALTER TABLE jobs ADD COLUMN transcript_ref TEXT"))
+		if "transcript_meta" not in job_cols:
+			conn.execute(text("ALTER TABLE jobs ADD COLUMN transcript_meta TEXT"))
 
 
 def get_db_session() -> Generator[Session, None, None]:

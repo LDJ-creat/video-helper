@@ -25,6 +25,12 @@ class Job(Base):
     transcript: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     chapters: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
+
+    # Optional artifact refs (DATA_DIR-relative) for real pipeline.
+    audio_ref: Mapped[str | None] = mapped_column(String, nullable=True)
+    transcript_ref: Mapped[str | None] = mapped_column(String, nullable=True)
+    transcript_meta: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
     # Best-effort DB-backed claim/lease fields (avoid double consumption).
     claimed_by: Mapped[str | None] = mapped_column(String, nullable=True)
     claim_token: Mapped[str | None] = mapped_column(String, nullable=True)

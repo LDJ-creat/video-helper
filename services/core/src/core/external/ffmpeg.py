@@ -35,6 +35,19 @@ _RESOURCE_PATTERNS: tuple[re.Pattern[str], ...] = (
 )
 
 
+def _sanitize_output_tail(output: str, *, max_lines: int = 14) -> str:
+	lines = [ln.rstrip() for ln in (output or "").splitlines() if ln.strip()]
+	if not lines:
+		return ""
+	tail = lines[-max_lines:]
+	# Strip absolute filesystem paths which may include usernames.
+	path_re = re.compile(r"(?:[A-Za-z]:\\[^\s]+|\\\\[^\s]+|/(?!/)[^\s]+)")
+	safe: list[str] = []
+	for ln in tail:
+		safe.append(path_re.sub("<path>", ln))
+	return "\n".join(safe)
+
+
 def build_ffmpeg_extract_audio_command(*, input_path: Path, output_path: Path) -> list[str]:
 	"""Build ffmpeg command for 16kHz mono PCM wav extraction."""
 	return [
@@ -111,11 +124,12 @@ def extract_audio_wav_16k_mono(
 
 	output = (completed.stdout or "").strip()
 	if completed.returncode != 0:
+		tail = _sanitize_output_tail(output)
 		if any(p.search(output) for p in _NO_AUDIO_PATTERNS):
-			raise FfmpegError("no_audio", "media has no decodable audio")
+			raise FfmpegError("no_audio", "media has no decodable audio", details={"exitCode": completed.returncode, "ffmpegTail": tail})
 		if any(p.search(output) for p in _RESOURCE_PATTERNS):
-			raise FfmpegError("resource_exhausted", "resource exhausted during ffmpeg")
-		raise FfmpegError("content_error", "ffmpeg failed")
+			raise FfmpegError("resource_exhausted", "resource exhausted during ffmpeg", details={"exitCode": completed.returncode, "ffmpegTail": tail})
+		raise FfmpegError("content_error", "ffmpeg failed", details={"exitCode": completed.returncode, "ffmpegTail": tail})
 
 	if not out_path.exists() or out_path.stat().st_size <= 0:
 		raise FfmpegError("content_error", "ffmpeg succeeded but output audio missing")
