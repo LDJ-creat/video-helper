@@ -24,6 +24,8 @@ import ReactFlow, {
     EdgeChange,
     applyNodeChanges,
     applyEdgeChanges,
+    Handle,
+    Position,
 } from "reactflow";
 import "reactflow/dist/style.css";
 import { useSaveMindmap } from "@/lib/api/mindmapQueries";
@@ -49,13 +51,30 @@ export type SaveStatus = "idle" | "saving" | "saved" | "error";
 
 /**
  * Custom node component (sticky note / index card style)
+ * ✅ FIX: Added ReactFlow Handles for connections
  */
 function StickyNoteNode({ data }: { data: { label: string } }) {
     return (
-        <div className="px-4 py-3 bg-yellow-50 border-2 border-yellow-200 rounded-lg shadow-sm min-w-[120px] max-w-[200px]">
-            <div className="text-sm font-medium text-stone-800 break-words">
-                {data.label}
+        <div className="relative">
+            {/* Target handle (receives connections from other nodes) */}
+            <Handle
+                type="target"
+                position={Position.Top}
+                className="w-3 h-3 !bg-yellow-400 !border-2 !border-yellow-600"
+            />
+
+            <div className="px-4 py-3 bg-yellow-50 border-2 border-yellow-200 rounded-lg shadow-sm min-w-[120px] max-w-[200px]">
+                <div className="text-sm font-medium text-stone-800 break-words">
+                    {data.label}
+                </div>
             </div>
+
+            {/* Source handle (creates connections to other nodes) */}
+            <Handle
+                type="source"
+                position={Position.Bottom}
+                className="w-3 h-3 !bg-yellow-400 !border-2 !border-yellow-600"
+            />
         </div>
     );
 }
@@ -63,6 +82,78 @@ function StickyNoteNode({ data }: { data: { label: string } }) {
 const nodeTypes: NodeTypes = {
     stickyNote: StickyNoteNode,
 };
+
+/**
+ * ✅ FIX: Hierarchical layout algorithm for mindmap
+ * Creates a tree structure with proper positioning
+ */
+function calculateHierarchicalLayout(nodes: any[], edges: any[]): Node[] {
+    // Build adjacency list
+    const childrenMap = new Map<string, string[]>();
+    const parentMap = new Map<string, string>();
+
+    edges.forEach((edge) => {
+        if (!childrenMap.has(edge.source)) {
+            childrenMap.set(edge.source, []);
+        }
+        childrenMap.get(edge.source)!.push(edge.target);
+        parentMap.set(edge.target, edge.source);
+    });
+
+    // Find root node (node without parent)
+    const rootNode = nodes.find(node => !parentMap.has(node.id));
+    if (!rootNode) {
+        // Fallback to first node if no clear root
+        return nodes.map((node, idx) => ({
+            ...node,
+            position: {
+                x: (idx % 3) * 250 + 50,
+                y: Math.floor(idx / 3) * 180 + 50
+            }
+        }));
+    }
+
+    // BFS to assign levels and calculate positions
+    const nodePositions = new Map<string, { x: number; y: number }>();
+    const levelNodes = new Map<number, string[]>();
+    const queue: Array<{ id: string; level: number }> = [{ id: rootNode.id, level: 0 }];
+
+    while (queue.length > 0) {
+        const { id, level } = queue.shift()!;
+
+        if (!levelNodes.has(level)) {
+            levelNodes.set(level, []);
+        }
+        levelNodes.get(level)!.push(id);
+
+        const children = childrenMap.get(id) || [];
+        children.forEach(childId => {
+            queue.push({ id: childId, level: level + 1 });
+        });
+    }
+
+    // Calculate positions for each level
+    const HORIZONTAL_SPACING = 280;
+    const VERTICAL_SPACING = 150;
+
+    levelNodes.forEach((nodeIds, level) => {
+        const totalWidth = (nodeIds.length - 1) * HORIZONTAL_SPACING;
+        const startX = -totalWidth / 2;
+
+        nodeIds.forEach((nodeId, index) => {
+            nodePositions.set(nodeId, {
+                x: startX + index * HORIZONTAL_SPACING + 400, // Center offset
+                y: level * VERTICAL_SPACING + 50
+            });
+        });
+    });
+
+    // Apply positions to nodes
+    return nodes.map(node => ({
+        ...node,
+        position: nodePositions.get(node.id) || node.position || { x: 0, y: 0 }
+    }));
+}
 
 export function MindmapEditor({
     projectId,
@@ -79,24 +170,24 @@ export function MindmapEditor({
 
     const { mutateAsync: saveMindmap } = useSaveMindmap();
 
-    // Convert initial mindmap to ReactFlow format
-    // ✅ FIX: Use default grid layout instead of random positions
-    const initialNodes: Node[] = initialMindmap.nodes.map((node, idx) => ({
+    // Convert initial mindmap to ReactFlow format with hierarchical layout
+    const tempNodes = initialMindmap.nodes.map((node) => ({
         id: node.id,
         type: "stickyNote",
-        position: (node as any).position || {
-            // Simple grid layout as fallback (3 columns)
-            x: (idx % 3) * 250 + 50,
-            y: Math.floor(idx / 3) * 180 + 50
-        },
+        position: (node as any).position || { x: 0, y: 0 },
         data: { label: node.label },
     }));
+
+    // ✅ FIX: Apply hierarchical layout
+    const initialNodes: Node[] = calculateHierarchicalLayout(tempNodes, initialMindmap.edges);
 
     const initialEdges: Edge[] = initialMindmap.edges.map((edge) => ({
         id: edge.id,
         source: edge.source,
         target: edge.target,
         type: "smoothstep",
+        animated: false,
+        style: { stroke: "#FDBA74", strokeWidth: 2 },
     }));
 
     const [nodes, setNodes] = useState<Node[]>(initialNodes);
