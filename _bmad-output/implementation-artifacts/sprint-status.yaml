@@ -81,10 +81,13 @@ development_status:
   epic-6: in-progress
   6-1-be-core-keyframes: review
   6-2-be-core-highlights: review
+  6-3-be-core-analyze-llm-provider: review
+  6-4-be-core-highlights-llm: review
   epic-6-retrospective: optional
 
   epic-7: in-progress
   7-1-be-core-mindmap: review
+  7-2-be-core-mindmap-llm: review
   epic-7-retrospective: optional
 
   epic-8: in-progress

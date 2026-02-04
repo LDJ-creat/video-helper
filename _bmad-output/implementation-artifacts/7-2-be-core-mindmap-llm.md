@@ -1,6 +1,6 @@
 # Story 7.2: [BE/core] 真实 LLM 生成 mindmap（analyze/mindmap）
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -21,10 +21,10 @@ so that 我能以结构化导图理解视频内容。
 
 ## Tasks / Subtasks
 
-- [ ] 定义 prompt 输入：章列表（chapterId/title/summary）+ highlights（按章聚合） (AC: 1)
-- [ ] 定义 LLM 输出 JSON schema（内部约束，不入 contracts） (AC: 1)
-- [ ] mindmap 校验器：nodes/edges 基本一致性校验 + 去重策略 (AC: 2)
-- [ ] fallback：root→chapter→highlight 节点生成（deterministic id） (AC: 3,4)
+- [x] 定义 prompt 输入：章列表（chapterId/title/summary）+ highlights（按章聚合） (AC: 1)
+- [x] 定义 LLM 输出 JSON schema（内部约束，不入 contracts） (AC: 1)
+- [x] mindmap 校验器：nodes/edges 基本一致性校验 + 去重策略 (AC: 2)
+- [x] fallback：root→chapter→highlight 节点生成（deterministic id） (AC: 3,4)
 
 ## Dev Notes
 
@@ -41,3 +41,28 @@ so that 我能以结构化导图理解视频内容。
 ### Agent Model Used
 
 GPT-5.2
+
+### Implementation Notes
+
+- `ANALYZE_PROVIDER=llm` 时：先让 LLM 输出每章 topics 计划（内部 schema：`{chapters:[{chapterId, topics:[{label}]}]}`），再组装为可渲染 graph（`nodes[]/edges[]`）。
+- 节点稳定性：root/chapter 节点 id 固定为 `node_root` / `node_ch_{chapterId}`；topic 节点/边 id 使用内容 hash 生成；topics 做 case-insensitive 去重。
+- 校验器：
+   - nodes/edges 必须为 list
+   - node id 唯一
+   - edge source/target 必须引用存在 node
+   - 失败统一映射 `JOB_STAGE_FAILED` + `reason=invalid_llm_output`
+- fallback：当 `ANALYZE_PROVIDER!=llm`，或 llm 不可用且 `ANALYZE_ALLOW_RULES_FALLBACK=1` 时，回退到 deterministic graph（root→chapter→highlights）。
+
+### Tests
+
+- `services/core/tests/test_analyze_llm.py` 覆盖：正常输出通过校验、非法 chapterId 输出触发 `invalid_llm_output`、fallback 可渲染。
+
+## File List
+
+- services/core/src/core/app/pipeline/mindmap.py
+- services/core/src/core/app/worker/worker_loop.py
+- services/core/tests/test_analyze_llm.py
+
+## Change Log
+
+- 2026-02-03: analyze(mindmap) 接入真实 LLM 调用、增加 mindmap 校验器与 fallback，并补齐单测。
