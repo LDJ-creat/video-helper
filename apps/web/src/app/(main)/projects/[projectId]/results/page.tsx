@@ -9,7 +9,9 @@ import { ChapterList } from "@/components/features/ChapterList";
 import { KeyframeGrid } from "@/components/features/KeyframeGrid";
 import { HighlightList } from "@/components/features/HighlightList";
 import { MindmapViewer } from "@/components/features/MindmapViewer";
+import { MindmapEditor } from "@/components/features/MindmapEditor";
 import { FloatingPlayer } from "@/components/features/FloatingPlayer";
+import { NoteEditor } from "@/components/features/NoteEditor";
 import { endpoints } from "@/lib/api/endpoints";
 
 export default function ResultPage() {
@@ -146,8 +148,8 @@ export default function ResultPage() {
                             <button
                                 onClick={() => setActiveTab("mindmap")}
                                 className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${activeTab === "mindmap"
-                                        ? "bg-orange-50 text-orange-700 border-b-2 border-orange-600"
-                                        : "text-stone-600 hover:bg-stone-50"
+                                    ? "bg-orange-50 text-orange-700 border-b-2 border-orange-600"
+                                    : "text-stone-600 hover:bg-stone-50"
                                     }`}
                             >
                                 思维导图
@@ -155,8 +157,8 @@ export default function ResultPage() {
                             <button
                                 onClick={() => setActiveTab("keyframes")}
                                 className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${activeTab === "keyframes"
-                                        ? "bg-orange-50 text-orange-700 border-b-2 border-orange-600"
-                                        : "text-stone-600 hover:bg-stone-50"
+                                    ? "bg-orange-50 text-orange-700 border-b-2 border-orange-600"
+                                    : "text-stone-600 hover:bg-stone-50"
                                     }`}
                             >
                                 关键帧 ({allKeyframes.length})
@@ -164,8 +166,8 @@ export default function ResultPage() {
                             <button
                                 onClick={() => setActiveTab("highlights")}
                                 className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${activeTab === "highlights"
-                                        ? "bg-orange-50 text-orange-700 border-b-2 border-orange-600"
-                                        : "text-stone-600 hover:bg-stone-50"
+                                    ? "bg-orange-50 text-orange-700 border-b-2 border-orange-600"
+                                    : "text-stone-600 hover:bg-stone-50"
                                     }`}
                             >
                                 重点 ({result.highlights.length})
@@ -173,8 +175,16 @@ export default function ResultPage() {
                         </div>
 
                         {/* Tab Content */}
-                        <div className="p-6">
-                            {activeTab === "mindmap" && <MindmapViewer mindmap={result.mindmap} />}
+                        <div className={activeTab === "mindmap" ? "h-[600px]" : "p-6"}>
+                            {activeTab === "mindmap" && (
+                                <MindmapEditor
+                                    projectId={projectId}
+                                    resultId={result.resultId}
+                                    initialMindmap={result.mindmap}
+                                    onSaveSuccess={() => console.log("Mindmap saved successfully")}
+                                    onSaveError={(error) => console.error("Failed to save mindmap:", error)}
+                                />
+                            )}
                             {activeTab === "keyframes" && (
                                 <KeyframeGrid keyframes={allKeyframes} onKeyframeClick={handleSeek} />
                             )}
@@ -197,12 +207,20 @@ export default function ResultPage() {
                         />
                     </div>
 
-                    {/* Note (暂时占位) */}
-                    <div className="bg-white rounded-xl border border-stone-200 p-6">
-                        <h2 className="text-lg font-semibold text-stone-800 mb-4">笔记</h2>
-                        <p className="text-sm text-stone-500">
-                            笔记编辑功能将在后续 Story 中实现
-                        </p>
+                    {/* Note Editor */}
+                    <div className="bg-white rounded-xl border border-stone-200 overflow-hidden">
+                        <div className="px-6 py-4 border-b border-stone-200">
+                            <h2 className="text-lg font-semibold text-stone-800">笔记</h2>
+                        </div>
+                        <div className="h-[500px]">
+                            <NoteEditor
+                                projectId={projectId}
+                                resultId={result.resultId}
+                                initialContent={result.note as any}
+                                onSaveSuccess={() => console.log("Note saved successfully")}
+                                onSaveError={(error) => console.error("Failed to save note:", error)}
+                            />
+                        </div>
                     </div>
                 </div>
             </div>
