@@ -4,8 +4,11 @@ import asyncio
 import os
 import time
 import uuid
+import mimetypes
 from dataclasses import dataclass
 from typing import Protocol
+
+from sqlalchemy.orm import Session
 
 from core.app.sse.event_bus import GLOBAL_JOB_EVENT_BUS
 from core.app.logs.job_logs import append_job_log
@@ -26,6 +29,7 @@ from core.db.repositories.job_queue import (
     requeue_running_jobs,
 )
 from core.db.models.job import Job
+from core.db.models.asset import Asset
 from core.db.models.project import Project
 
 
@@ -130,6 +134,50 @@ def worker_tick(*, worker_id: str, max_concurrent_jobs: int, lease_ms: int) -> l
 
     return claimed
 
+
+def _ensure_source_video_asset(*, session: Session, project: Project) -> str | None:
+    """Best-effort: register the project's source media as an Asset.
+
+    This enables the frontend video player to stream via /api/v1/assets/{assetId}/content.
+    """
+
+    rel = project.source_path
+    if not isinstance(rel, str) or not rel:
+        return None
+
+    # Avoid duplicates: if we've already registered this file_path, reuse it.
+    existing = (
+        session.query(Asset)
+        .filter(Asset.project_id == project.project_id, Asset.kind == "video", Asset.file_path == rel)
+        .first()
+    )
+    if existing is not None:
+        return existing.asset_id
+
+    # Guess mime from extension; keep conservative fallback.
+    mime, _ = mimetypes.guess_type(rel)
+    if not mime:
+        mime = "video/mp4"
+
+    now_ms = _now_ms()
+    asset_id = str(uuid.uuid4())
+    session.add(
+        Asset(
+            asset_id=asset_id,
+            project_id=project.project_id,
+            kind="video",
+            origin="generated",
+            mime_type=mime,
+            width=None,
+            height=None,
+            file_path=rel,
+            chapter_id=None,
+            time_ms=None,
+            created_at_ms=now_ms,
+        )
+    )
+    session.commit()
+    return asset_id
 
 class PipelineJobProcessor:
     """MVP pipeline runner for WT-BE-06.
@@ -373,13 +421,20 @@ class PipelineJobProcessor:
                     GLOBAL_JOB_EVENT_BUS.emit_state(job_id=job.job_id, project_id=job.project_id, stage=job.stage, message="status=running")
                     GLOBAL_JOB_EVENT_BUS.emit_progress(job_id=job.job_id, project_id=job.project_id, stage=job.stage, progress=job.progress, message="progress=0.99")
 
+                    # Provide a playable source video asset to the frontend.
+                    # This is derived from project.source_path (downloaded via yt-dlp for URL sources).
+                    asset_refs = list(keyframes_artifacts.asset_refs or [])
+                    video_asset_id = _ensure_source_video_asset(session=session, project=project)
+                    if video_asset_id:
+                        asset_refs.insert(0, {"assetId": video_asset_id, "kind": "video"})
+
                     assemble_result(
                         session,
                         project_id=project.project_id,
                         chapters=chapters_payload,
                         highlights=highlights,
                         mindmap=mindmap,
-                        asset_refs=keyframes_artifacts.asset_refs,
+                        asset_refs=asset_refs,
                         pipeline_version=os.environ.get("PIPELINE_VERSION") or "0",
                     )
 

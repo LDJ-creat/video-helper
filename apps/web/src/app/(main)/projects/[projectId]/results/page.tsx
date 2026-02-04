@@ -119,9 +119,10 @@ export default function ResultPage() {
         );
     }
 
-    // 获取视频资源 URL（假设是第一个 assetRef）
-    const videoAsset = result.assetRefs.find((ref) => ref.kind !== "screenshot");
-    const videoSrc = videoAsset ? endpoints.assetContent(videoAsset.assetId) : "";
+    // 获取视频资源 URL：后端会在 assetRefs 里提供 kind=video 的源视频资产。
+    const videoAsset = result.assetRefs.find((ref) => ref.kind === "video")
+        ?? result.assetRefs.find((ref) => ref.kind !== "screenshot");
+    const videoSrc = videoAsset ? endpoints.assetContent(videoAsset.assetId) : undefined;
 
     // 收集所有章节的关键帧（用于 Keyframes Tab）
     const allKeyframes = result.chapters.flatMap((ch) => ch.keyframes);

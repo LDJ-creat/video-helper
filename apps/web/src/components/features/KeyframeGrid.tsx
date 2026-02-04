@@ -3,7 +3,7 @@
 import type { Keyframe } from "@/lib/contracts/resultTypes";
 import { formatTime, msToSeconds } from "@/lib/utils/timeUtils";
 import { endpoints } from "@/lib/api/endpoints";
-
+import Image from "next/image";
 type KeyframeGridProps = {
     keyframes: Keyframe[];
     onKeyframeClick: (timeMs: number) => void;
@@ -45,6 +45,14 @@ export function KeyframeGrid({ keyframes, onKeyframeClick, isLoading = false }: 
                             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
                             loading="lazy"
                         />
+                        {/* <Image
+                            src={endpoints.assetContent(keyframe.assetId)}
+                            alt={keyframe.caption || "关键帧"}
+                            fill
+                            className="object-cover group-hover:scale-105 transition-transform duration-200"
+                            loading="lazy"
+                            sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+                        /> */}
                     </div>
 
                     {/* 时间标签（左上角） */}

@@ -56,7 +56,7 @@ export type Highlight = {
 // Asset 引用类型
 export type AssetRef = {
     assetId: string;
-    kind: "screenshot" | "upload" | "user_image" | "cover";
+    kind: "screenshot" | "upload" | "user_image" | "cover" | "video";
 };
 
 // Result 核心类型
@@ -76,7 +76,7 @@ export type Result = {
 export type Asset = {
     assetId: string;
     projectId: string;
-    kind: "screenshot" | "upload" | "user_image" | "cover";
+    kind: "screenshot" | "upload" | "user_image" | "cover" | "video";
     origin: "generated" | "uploaded" | "remote";
     mime?: string;
     width?: number;

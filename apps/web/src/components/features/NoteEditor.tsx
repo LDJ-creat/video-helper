@@ -55,6 +55,7 @@ export function NoteEditor({
             hasPendingChangesRef.current = true;
             scheduleAutosave();
         },
+        immediatelyRender: false,  // 添加这一行
         editorProps: {
             attributes: {
                 class: "prose prose-stone max-w-none focus:outline-none min-h-[300px] px-4 py-3",

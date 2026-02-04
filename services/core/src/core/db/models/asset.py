@@ -12,7 +12,7 @@ class Asset(Base):
     asset_id: Mapped[str] = mapped_column(String, primary_key=True)
     project_id: Mapped[str] = mapped_column(String, nullable=False)
 
-    kind: Mapped[str] = mapped_column(String, nullable=False)  # screenshot | upload | user_image | cover
+    kind: Mapped[str] = mapped_column(String, nullable=False)  # screenshot | video | upload | user_image | cover
     origin: Mapped[str] = mapped_column(String, nullable=False)  # generated | uploaded | remote
 
     mime_type: Mapped[str | None] = mapped_column(String, nullable=True)

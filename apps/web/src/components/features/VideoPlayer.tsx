@@ -12,7 +12,7 @@ export type VideoPlayerRef = {
 };
 
 type VideoPlayerProps = {
-    src: string;
+    src?: string | null;
     className?: string;
     onTimeUpdate?: (currentTimeMs: number) => void;
 };
@@ -103,15 +103,26 @@ export const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(
             };
         }, [onTimeUpdate]);
 
+        const safeSrc = (src || "").trim();
+
         return (
             <div className={`bg-black rounded-lg overflow-hidden ${className}`}>
                 {/* 视频元素 */}
-                <video
-                    ref={videoRef}
-                    src={src}
-                    className="w-full aspect-video"
-                    preload="metadata"
-                />
+                {safeSrc ? (
+                    <video
+                        ref={videoRef}
+                        src={safeSrc}
+                        className="w-full aspect-video"
+                        preload="metadata"
+                    />
+                ) : (
+                    <div className="w-full aspect-video flex items-center justify-center bg-black text-stone-300">
+                        <div className="text-center px-6">
+                            <div className="text-sm font-medium">暂无可播放视频资源</div>
+                            <div className="text-xs text-stone-400 mt-1">当前结果仅包含关键帧截图等资源</div>
+                        </div>
+                    </div>
+                )}
 
                 {/* 控制栏 */}
                 <div className="bg-stone-900 px-4 py-3 space-y-2">
@@ -144,6 +155,7 @@ export const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(
                             <button
                                 onClick={handlePlayPause}
                                 className="text-white hover:text-orange-400 transition-colors"
+                                disabled={!safeSrc}
                             >
                                 {isPlaying ? (
                                     <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 24 24">
@@ -161,6 +173,7 @@ export const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(
                                 onClick={() => handleSkip(10)}
                                 className="text-white hover:text-orange-400 transition-colors"
                                 title="前进 10 秒"
+                                disabled={!safeSrc}
                             >
                                 <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.933 12.8a1 1 0 000-1.6L6.6 7.2A1 1 0 005 8v8a1 1 0 001.6.8l5.333-4zM19.933 12.8a1 1 0 000-1.6l-5.333-4A1 1 0 0013 8v8a1 1 0 001.6.8l5.333-4z" />
@@ -186,6 +199,7 @@ export const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(
                                 value={volume}
                                 onChange={handleVolumeChange}
                                 className="w-20 h-1 bg-stone-700 rounded-lg appearance-none cursor-pointer accent-orange-600"
+                                disabled={!safeSrc}
                             />
                         </div>
                     </div>
