@@ -3,8 +3,9 @@ from __future__ import annotations
 import hashlib
 import os
 
-from core.app.pipeline.analyze_provider import AnalyzeError, AnalyzeProvider, llm_provider_from_env
+from core.app.pipeline.analyze_provider import AnalyzeError, AnalyzeProvider, llm_provider_from_runtime
 from core.contracts.error_codes import ErrorCode
+from core.settings import SettingsFileError, get_effective_analyze_settings, resolve_llm_api_key
 
 
 def build_mindmap(*, chapters: list[dict], highlights: list[dict]) -> dict:
@@ -217,17 +218,32 @@ def build_mindmap_llm(*, chapters: list[dict], highlights: list[dict], provider:
 
 
 def generate_mindmap(*, chapters: list[dict], highlights: list[dict], llm_transport: object | None = None) -> dict:
-	provider_kind = (os.environ.get("ANALYZE_PROVIDER") or "").strip().lower()
-	allow_fallback = _env_bool("ANALYZE_ALLOW_RULES_FALLBACK", False)
+	allow_fallback_env = _env_bool("ANALYZE_ALLOW_RULES_FALLBACK", False)
+	try:
+		settings = get_effective_analyze_settings()
+	except SettingsFileError:
+		if allow_fallback_env:
+			return build_mindmap(chapters=chapters, highlights=highlights)
+		raise AnalyzeError(
+			code=ErrorCode.JOB_STAGE_FAILED,
+			message="Invalid persisted settings",
+			details={"reason": "invalid_settings_file", "task": "mindmap"},
+		)
 
-	if provider_kind != "llm":
+	if settings.provider != "llm":
 		return build_mindmap(chapters=chapters, highlights=highlights)
 
 	try:
-		provider = llm_provider_from_env(transport=llm_transport)  # type: ignore[arg-type]
+		provider = llm_provider_from_runtime(
+			api_base=settings.base_url,
+			api_key=resolve_llm_api_key(),
+			model=settings.model,
+			timeout_s=settings.timeout_s,
+			transport=llm_transport,  # type: ignore[arg-type]
+		)
 		return build_mindmap_llm(chapters=chapters, highlights=highlights, provider=provider)
 	except AnalyzeError:
-		if allow_fallback:
+		if settings.allow_rules_fallback:
 			return build_mindmap(chapters=chapters, highlights=highlights)
 		raise
 
