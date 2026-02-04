@@ -100,12 +100,12 @@ development_status:
   epic-8-retrospective: optional
 
   epic-9: in-progress
-  9-1-be-core-note-save: ready-for-dev
+  9-1-be-core-note-save: review
   9-2-fe-web-tiptap-autosave: done
-  9-3-be-core-mindmap-save: ready-for-dev
+  9-3-be-core-mindmap-save: review
   9-4-fe-web-reactflow-autosave: done
-  9-5-be-core-chapter-edit: ready-for-dev
-  9-6-be-core-asset-binding: ready-for-dev
+  9-5-be-core-chapter-edit: review
+  9-6-be-core-asset-binding: review
   epic-9-retrospective: optional
 
   epic-10: in-progress

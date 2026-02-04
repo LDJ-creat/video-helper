@@ -7,6 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import NullPool
 
 
 def _default_data_dir() -> Path:
@@ -67,12 +68,22 @@ def reset_db_for_tests() -> None:
 def get_engine() -> Engine:
 	global _ENGINE
 	if _ENGINE is None:
+		import os
+
 		db_path = _sqlite_db_path()
 		db_path.parent.mkdir(parents=True, exist_ok=True)
 
+		# Pytest on Windows can fail to delete TemporaryDirectory sqlite files if a
+		# pooled connection keeps the DB file handle open. Use NullPool for tests.
+		# (Runtime keeps the default pool.)
+		use_null_pool = bool(os.environ.get("PYTEST_CURRENT_TEST"))
+		kwargs = {"future": True}
+		if use_null_pool:
+			kwargs["poolclass"] = NullPool
+
 		_ENGINE = create_engine(
 			f"sqlite+pysqlite:///{db_path.as_posix()}",
-			future=True,
+			**kwargs,
 		)
 	return _ENGINE
 
@@ -148,6 +159,16 @@ def _ensure_sqlite_schema_compat() -> None:
 			conn.execute(text("ALTER TABLE jobs ADD COLUMN transcript_ref TEXT"))
 		if "transcript_meta" not in job_cols:
 			conn.execute(text("ALTER TABLE jobs ADD COLUMN transcript_meta TEXT"))
+
+		# results.updated_at_ms was added for editing APIs (note/mindmap/keyframes).
+		try:
+			result_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(results)"))]
+		except Exception:
+			return
+
+		if "updated_at_ms" not in result_cols:
+			conn.execute(text("ALTER TABLE results ADD COLUMN updated_at_ms INTEGER NOT NULL DEFAULT 0"))
+			conn.execute(text("UPDATE results SET updated_at_ms = created_at_ms WHERE updated_at_ms = 0"))
 
 
 def get_db_session() -> Generator[Session, None, None]:

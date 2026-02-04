@@ -15,6 +15,7 @@ class Result(Base):
     schema_version: Mapped[str] = mapped_column(String, nullable=False)
     pipeline_version: Mapped[str] = mapped_column(String, nullable=False)
     created_at_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    updated_at_ms: Mapped[int] = mapped_column(Integer, nullable=False)
 
     chapters: Mapped[list[dict]] = mapped_column(JSON, nullable=False)
     highlights: Mapped[list[dict]] = mapped_column(JSON, nullable=False)

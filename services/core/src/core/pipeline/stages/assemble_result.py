@@ -53,6 +53,7 @@ def assemble_result(
 		schema_version=schema_version,
 		pipeline_version=pipeline_version,
 		created_at_ms=now_ms,
+		updated_at_ms=now_ms,
 		chapters=chapters,
 		highlights=highlights,
 		mindmap=mindmap,

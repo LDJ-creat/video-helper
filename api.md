@@ -277,9 +277,172 @@ data: {"eventId":"13","tsMs":1738030000456,"jobId":"...","projectId":"...","stag
 
 ### 4) 用户编辑（Note / Mindmap / Keyframes）
 
-- 更新笔记标题/内容接口：用于用户编辑后保存。
-- 更新思维导图接口：用于用户编辑节点/连线后保存。
-- 更新关键帧/图片关联接口：用于把图片（截图/用户提供）与某个章节/笔记模块进行绑定或替换。
+目标：冻结“写入类接口”路径/字段/错误码，避免 FE/其它代理自行发挥。
+
+通用约定：
+
+- 写入目标：只写 `GET /projects/{projectId}/results/latest` 所返回的 **latest result**（覆盖式更新，不做结果版本化）。
+- 成功响应：统一返回 `{ "updatedAtMs": number }`，并返回响应头 `ETag: W/"{updatedAtMs}"`（best-effort 作为前端对账锚点）。
+
+#### 保存笔记（TipTap JSON）
+
+**PUT /api/v1/projects/{projectId}/results/latest/note**
+
+请求（`application/json`）：支持两种形态（推荐 1）：
+
+1) 包一层 `note`：
+
+```json
+{
+	"note": {
+		"type": "doc",
+		"content": []
+	}
+}
+```
+
+2) 直接传 TipTap JSON 根对象：
+
+```json
+{
+	"type": "doc",
+	"content": []
+}
+```
+
+最小校验：
+
+- `note` 必须是 object
+- `note.type` 必须是非空字符串
+- `note.content` 缺省时会补 `[]`；若存在则必须是 array
+
+响应（200）：
+
+```json
+{ "updatedAtMs": 1738030000456 }
+```
+
+错误：
+
+- 404：`PROJECT_NOT_FOUND` | `RESULT_NOT_FOUND`
+- 400：`VALIDATION_ERROR`
+- 500：`INTERNAL_ERROR`
+
+#### 保存思维导图（nodes/edges）
+
+**PUT /api/v1/projects/{projectId}/results/latest/mindmap**
+
+请求（`application/json`）：支持两种形态（推荐 1）：
+
+1) 包一层 `mindmap`：
+
+```json
+{
+	"mindmap": {
+		"nodes": [{"id": "n1", "label": "Intro"}],
+		"edges": [{"id": "e1", "source": "n1", "target": "n2"}]
+	}
+}
+```
+
+2) 直接传 mindmap 根对象：
+
+```json
+{
+	"nodes": [{"id": "n1", "label": "Intro"}],
+	"edges": [{"id": "e1", "source": "n1", "target": "n2"}]
+}
+```
+
+最小校验（MVP，但要可控）：
+
+- `nodes`/`edges` 必须是 array
+- `nodes[*].id` 必须是非空字符串，且全局唯一
+- `edges[*]` 必须包含 `id/source/target`，并且 `source/target` 必须引用已存在的 node id
+- 字段白名单（出现额外字段会 400）：
+	- node：`id` `type` `label` `chapterId` `position` `data`
+	- edge：`id` `source` `target` `label`
+
+响应（200）：
+
+```json
+{ "updatedAtMs": 1738030000456 }
+```
+
+错误：
+
+- 404：`PROJECT_NOT_FOUND` | `RESULT_NOT_FOUND`
+- 400：`VALIDATION_ERROR`
+- 500：`INTERNAL_ERROR`
+
+#### 编辑章节（标题/顺序/可选时间范围）
+
+**PATCH /api/v1/projects/{projectId}/results/latest/chapters/{chapterId}**
+
+请求（`application/json`）：以下字段均可选（至少提供 1 个）。
+
+```json
+{
+	"title": "New Title",
+	"idx": 1,
+	"startMs": 0,
+	"endMs": 60000
+}
+```
+
+语义：
+
+- `title`：修改章节标题（必须是非空字符串）
+- `idx`：修改章节排序；服务端会按 `idx` 重新排序并归一化为 `0..n-1`
+- `startMs/endMs`：默认禁用；仅当环境变量 `ALLOW_CHAPTER_TIME_EDIT=1` 时允许修改，并校验：
+	- `startMs/endMs` 必须是整数，且 `0 <= startMs < endMs`
+	- 按 idx 顺序章节时间范围不允许重叠（否则 `CHAPTER_OVERLAP`）
+
+响应（200）：
+
+```json
+{ "updatedAtMs": 1738030000456 }
+```
+
+错误：
+
+- 404：`PROJECT_NOT_FOUND` | `RESULT_NOT_FOUND` | `CHAPTER_NOT_FOUND`
+- 400：`VALIDATION_ERROR` | `CHAPTER_TIME_EDIT_DISABLED` | `CHAPTER_OVERLAP`
+- 500：`INTERNAL_ERROR`
+
+#### 更新章节 Keyframes（绑定/替换/排序/解绑）
+
+**PUT /api/v1/projects/{projectId}/results/latest/chapters/{chapterId}/keyframes**
+
+请求（`application/json`）：`keyframes` 必须是 array；每项可为 string（assetId）或 object。
+
+```json
+{
+	"keyframes": [
+		"a01...",
+		{"assetId": "a02...", "timeMs": 12000, "caption": "..."}
+	]
+}
+```
+
+语义：
+
+- 该接口是“替换语义”：用请求中的列表整体替换该章节的 `keyframes`。
+- 服务端会按请求顺序写回 `idx=0..n-1`；重复的 `assetId` 会被去重（保留首次出现）。
+- 资产必须属于同一 project；否则返回 `ASSET_NOT_IN_PROJECT`。
+- 该接口会把新增引用补进 result 的 `assetRefs`（若之前不存在）。
+
+响应（200）：
+
+```json
+{ "updatedAtMs": 1738030000456 }
+```
+
+错误：
+
+- 404：`PROJECT_NOT_FOUND` | `RESULT_NOT_FOUND` | `CHAPTER_NOT_FOUND` | `ASSET_NOT_FOUND`
+- 400：`VALIDATION_ERROR` | `ASSET_NOT_IN_PROJECT`
+- 500：`INTERNAL_ERROR`
 
 建议约定：
 
