@@ -114,3 +114,7 @@ development_status:
   10-3-be-core-settings-validate: ready-for-dev
   10-4-fe-web-settings-page: ready-for-dev
   epic-10-retrospective: optional
+
+  epic-11: in-progress
+  11-1-be-core-smoke-closed-loop: review
+  epic-11-retrospective: optional
