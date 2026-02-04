@@ -1,6 +1,6 @@
 # Story 6.4: [BE/core] 真实 LLM 生成 highlights（analyze/highlights）
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -21,11 +21,11 @@ so that highlights 能真实反映内容而非仅规则采样。
 
 ## Tasks / Subtasks
 
-- [ ] 定义 prompt 输入：按 chapter 切片提供（章节标题+时间范围+该章 transcript 文本）(AC: 1)
-- [ ] 定义 LLM 输出 JSON schema（仅内部约束，不入 contracts）：`items:[{text,timeMs?}]` 或直接生成 ResultDTO 的 `highlights[]` (AC: 1)
-- [ ] 输出规范化：生成稳定 `highlightId`（例如 `h_{chapterId}_{idx}`）与 `idx` (AC: 1)
-- [ ] 质量/安全：限制输入长度（token/字符裁剪），避免超大视频直接 OOM/超时 (AC: 1,2)
-- [ ] fallback：规则化提取实现（必须 deterministic）(AC: 3)
+- [x] 定义 prompt 输入：按 chapter 切片提供（章节标题+时间范围+该章 transcript 文本）(AC: 1)
+- [x] 定义 LLM 输出 JSON schema（仅内部约束，不入 contracts）：`items:[{text,timeMs?}]` 或直接生成 ResultDTO 的 `highlights[]` (AC: 1)
+- [x] 输出规范化：生成稳定 `highlightId`（例如 `h_{chapterId}_{idx}`）与 `idx` (AC: 1)
+- [x] 质量/安全：限制输入长度（token/字符裁剪），避免超大视频直接 OOM/超时 (AC: 1,2)
+- [x] fallback：规则化提取实现（必须 deterministic）(AC: 3)
 
 ## Dev Notes
 
@@ -42,3 +42,27 @@ so that highlights 能真实反映内容而非仅规则采样。
 ### Agent Model Used
 
 GPT-5.2
+
+### Implementation Notes
+
+- `ANALYZE_PROVIDER=llm` 时走 LLM：按 chapter 切片（`title/startMs/endMs` + 该章 transcript 文本，单章文本裁剪到 2500 chars）。
+- 内部 LLM 输出约束：`{chapters:[{chapterId, items:[{text,timeMs?}]}]}`，并强制 `chapterId` 必须来自输入 chapters。
+- 输出规范化：
+   - `highlightId = h_{chapterId}_{idx}`（稳定可复现）
+   - `idx` 从 0 递增
+   - 若 `timeMs` 不在对应 chapter 的 `[startMs,endMs)`，则纠正为 `null`（固定策略）。
+- fallback：当 `ANALYZE_PROVIDER!=llm`，或 llm 不可用且 `ANALYZE_ALLOW_RULES_FALLBACK=1` 时，回退到 deterministic rules（原 MVP 采样）。
+
+### Tests
+
+- `services/core/tests/test_analyze_llm.py` 覆盖：正常输出规范化、timeMs 越界纠正、非法输出触发 `invalid_llm_output`、fallback 可继续产出。
+
+## File List
+
+- services/core/src/core/app/pipeline/highlights.py
+- services/core/src/core/app/worker/worker_loop.py
+- services/core/tests/test_analyze_llm.py
+
+## Change Log
+
+- 2026-02-03: analyze(highlights) 接入真实 LLM 调用与 fallback，并补齐单测。

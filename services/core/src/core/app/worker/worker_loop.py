@@ -9,9 +9,10 @@ from typing import Protocol
 
 from core.app.sse.event_bus import GLOBAL_JOB_EVENT_BUS
 from core.app.logs.job_logs import append_job_log
-from core.app.pipeline.highlights import build_highlights
+from core.app.pipeline.analyze_provider import AnalyzeError
+from core.app.pipeline.highlights import generate_highlights
 from core.app.pipeline.keyframes import extract_keyframes, map_keyframes_error
-from core.app.pipeline.mindmap import build_mindmap
+from core.app.pipeline.mindmap import generate_mindmap
 from core.app.pipeline.segment import build_chapter_error, build_chapters_from_transcript
 from core.app.pipeline.transcribe_real import map_transcribe_error, run_real_transcribe
 from core.contracts.error_codes import ErrorCode
@@ -316,7 +317,7 @@ class PipelineJobProcessor:
                     GLOBAL_JOB_EVENT_BUS.emit_state(job_id=job.job_id, project_id=job.project_id, stage=job.stage, message="status=running")
                     GLOBAL_JOB_EVENT_BUS.emit_progress(job_id=job.job_id, project_id=job.project_id, stage=job.stage, progress=job.progress, message="progress=0.92")
 
-                    highlights = build_highlights(transcript=job.transcript or {}, chapters=chapters_payload)
+                    highlights = generate_highlights(transcript=job.transcript or {}, chapters=chapters_payload)
 
                     job.stage = "mindmap"
                     job.progress = max(job.progress or 0.0, 0.94)
@@ -328,7 +329,7 @@ class PipelineJobProcessor:
                     GLOBAL_JOB_EVENT_BUS.emit_state(job_id=job.job_id, project_id=job.project_id, stage=job.stage, message="status=running")
                     GLOBAL_JOB_EVENT_BUS.emit_progress(job_id=job.job_id, project_id=job.project_id, stage=job.stage, progress=job.progress, message="progress=0.94")
 
-                    mindmap = build_mindmap(chapters=chapters_payload, highlights=highlights)
+                    mindmap = generate_mindmap(chapters=chapters_payload, highlights=highlights)
 
                     _log(job_id=job.job_id, project_id=job.project_id, stage=job.stage, level="info", message="analyze finished")
 
@@ -415,6 +416,8 @@ class PipelineJobProcessor:
                     error = map_keyframes_error(e)
                 elif job.stage == "assemble_result" and isinstance(e, AssembleResultError):
                     error = {"code": ErrorCode.JOB_STAGE_FAILED, "message": str(e), "details": {"reason": e.kind}}
+                elif job.stage in {"highlights", "mindmap"} and isinstance(e, AnalyzeError):
+                    error = e.to_error()
                 else:
                     error = build_chapter_error(message=str(e), details={"reason": "unexpected"})
                 mark_job_failed(session, job_id=job.job_id, now_ms=_now_ms(), error=error)

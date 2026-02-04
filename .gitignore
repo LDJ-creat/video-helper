@@ -26,3 +26,6 @@ data/**
 #test
 test_*.py
 tests/*
+
+# Keep specific backend unit test tracked
+!services/core/tests/test_analyze_llm.py
