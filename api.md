@@ -289,9 +289,122 @@ data: {"eventId":"13","tsMs":1738030000456,"jobId":"...","projectId":"...","stag
 
 - 搜索接口：根据关键词搜索笔记（MVP 可先做标题/摘要；后续再扩展到 transcript/RAG）。
 
+#### Search API
+
+**GET /api/v1/search**
+
+Query Parameters:
+
+- `query` string（必填，非空；大小写不敏感）
+- `limit` number（可选，默认 20；范围 1..200）
+- `cursor` string（可选，opaque cursor）
+
+响应：Cursor Pagination（统一）
+
+```json
+{
+	"items": [
+		{
+			"projectId": "2d2f...",
+			"chapterId": "c01..."
+		}
+	],
+	"nextCursor": null
+}
+```
+
+说明：
+
+- `items[].projectId` 必填，用于跳转到 Project。
+- `items[].chapterId` 可选：当 query 命中章节标题/摘要或 highlights 文本时，后端尽力返回可定位章节；否则为 `null`。
+- 排序与分页：稳定排序（推荐按 `projects.updatedAtMs desc, projects.projectId desc`），cursor 编码最后一条的排序键。
+
+错误：query 为空
+
+```json
+{
+	"error": {
+		"code": "VALIDATION_ERROR",
+		"message": "Query must be non-empty",
+		"details": {"reason": "invalid_query"},
+		"requestId": "req_01J..."
+	}
+}
+```
+
 ### 6) 模型与提供方配置
 
 - 模型 API 设置接口：用于配置当前使用的模型提供方与参数（例如云端 API、或本地 Ollama）；需要明确是否持久化与适用范围（桌面端/本机）。
+
+#### Analyze Settings API（非敏感读取）
+
+**GET /api/v1/settings/analyze**
+
+功能：返回当前生效的“分析/LLM 相关配置”的非敏感字段。
+
+关键约束：
+
+- **永不返回 API key**
+- **永不落盘 API key**（Key 只允许从 env 或运行态注入获取，例如请求头）
+
+响应（示例）：
+
+```json
+{
+	"provider": "llm",
+	"baseUrl": "https://integrate.api.nvidia.com/v1",
+	"model": "minimax-2.1",
+	"timeoutS": 60,
+	"allowRulesFallback": true,
+	"debug": false
+}
+```
+
+字段说明：
+
+- `provider`: string（`llm` | `rules`；MVP 可扩展）
+- `baseUrl`: string | null（LLM provider base URL；不含 key）
+- `model`: string | null
+- `timeoutS`: number
+- `allowRulesFallback`: boolean（当 LLM 不可用/配置缺失时是否允许 rules fallback）
+- `debug`: boolean（仅允许输出安全元数据，不输出 prompt/response）
+
+错误：settings 持久化文件存在但不可解析（示例）
+
+```json
+{
+	"error": {
+		"code": "VALIDATION_ERROR",
+		"message": "Invalid settings file",
+		"details": {"reason": "invalid_settings_file"},
+		"requestId": "req_01J..."
+	}
+}
+```
+
+#### Settings 存储（非敏感落盘）
+
+默认位置：`DATA_DIR/settings.json`
+
+建议 JSON 形态（只允许非敏感字段）：
+
+```json
+{
+	"analyze": {
+		"provider": "llm",
+		"baseUrl": "https://integrate.api.nvidia.com/v1",
+		"model": "minimax-2.1",
+		"timeoutS": 60,
+		"allowRulesFallback": true,
+		"debug": false
+	}
+}
+```
+
+运行态 Key 读取约束（不落盘）：
+
+- 环境变量：`LLM_API_KEY`
+- 可选：请求头注入（例如 `X-LLM-API-KEY`）
 
 ---
 

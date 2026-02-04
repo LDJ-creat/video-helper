@@ -8,4 +8,8 @@ export const queryKeys = {
   // Results & Assets query keys
   result: (projectId: string) => ["results", projectId] as const,
   asset: (assetId: string) => ["assets", assetId] as const,
+  // Search query keys
+  search: (query: string) => ["search", query] as const,
+  // Settings query keys
+  settings: ["settings"] as const,
 };

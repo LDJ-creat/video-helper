@@ -19,4 +19,8 @@ export const endpoints = {
     saveNote: (projectId: string, resultId: string) => `${API_V1}/projects/${projectId}/results/${resultId}/note`,
     // Mindmap endpoints
     saveMindmap: (projectId: string, resultId: string) => `${API_V1}/projects/${projectId}/results/${resultId}/mindmap`,
+    // Search endpoints
+    search: () => `${API_V1}/search`,
+    // Settings endpoints
+    settingsAnalyze: () => `${API_V1}/settings/analyze`,
 };
