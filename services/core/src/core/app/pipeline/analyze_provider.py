@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from urllib.parse import urlparse
 from typing import Any, Protocol
 
 import httpx
@@ -294,3 +295,63 @@ def llm_provider_from_env(*, transport: httpx.BaseTransport | None = None) -> LL
 		)
 
 	return LLMAnalyzeProvider(api_base=api_base, api_key=api_key, model=model, timeout_s=timeout_s, transport=transport)
+
+
+def llm_provider_from_runtime(
+	*,
+	api_base: str | None,
+	api_key: str | None,
+	model: str | None,
+	timeout_s: int,
+	transport: httpx.BaseTransport | None = None,
+) -> LLMAnalyzeProvider:
+	"""Build an LLM provider from already-resolved runtime config.
+
+	This is used by pipeline stages that support dynamic, non-sensitive settings.
+	"""
+
+	api_base = (api_base or "").strip() or None
+	api_key = (api_key or "").strip() or None
+	model = (model or "").strip() or None
+
+	if not api_base:
+		raise AnalyzeError(
+			code=ErrorCode.JOB_STAGE_FAILED,
+			message="Invalid analyze settings",
+			details={"reason": "invalid_settings", "missingField": "baseUrl"},
+		)
+
+	# Minimal URL validation for operator-friendliness.
+	try:
+		p = urlparse(api_base)
+		scheme = (p.scheme or "").lower()
+		if scheme not in {"http", "https"} or not p.netloc:
+			raise ValueError("bad url")
+	except Exception:
+		raise AnalyzeError(
+			code=ErrorCode.JOB_STAGE_FAILED,
+			message="Invalid analyze settings",
+			details={"reason": "invalid_settings", "badField": "baseUrl"},
+		)
+
+	if not model:
+		raise AnalyzeError(
+			code=ErrorCode.JOB_STAGE_FAILED,
+			message="Invalid analyze settings",
+			details={"reason": "invalid_settings", "missingField": "model"},
+		)
+
+	if not api_key:
+		raise AnalyzeError(
+			code=ErrorCode.JOB_STAGE_FAILED,
+			message="LLM credentials missing",
+			details={"reason": "missing_credentials", "suggest": "Set LLM_API_KEY"},
+		)
+
+	return LLMAnalyzeProvider(
+		api_base=api_base,
+		api_key=api_key,
+		model=_normalize_model_id(model),
+		timeout_s=float(max(1, int(timeout_s))),
+		transport=transport,
+	)

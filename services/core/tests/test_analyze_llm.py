@@ -5,7 +5,7 @@ import os
 import httpx
 import pytest
 
-from core.app.pipeline.analyze_provider import AnalyzeError, llm_provider_from_env
+from core.app.pipeline.analyze_provider import AnalyzeError, llm_provider_from_env, llm_provider_from_runtime
 from core.app.pipeline.highlights import build_highlights_llm, generate_highlights
 from core.app.pipeline.mindmap import build_mindmap_llm, generate_mindmap
 from core.app.pipeline.transcribe import build_placeholder_transcript
@@ -76,6 +76,22 @@ def test_llm_provider_missing_credentials_maps_reason() -> None:
 	assert ei.value.details.get("reason") == "missing_credentials"
 
 
+def test_llm_provider_from_runtime_validates_settings_fields() -> None:
+	with pytest.raises(AnalyzeError) as ei1:
+		llm_provider_from_runtime(api_base="not-a-url", api_key="sk-test-SECRET", model="m", timeout_s=5)
+	assert ei1.value.details.get("reason") == "invalid_settings"
+	assert ei1.value.details.get("badField") == "baseUrl"
+
+	with pytest.raises(AnalyzeError) as ei2:
+		llm_provider_from_runtime(api_base="https://example.invalid", api_key="sk-test-SECRET", model="", timeout_s=5)
+	assert ei2.value.details.get("reason") == "invalid_settings"
+	assert ei2.value.details.get("missingField") == "model"
+
+	with pytest.raises(AnalyzeError) as ei3:
+		llm_provider_from_runtime(api_base="https://example.invalid", api_key=None, model="m", timeout_s=5)
+	assert ei3.value.details.get("reason") == "missing_credentials"
+
+
 class _StubProvider:
 	def __init__(self, result: dict):
 		self._result = result
@@ -118,6 +134,24 @@ def test_generate_highlights_falls_back_when_llm_unavailable() -> None:
 	hls = generate_highlights(transcript=transcript, chapters=chapters)
 	assert isinstance(hls, list) and len(hls) >= 1
 	assert hls[0]["chapterId"] == "ch_1"
+
+
+def test_generate_highlights_invalid_settings_file_maps_reason(tmp_path) -> None:
+	os.environ["DATA_DIR"] = str(tmp_path)
+	(tmp_path / "settings.json").write_text("{not-json", encoding="utf-8")
+
+	transcript = build_placeholder_transcript(duration_ms=10_000, segment_ms=5_000)
+	chapters = [{"chapterId": "ch_1", "idx": 0, "title": "C1", "summary": "", "startMs": 0, "endMs": 10_000}]
+
+	_set_env(ANALYZE_PROVIDER="llm", ANALYZE_ALLOW_RULES_FALLBACK="0")
+	with pytest.raises(AnalyzeError) as ei:
+		generate_highlights(transcript=transcript, chapters=chapters)
+	assert ei.value.details.get("reason") == "invalid_settings_file"
+
+	# When fallback enabled, keep pipeline moving.
+	_set_env(ANALYZE_PROVIDER="llm", ANALYZE_ALLOW_RULES_FALLBACK="1")
+	hls = generate_highlights(transcript=transcript, chapters=chapters)
+	assert isinstance(hls, list) and len(hls) >= 1
 
 
 def test_highlights_llm_invalid_output_maps_reason() -> None:
