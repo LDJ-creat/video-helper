@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import time
 import uuid
 from pathlib import Path
@@ -16,10 +17,14 @@ from core.contracts.progress import normalize_progress
 from core.contracts.stages import PublicStage, to_public_stage
 from core.app.sse.event_bus import GLOBAL_JOB_EVENT_BUS
 from core.app.metadata.video_metadata import MetadataError, extract_video_metadata
+from core.db.repositories.llm_settings import get_llm_active, get_llm_provider_secret_ciphertext
 from core.db.repositories.jobs import get_job_by_id
 from core.db.models.job import Job
 from core.db.models.project import Project
 from core.db.session import get_db_session
+from core.llm.active_test import LLMActiveTestError, run_llm_connectivity_test
+from core.llm.catalog import find_provider, resolve_runtime_model_name
+from core.llm.secrets_crypto import decrypt_api_key
 from core.schemas.jobs import CreateJobRequest, JobCreatedDTO, JobDTO
 from core.schemas.logs import JobLogsPageDTO, LogItemDTO
 from core.app.logs.job_logs import read_job_logs_page
@@ -79,6 +84,144 @@ def _is_supported_upload_filename(name: str | None) -> bool:
 		return False
 	suffix = Path(name).suffix.lower()
 	return suffix in {".mp4", ".mkv", ".webm", ".mov"}
+
+
+def _env_str(name: str) -> str | None:
+	import os
+
+	raw = os.environ.get(name)
+	if raw is None:
+		return None
+	raw = raw.strip()
+	return raw or None
+
+
+def _env_int(name: str, default: int) -> int:
+	raw = _env_str(name)
+	if raw is None:
+		return default
+	try:
+		return int(raw)
+	except ValueError:
+		return default
+
+
+def _normalize_model_id(model: str) -> str:
+	"""Keep consistent with pipeline LLM normalization."""
+
+	m = (model or "").strip()
+	lower = m.lower().replace("_", "-")
+	if lower in {"minimax-2.1", "minimax2.1", "minimax 2.1", "minimax-m2.1", "minimax-m2_1"}:
+		return "minimaxai/minimax-m2.1"
+	return m
+
+
+async def _llm_preflight_or_error(request: Request, session: Session) -> JSONResponse | None:
+	"""Verify LLM connectivity before accepting a job.
+
+	Rules:
+	- If SQLite `llm_active` exists: LLM is considered selected -> preflight required.
+	- Else: preflight required only when env `ANALYZE_PROVIDER=llm`.
+
+	On failure, returns an error envelope response and job creation is aborted.
+	"""
+
+	active = get_llm_active(session)
+	if isinstance(active, dict):
+		provider_id = (active.get("providerId") or "").strip().lower()
+		model_id = (active.get("modelId") or "").strip()
+		provider = find_provider(provider_id)
+		if provider is None:
+			return JSONResponse(
+				status_code=400,
+				content=build_error_envelope(
+					code=ErrorCode.VALIDATION_ERROR,
+					message="Invalid LLM settings",
+					details={"reason": "unknown_provider", "providerId": provider_id},
+					request_id=getattr(request.state, "request_id", None),
+				),
+			)
+
+		runtime_model = resolve_runtime_model_name(provider_id=provider.provider_id, model_id=model_id)
+		if not runtime_model:
+			return JSONResponse(
+				status_code=400,
+				content=build_error_envelope(
+					code=ErrorCode.VALIDATION_ERROR,
+					message="Invalid LLM settings",
+					details={"reason": "model_not_found", "providerId": provider.provider_id, "modelId": model_id},
+					request_id=getattr(request.state, "request_id", None),
+				),
+			)
+
+		ciphertext = get_llm_provider_secret_ciphertext(session, provider_id=provider.provider_id)
+		if not ciphertext:
+			return JSONResponse(
+				status_code=400,
+				content=build_error_envelope(
+					code=ErrorCode.VALIDATION_ERROR,
+					message="LLM credentials missing",
+					details={"reason": "missing_credentials"},
+					request_id=getattr(request.state, "request_id", None),
+				),
+			)
+
+		try:
+			api_key = decrypt_api_key(ciphertext)
+		except Exception:
+			return JSONResponse(
+				status_code=400,
+				content=build_error_envelope(
+					code=ErrorCode.VALIDATION_ERROR,
+					message="Invalid LLM credentials",
+					details={"reason": "invalid_credentials"},
+					request_id=getattr(request.state, "request_id", None),
+				),
+			)
+
+		base_url = provider.base_url
+		model = runtime_model
+	else:
+		if (_env_str("ANALYZE_PROVIDER") or "").lower() != "llm":
+			return None
+
+		base_url = _env_str("LLM_API_BASE")
+		api_key = _env_str("LLM_API_KEY")
+		model = _normalize_model_id(_env_str("LLM_MODEL") or "minimaxai/minimax-m2.1")
+		if not base_url or not api_key:
+			return JSONResponse(
+				status_code=400,
+				content=build_error_envelope(
+					code=ErrorCode.VALIDATION_ERROR,
+					message="LLM credentials missing",
+					details={"reason": "missing_credentials", "suggest": "Set LLM_API_BASE and LLM_API_KEY"},
+					request_id=getattr(request.state, "request_id", None),
+				),
+			)
+
+	# Keep job creation fast even if operator sets a large timeout for full requests.
+	env_timeout_s = float(max(1, _env_int("LLM_TIMEOUT_S", 60)))
+	timeout_s = min(10.0, env_timeout_s)
+
+	try:
+		await asyncio.to_thread(
+			run_llm_connectivity_test,
+			base_url=base_url,
+			api_key=api_key,
+			model=model,
+			timeout_s=timeout_s,
+		)
+		return None
+	except LLMActiveTestError as e:
+		return JSONResponse(
+			status_code=400,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message="LLM preflight failed",
+				details={"reason": e.reason},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
 
 
 @router.post("/jobs", response_model=JobCreatedDTO)
@@ -145,6 +288,10 @@ async def create_job(request: Request, session: Session = Depends(get_db_session
 					request_id=getattr(request.state, "request_id", None),
 				),
 			)
+
+		preflight = await _llm_preflight_or_error(request, session)
+		if preflight is not None:
+			return preflight
 
 		now_ms = _now_ms()
 		project_id = str(uuid.uuid4())
@@ -217,6 +364,10 @@ async def create_job(request: Request, session: Session = Depends(get_db_session
 					request_id=getattr(request.state, "request_id", None),
 				),
 			)
+
+		preflight = await _llm_preflight_or_error(request, session)
+		if preflight is not None:
+			return preflight
 
 		now_ms = _now_ms()
 		project_id = str(uuid.uuid4())
