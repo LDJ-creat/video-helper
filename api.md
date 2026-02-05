@@ -8,6 +8,7 @@
 
 - Base URL: `/api/v1`
 - Auth：本地默认关闭；远程模式启用 `Authorization: Bearer <token>`
+	- 涉及“写入/删除密钥（secret）”的接口：无论本地/远程，均要求启用 Bearer（或明确的本地 loopback-only 保护开关），避免无意暴露写入口
 - 所有时间戳：Unix epoch milliseconds（number）
 - 所有 ID：UUID string
 
@@ -336,27 +337,130 @@ Query Parameters:
 
 - 模型 API 设置接口：用于配置当前使用的模型提供方与参数（例如云端 API、或本地 Ollama）；需要明确是否持久化与适用范围（桌面端/本机）。
 
-#### Analyze Settings API（非敏感读取）
+（已移除）原 `GET/PUT /api/v1/settings/analyze`：其能力由 vNext 的 `GET /api/v1/settings/llm/catalog` + `GET/PUT /api/v1/settings/llm/active` + secret 接口覆盖。
 
-**GET /api/v1/settings/analyze**
+（已移除）原 `/api/v1/settings/analyze/secret*`：由于方案A需要“按 provider 维度”管理多个 apiKey，该接口无法表达 `providerId`，统一由 vNext 的 provider secret 接口替代。
 
-功能：返回当前生效的“分析/LLM 相关配置”的非敏感字段。
+#### LLM 配置中心（vNext，方案A）
 
-关键约束：
+目标：
 
-- **永不返回 API key**
-- **永不落盘 API key**（Key 只允许从 env 或运行态注入获取，例如请求头）
+- 前端无需手填 baseUrl；后端提供主流 provider 与模型清单（Catalog）
+- 用户可对 provider 配置/修改/删除 apiKey（write-only），并能在列表中看到 hasKey 状态
+- 用户可选择当前使用的 provider + model；后续分析任务默认使用该选择
+- 在创建分析任务前可进行最小连通性测试，失败立即返回可行动错误
+
+安全约束：
+
+- 任意 secret 写接口与 active 修改接口必须受保护（Bearer 或明确 local-only 防护开关）
+- apiKey 永不回显、不得进入日志与错误 details
+
+##### Catalog
+
+**GET /api/v1/settings/llm/catalog**
+
+功能：返回后端内置的 provider 与模型列表（非用户配置）。
 
 响应（示例）：
 
 ```json
 {
-	"provider": "llm",
-	"baseUrl": "https://integrate.api.nvidia.com/v1",
-	"model": "minimax-2.1",
-	"timeoutS": 60,
-	"allowRulesFallback": true,
-	"debug": false
+	"providers": [
+		{
+			"providerId": "openrouter",
+			"displayName": "OpenRouter",
+			"hasKey": true,
+			"secretUpdatedAtMs": 1738030000000,
+			"models": [
+				{"modelId": "openrouter:anthropic/claude-3.5-sonnet", "displayName": "Claude 3.5 Sonnet"},
+				{"modelId": "openrouter:openai/gpt-4o-mini", "displayName": "GPT-4o mini"}
+			]
+		}
+	],
+	"updatedAtMs": 1738030000000
+}
+```
+
+字段说明：
+
+- `providers[].hasKey`：表示该 provider 是否已配置 apiKey（不会回显 key）。
+- `providers[].secretUpdatedAtMs`：当已配置 key 时返回。
+
+##### Secret（write-only）
+
+**PUT /api/v1/settings/llm/providers/{providerId}/secret**
+
+Request Body（示例）：
+
+```json
+{
+	"apiKey": "..."
+}
+```
+
+Response：`{"ok": true}`
+
+**DELETE /api/v1/settings/llm/providers/{providerId}/secret**
+
+Response：`{"ok": true}`
+
+##### Active（当前使用的 provider + model）
+
+**GET /api/v1/settings/llm/active**
+
+Response（示例）：
+
+```json
+{
+	"providerId": "openrouter",
+	"modelId": "openrouter:anthropic/claude-3.5-sonnet",
+	"hasKey": true,
+	"updatedAtMs": 1738030000000
+}
+```
+
+字段说明：
+
+- `hasKey`：表示当前 provider 是否已配置 apiKey（不会回显 key）。
+
+**PUT /api/v1/settings/llm/active**
+
+Request Body（示例）：
+
+```json
+{
+	"providerId": "openrouter",
+	"modelId": "openrouter:anthropic/claude-3.5-sonnet"
+}
+```
+
+Response：`{"ok": true}`
+
+##### Test（连通性/鉴权/模型可用性）
+
+**POST /api/v1/settings/llm/active/test**
+
+功能：对当前 active selection 做最小连通性测试（例如一次轻量 chat/completions）。
+
+Response（示例）：
+
+```json
+{
+	"ok": true,
+	"latencyMs": 234
+}
+```
+
+错误：缺 key（示例）
+
+```json
+{
+	"error": {
+		"code": "VALIDATION_ERROR",
+		"message": "Missing credentials",
+		"details": {"reason": "missing_credentials"},
+		"requestId": "req_01J..."
+	}
 }
 ```
 
@@ -382,29 +486,16 @@ Query Parameters:
 }
 ```
 
-#### Settings 存储（非敏感落盘）
+#### Settings 存储（vNext）
 
-默认位置：`DATA_DIR/settings.json`
+Deprecated：不再写入 `DATA_DIR/settings.json`。
 
-建议 JSON 形态（只允许非敏感字段）：
+vNext 使用 SQLite：
 
-```json
-{
-	"analyze": {
-		"provider": "llm",
-		"baseUrl": "https://integrate.api.nvidia.com/v1",
-		"model": "minimax-2.1",
-		"timeoutS": 60,
-		"allowRulesFallback": true,
-		"debug": false
-	}
-}
-```
+- 当前选择：`llm_active`
+- 每个 provider 的加密密钥：`llm_profile_secrets`
 
-运行态 Key 读取约束（不落盘）：
-
-- 环境变量：`LLM_API_KEY`
-- 可选：请求头注入（例如 `X-LLM-API-KEY`）
+可选运维兜底：仍允许通过环境变量 `LLM_API_KEY` 注入（不落盘），但 UI 场景以 Secret Store 为准。
 
 ---
 

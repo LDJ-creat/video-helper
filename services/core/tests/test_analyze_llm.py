@@ -136,20 +136,20 @@ def test_generate_highlights_falls_back_when_llm_unavailable() -> None:
 	assert hls[0]["chapterId"] == "ch_1"
 
 
-def test_generate_highlights_invalid_settings_file_maps_reason(tmp_path) -> None:
+def test_generate_highlights_missing_credentials_maps_reason_and_fallback(tmp_path) -> None:
 	os.environ["DATA_DIR"] = str(tmp_path)
-	(tmp_path / "settings.json").write_text("{not-json", encoding="utf-8")
 
 	transcript = build_placeholder_transcript(duration_ms=10_000, segment_ms=5_000)
 	chapters = [{"chapterId": "ch_1", "idx": 0, "title": "C1", "summary": "", "startMs": 0, "endMs": 10_000}]
 
-	_set_env(ANALYZE_PROVIDER="llm", ANALYZE_ALLOW_RULES_FALLBACK="0")
+	_set_env(ANALYZE_PROVIDER="llm", LLM_API_BASE="https://example.invalid", ANALYZE_ALLOW_RULES_FALLBACK="0")
+	os.environ.pop("LLM_API_KEY", None)
 	with pytest.raises(AnalyzeError) as ei:
 		generate_highlights(transcript=transcript, chapters=chapters)
-	assert ei.value.details.get("reason") == "invalid_settings_file"
+	assert ei.value.details.get("reason") == "missing_credentials"
 
 	# When fallback enabled, keep pipeline moving.
-	_set_env(ANALYZE_PROVIDER="llm", ANALYZE_ALLOW_RULES_FALLBACK="1")
+	_set_env(ANALYZE_PROVIDER="llm", LLM_API_BASE="https://example.invalid", ANALYZE_ALLOW_RULES_FALLBACK="1")
 	hls = generate_highlights(transcript=transcript, chapters=chapters)
 	assert isinstance(hls, list) and len(hls) >= 1
 
