@@ -7,8 +7,13 @@ from urllib.parse import urlparse
 from typing import Any, Protocol
 
 import httpx
+from sqlalchemy.exc import OperationalError
 
 from core.contracts.error_codes import ErrorCode
+from core.db.repositories.llm_settings import get_llm_active, get_llm_provider_secret_ciphertext
+from core.db.session import get_sessionmaker
+from core.llm.catalog import find_provider, resolve_runtime_model_name
+from core.llm.secrets_crypto import decrypt_api_key
 
 
 class AnalyzeProvider(Protocol):
@@ -295,6 +300,89 @@ def llm_provider_from_env(*, transport: httpx.BaseTransport | None = None) -> LL
 		)
 
 	return LLMAnalyzeProvider(api_base=api_base, api_key=api_key, model=model, timeout_s=timeout_s, transport=transport)
+
+
+def _try_llm_provider_from_sqlite(*, transport: httpx.BaseTransport | None = None) -> LLMAnalyzeProvider | None:
+	"""Build an LLM provider from SQLite (active selection + encrypted secret).
+
+	Returns None when there is no active selection.
+	"""
+
+	SessionLocal = get_sessionmaker()
+	with SessionLocal() as session:
+		try:
+			active = get_llm_active(session)
+		except OperationalError:
+			# DB not initialized yet (e.g., unit tests) -> behave as if no active selection.
+			return None
+		if not isinstance(active, dict):
+			return None
+
+		provider_id = (active.get("providerId") or "").strip().lower()
+		model_id = (active.get("modelId") or "").strip()
+		provider = find_provider(provider_id)
+		if provider is None:
+			raise AnalyzeError(
+				code=ErrorCode.JOB_STAGE_FAILED,
+				message="Invalid LLM settings",
+				details={"reason": "unknown_provider", "providerId": provider_id},
+			)
+
+		runtime_model = resolve_runtime_model_name(provider_id=provider.provider_id, model_id=model_id)
+		if not runtime_model:
+			raise AnalyzeError(
+				code=ErrorCode.JOB_STAGE_FAILED,
+				message="Invalid LLM settings",
+				details={"reason": "model_not_found", "providerId": provider.provider_id, "modelId": model_id},
+			)
+
+		try:
+			ciphertext = get_llm_provider_secret_ciphertext(session, provider_id=provider.provider_id)
+		except OperationalError:
+			return None
+		if not ciphertext:
+			raise AnalyzeError(
+				code=ErrorCode.JOB_STAGE_FAILED,
+				message="LLM credentials missing",
+				details={"reason": "missing_credentials"},
+			)
+
+		try:
+			api_key = decrypt_api_key(ciphertext)
+		except Exception:
+			raise AnalyzeError(
+				code=ErrorCode.JOB_STAGE_FAILED,
+				message="Invalid LLM credentials",
+				details={"reason": "invalid_credentials"},
+			)
+
+	timeout_s = float(_env_int("LLM_TIMEOUT_S", 60))
+	return llm_provider_from_runtime(
+		api_base=provider.base_url,
+		api_key=api_key,
+		model=runtime_model,
+		timeout_s=int(timeout_s),
+		transport=transport,
+	)
+
+
+def llm_provider_for_jobs(*, transport: httpx.BaseTransport | None = None) -> LLMAnalyzeProvider | None:
+	"""Resolve LLM runtime config for background jobs.
+
+	Precedence:
+	- If SQLite llm_active exists: use DB active + catalog + encrypted secret.
+	- Else: fall back to env-based config (requires ANALYZE_PROVIDER=llm).
+
+	Returns None when LLM is not enabled (env says rules and no DB active).
+	"""
+
+	provider = _try_llm_provider_from_sqlite(transport=transport)
+	if provider is not None:
+		return provider
+
+	if (os.environ.get("ANALYZE_PROVIDER") or "").strip().lower() != "llm":
+		return None
+	return llm_provider_from_env(transport=transport)
 
 
 def llm_provider_from_runtime(

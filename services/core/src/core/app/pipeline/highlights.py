@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import os
 
-from core.app.pipeline.analyze_provider import AnalyzeError, AnalyzeProvider, llm_provider_from_runtime
+from core.app.pipeline.analyze_provider import AnalyzeError, AnalyzeProvider, llm_provider_for_jobs
 from core.contracts.error_codes import ErrorCode
-from core.settings import SettingsFileError, get_effective_analyze_settings, resolve_llm_api_key
 
 
 def build_highlights(
@@ -235,31 +234,14 @@ def build_highlights_llm(*, transcript: dict, chapters: list[dict], provider: An
 
 def generate_highlights(*, transcript: dict, chapters: list[dict], llm_transport: object | None = None) -> list[dict]:
 	allow_fallback_env = _env_bool("ANALYZE_ALLOW_RULES_FALLBACK", False)
+
 	try:
-		settings = get_effective_analyze_settings()
-	except SettingsFileError:
-		if allow_fallback_env:
+		provider = llm_provider_for_jobs(transport=llm_transport)  # type: ignore[arg-type]
+		if provider is None:
 			return build_highlights(transcript=transcript, chapters=chapters)
-		raise AnalyzeError(
-			code=ErrorCode.JOB_STAGE_FAILED,
-			message="Invalid persisted settings",
-			details={"reason": "invalid_settings_file", "task": "highlights"},
-		)
-
-	if settings.provider != "llm":
-		return build_highlights(transcript=transcript, chapters=chapters)
-
-	try:
-		provider = llm_provider_from_runtime(
-			api_base=settings.base_url,
-			api_key=resolve_llm_api_key(),
-			model=settings.model,
-			timeout_s=settings.timeout_s,
-			transport=llm_transport,  # type: ignore[arg-type]
-		)
 		return build_highlights_llm(transcript=transcript, chapters=chapters, provider=provider)
 	except AnalyzeError:
-		if settings.allow_rules_fallback:
+		if allow_fallback_env:
 			return build_highlights(transcript=transcript, chapters=chapters)
 		raise
 

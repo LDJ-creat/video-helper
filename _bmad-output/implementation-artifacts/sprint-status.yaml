@@ -113,6 +113,7 @@ development_status:
   10-2-fe-web-search-ui: ready-for-dev
   10-3-be-core-settings-validate: ready-for-dev
   10-4-fe-web-settings-page: ready-for-dev
+  10-5-be-core-settings-secrets: in-progress
   epic-10-retrospective: optional
 
   epic-11: in-progress

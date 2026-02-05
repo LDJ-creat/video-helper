@@ -1,13 +1,8 @@
 from __future__ import annotations
 
-import json
 import os
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Mapping
-
-from core.db.session import get_data_dir
-
 
 def _env_str(name: str) -> str | None:
 	raw = os.environ.get(name)
@@ -36,10 +31,6 @@ def _env_bool(name: str, default: bool = False) -> bool:
 	return default
 
 
-class SettingsFileError(RuntimeError):
-	"""Raised when persisted settings exist but are invalid/unreadable."""
-
-
 @dataclass(frozen=True)
 class AnalyzeSettings:
 	"""Effective analyze settings (non-sensitive).
@@ -63,10 +54,6 @@ class AnalyzeSettings:
 			"allowRulesFallback": self.allow_rules_fallback,
 			"debug": self.debug,
 		}
-
-
-def _settings_file_path(data_dir: Path | None = None) -> Path:
-	return (data_dir or get_data_dir()) / "settings.json"
 
 
 def _coerce_str(val: Any) -> str | None:
@@ -114,34 +101,13 @@ def _coerce_bool(val: Any) -> bool | None:
 	return None
 
 
-def load_persisted_settings_raw(*, data_dir: Path | None = None) -> dict[str, Any] | None:
-	"""Load settings.json if it exists.
 
-	Returns parsed dict on success, None if file does not exist.
-	Raises SettingsFileError if the file exists but cannot be parsed.
-	"""
+def get_effective_analyze_settings() -> AnalyzeSettings:
+	"""Resolve effective analyze settings (non-sensitive) from env only.
 
-	path = _settings_file_path(data_dir)
-	if not path.exists():
-		return None
-	try:
-		text = path.read_text(encoding="utf-8")
-		obj = json.loads(text or "{}")
-	except Exception as e:
-		raise SettingsFileError(f"Invalid settings file: {path.name}") from e
-	if not isinstance(obj, dict):
-		raise SettingsFileError(f"Invalid settings file: {path.name}")
-	return obj
-
-
-def get_effective_analyze_settings(*, data_dir: Path | None = None) -> AnalyzeSettings:
-	"""Resolve effective analyze settings (non-sensitive) from:
-
-	1) env defaults
-	2) DATA_DIR/settings.json overrides (if present)
-
-	Note: API keys are intentionally excluded.
-	"""
+The legacy settings.json mechanism is deprecated and intentionally ignored.
+API keys are intentionally excluded.
+"""
 
 	provider = (_env_str("ANALYZE_PROVIDER") or "").lower()
 	if provider not in {"llm", "rules", ""}:
@@ -155,33 +121,6 @@ def get_effective_analyze_settings(*, data_dir: Path | None = None) -> AnalyzeSe
 	timeout_s = max(1, int(_env_int("LLM_TIMEOUT_S", 60)))
 	allow_rules_fallback = _env_bool("ANALYZE_ALLOW_RULES_FALLBACK", False)
 	debug = _env_bool("LLM_DEBUG", False)
-
-	raw = load_persisted_settings_raw(data_dir=data_dir)
-	if raw and isinstance(raw.get("analyze"), Mapping):
-		an = raw["analyze"]
-		p = _coerce_str(an.get("provider"))
-		if p is not None:
-			provider = p.lower()
-
-		bu = _coerce_str(an.get("baseUrl") if "baseUrl" in an else an.get("base_url"))
-		if bu is not None:
-			base_url = bu
-
-		m = _coerce_str(an.get("model"))
-		if m is not None:
-			model = m
-
-		ts = _coerce_int(an.get("timeoutS") if "timeoutS" in an else an.get("timeout_s"))
-		if ts is not None:
-			timeout_s = max(1, int(ts))
-
-		arf = _coerce_bool(an.get("allowRulesFallback") if "allowRulesFallback" in an else an.get("allow_rules_fallback"))
-		if arf is not None:
-			allow_rules_fallback = bool(arf)
-
-		db = _coerce_bool(an.get("debug"))
-		if db is not None:
-			debug = bool(db)
 
 	return AnalyzeSettings(
 		provider=provider,
