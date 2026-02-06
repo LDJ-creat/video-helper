@@ -13,8 +13,8 @@ export function useCreateJobFromUrl() {
     return useMutation({
         mutationFn: (data: CreateJobUrlRequest) => createJobFromUrl(data),
         onSuccess: (data) => {
-            // Redirect to job details page
-            router.push(`/jobs/${data.jobId}`);
+            // Redirect to results page
+            router.push(`/projects/${data.projectId}/results`);
         },
     });
 }
@@ -30,8 +30,8 @@ export function useCreateJobFromUpload() {
         mutationFn: ({ file, title }: { file: File; title?: string }) =>
             createJobFromUpload(file, title),
         onSuccess: (data) => {
-            // Redirect to job details page
-            router.push(`/jobs/${data.jobId}`);
+            // Redirect to results page
+            router.push(`/projects/${data.projectId}/results`);
         },
     });
 }

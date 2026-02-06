@@ -12,35 +12,36 @@ export default function IngestPage() {
     const [activeTab, setActiveTab] = useState<TabType>("url");
 
     return (
-        <div className="mx-auto max-w-2xl space-y-6 p-6">
-            <div>
-                <h1 className="text-3xl font-bold text-zinc-900 dark:text-zinc-50">
+        <div className="mx-auto max-w-3xl space-y-8 p-6 sm:p-10">
+            <div className="space-y-2">
+                <h1 className="text-3xl font-bold tracking-tight text-stone-900">
                     创建视频分析
                 </h1>
-                <p className="mt-2 text-zinc-600 dark:text-zinc-400">
+                <p className="text-lg text-stone-600">
                     通过粘贴链接或上传文件来创建新的分析任务
                 </p>
             </div>
 
             <HealthBanner />
 
-            <div className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
+            {/* Cozy Card */}
+            <div className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm transition-shadow hover:shadow-md">
                 {/* Tab Headers */}
-                <div className="flex border-b border-zinc-200 dark:border-zinc-800">
+                <div className="flex border-b border-stone-100 bg-stone-50/50">
                     <button
                         onClick={() => setActiveTab("url")}
-                        className={`flex-1 border-b-2 px-6 py-3 text-sm font-medium transition-colors ${activeTab === "url"
-                                ? "border-zinc-900 text-zinc-900 dark:border-zinc-50 dark:text-zinc-50"
-                                : "border-transparent text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-300"
+                        className={`flex-1 py-4 text-sm font-medium transition-all ${activeTab === "url"
+                            ? "border-b-2 border-stone-800 bg-white text-stone-900 shadow-sm"
+                            : "text-stone-500 hover:bg-stone-100 hover:text-stone-700"
                             }`}
                     >
                         粘贴链接
                     </button>
                     <button
                         onClick={() => setActiveTab("upload")}
-                        className={`flex-1 border-b-2 px-6 py-3 text-sm font-medium transition-colors ${activeTab === "upload"
-                                ? "border-zinc-900 text-zinc-900 dark:border-zinc-50 dark:text-zinc-50"
-                                : "border-transparent text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-300"
+                        className={`flex-1 py-4 text-sm font-medium transition-all ${activeTab === "upload"
+                            ? "border-b-2 border-stone-800 bg-white text-stone-900 shadow-sm"
+                            : "text-stone-500 hover:bg-stone-100 hover:text-stone-700"
                             }`}
                     >
                         上传文件
@@ -48,7 +49,7 @@ export default function IngestPage() {
                 </div>
 
                 {/* Tab Panels */}
-                <div className="p-6">
+                <div className="p-8">
                     {activeTab === "url" ? <UrlForm /> : <UploadForm />}
                 </div>
             </div>
@@ -89,38 +90,38 @@ function UrlForm() {
         : null;
 
     return (
-        <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-                <label className="block text-sm font-medium text-zinc-900 dark:text-zinc-50">
+        <form onSubmit={handleSubmit} className="space-y-6">
+            <div className="space-y-2">
+                <label className="block text-sm font-medium text-stone-700">
                     视频来源
                 </label>
-                <div className="mt-2 flex gap-4">
-                    <label className="flex items-center gap-2">
+                <div className="flex gap-6">
+                    <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-transparent p-2 transition-colors hover:bg-stone-50">
                         <input
                             type="radio"
                             value="youtube"
                             checked={sourceType === "youtube"}
                             onChange={(e) => setSourceType(e.target.value as "youtube")}
-                            className="h-4 w-4 text-zinc-900 focus:ring-zinc-900 dark:text-zinc-50 dark:focus:ring-zinc-50"
+                            className="h-4 w-4 border-stone-300 text-stone-900 focus:ring-stone-500"
                         />
-                        <span className="text-sm text-zinc-700 dark:text-zinc-300">YouTube</span>
+                        <span className="text-sm font-medium text-stone-700">YouTube</span>
                     </label>
-                    <label className="flex items-center gap-2">
+                    <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-transparent p-2 transition-colors hover:bg-stone-50">
                         <input
                             type="radio"
                             value="bilibili"
                             checked={sourceType === "bilibili"}
                             onChange={(e) => setSourceType(e.target.value as "bilibili")}
-                            className="h-4 w-4 text-zinc-900 focus:ring-zinc-900 dark:text-zinc-50 dark:focus:ring-zinc-50"
+                            className="h-4 w-4 border-stone-300 text-stone-900 focus:ring-stone-500"
                         />
-                        <span className="text-sm text-zinc-700 dark:text-zinc-300">Bilibili</span>
+                        <span className="text-sm font-medium text-stone-700">Bilibili</span>
                     </label>
                 </div>
             </div>
 
-            <div>
-                <label htmlFor="url" className="block text-sm font-medium text-zinc-900 dark:text-zinc-50">
-                    视频链接 *
+            <div className="space-y-2">
+                <label htmlFor="url" className="block text-sm font-medium text-stone-700">
+                    视频链接 <span className="text-red-500">*</span>
                 </label>
                 <input
                     type="text"
@@ -128,17 +129,17 @@ function UrlForm() {
                     value={sourceUrl}
                     onChange={(e) => setSourceUrl(e.target.value)}
                     placeholder="https://..."
-                    className="mt-2 block w-full rounded-md border border-zinc-300 px-3 py-2 text-zinc-900 placeholder-zinc-400 focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:placeholder-zinc-500 dark:focus:border-zinc-50 dark:focus:ring-zinc-50"
+                    className="block w-full rounded-lg border border-stone-200 bg-white px-4 py-3 text-stone-900 placeholder-stone-400 focus:border-stone-500 focus:outline-none focus:ring-2 focus:ring-stone-200"
                 />
                 {sourceUrl && !isValidUrl(sourceUrl) && (
-                    <p className="mt-1 text-sm text-red-600 dark:text-red-400">
+                    <p className="text-sm text-red-500">
                         请输入有效的 URL
                     </p>
                 )}
             </div>
 
-            <div>
-                <label htmlFor="title" className="block text-sm font-medium text-zinc-900 dark:text-zinc-50">
+            <div className="space-y-2">
+                <label htmlFor="title" className="block text-sm font-medium text-stone-700">
                     标题（可选）
                 </label>
                 <input
@@ -147,20 +148,20 @@ function UrlForm() {
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
                     placeholder="为项目设置自定义标题"
-                    className="mt-2 block w-full rounded-md border border-zinc-300 px-3 py-2 text-zinc-900 placeholder-zinc-400 focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:placeholder-zinc-500 dark:focus:border-zinc-50 dark:focus:ring-zinc-50"
+                    className="block w-full rounded-lg border border-stone-200 bg-white px-4 py-3 text-stone-900 placeholder-stone-400 focus:border-stone-500 focus:outline-none focus:ring-2 focus:ring-stone-200"
                 />
             </div>
 
             {errorMessage && (
-                <div className="rounded-md border border-red-200 bg-red-50 p-3 dark:border-red-900 dark:bg-red-950">
-                    <p className="text-sm text-red-900 dark:text-red-100">{errorMessage}</p>
+                <div className="rounded-lg bg-red-50 p-4 text-sm text-red-600">
+                    {errorMessage}
                 </div>
             )}
 
             <button
                 type="submit"
                 disabled={!canSubmit || mutation.isPending}
-                className="w-full rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 focus:outline-none focus:ring-2 focus:ring-zinc-900 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200 dark:focus:ring-zinc-50"
+                className="w-full rounded-lg bg-stone-800 px-4 py-3 text-base font-medium text-white transition-all hover:bg-stone-900 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-stone-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
             >
                 {mutation.isPending ? "创建中..." : "创建分析任务"}
             </button>
@@ -200,29 +201,29 @@ function UploadForm() {
         : null;
 
     return (
-        <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-                <label htmlFor="file" className="block text-sm font-medium text-zinc-900 dark:text-zinc-50">
-                    选择视频文件 *
+        <form onSubmit={handleSubmit} className="space-y-6">
+            <div className="space-y-2">
+                <label htmlFor="file" className="block text-sm font-medium text-stone-700">
+                    选择视频文件 <span className="text-red-500">*</span>
                 </label>
-                <div className="mt-2">
+                <div className="mt-2 rounded-lg border-2 border-dashed border-stone-200 bg-stone-50 px-6 py-10 transition-colors hover:bg-stone-100">
                     <input
                         type="file"
                         id="file"
                         accept="video/*"
                         onChange={handleFileChange}
-                        className="block w-full text-sm text-zinc-900 file:mr-4 file:rounded-md file:border-0 file:bg-zinc-100 file:px-4 file:py-2 file:text-sm file:font-medium file:text-zinc-900 hover:file:bg-zinc-200 dark:text-zinc-50 dark:file:bg-zinc-800 dark:file:text-zinc-50 dark:hover:file:bg-zinc-700"
+                        className="block w-full text-sm text-stone-500 file:mr-4 file:rounded-full file:border-0 file:bg-stone-800 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-stone-700"
                     />
                     {file && (
-                        <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+                        <p className="mt-4 text-sm font-medium text-stone-600">
                             已选择: {file.name} ({(file.size / 1024 / 1024).toFixed(2)} MB)
                         </p>
                     )}
                 </div>
             </div>
 
-            <div>
-                <label htmlFor="upload-title" className="block text-sm font-medium text-zinc-900 dark:text-zinc-50">
+            <div className="space-y-2">
+                <label htmlFor="upload-title" className="block text-sm font-medium text-stone-700">
                     标题（可选）
                 </label>
                 <input
@@ -231,20 +232,20 @@ function UploadForm() {
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
                     placeholder="为项目设置自定义标题"
-                    className="mt-2 block w-full rounded-md border border-zinc-300 px-3 py-2 text-zinc-900 placeholder-zinc-400 focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:placeholder-zinc-500 dark:focus:border-zinc-50 dark:focus:ring-zinc-50"
+                    className="block w-full rounded-lg border border-stone-200 bg-white px-4 py-3 text-stone-900 placeholder-stone-400 focus:border-stone-500 focus:outline-none focus:ring-2 focus:ring-stone-200"
                 />
             </div>
 
             {errorMessage && (
-                <div className="rounded-md border border-red-200 bg-red-50 p-3 dark:border-red-900 dark:bg-red-950">
-                    <p className="text-sm text-red-900 dark:text-red-100">{errorMessage}</p>
+                <div className="rounded-lg bg-red-50 p-4 text-sm text-red-600">
+                    {errorMessage}
                 </div>
             )}
 
             <button
                 type="submit"
                 disabled={!file || mutation.isPending}
-                className="w-full rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 focus:outline-none focus:ring-2 focus:ring-zinc-900 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200 dark:focus:ring-zinc-50"
+                className="w-full rounded-lg bg-stone-800 px-4 py-3 text-base font-medium text-white transition-all hover:bg-stone-900 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-stone-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
             >
                 {mutation.isPending ? "上传中..." : "创建分析任务"}
             </button>

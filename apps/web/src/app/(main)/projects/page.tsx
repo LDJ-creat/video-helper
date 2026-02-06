@@ -2,79 +2,173 @@
 
 import { useProjects, useDeleteProject } from "@/lib/api/projectQueries";
 import Link from "next/link";
+import { useState } from "react";
+import { SearchInput } from "@/components/features/SearchInput";
+import { SearchResults } from "@/components/features/SearchResults";
+import { useSearch } from "@/lib/api/searchQueries";
 
 export default function ProjectsPage() {
-    const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading, error } = useProjects();
+    const [searchQuery, setSearchQuery] = useState("");
+
+    // Search Query
+    const searchResult = useSearch(searchQuery);
+
+    // Projects Query (for default view)
+    const {
+        data: projectsData,
+        fetchNextPage,
+        hasNextPage,
+        isFetchingNextPage,
+        isLoading,
+        error
+    } = useProjects();
+
     const deleteMutation = useDeleteProject();
 
-    const handleDelete = async (projectId: string, projectTitle: string) => {
+    const handleDelete = async (e: React.MouseEvent, projectId: string, projectTitle: string) => {
+        e.preventDefault(); // Prevent navigation
         const confirmed = window.confirm(`确定要删除项目 "${projectTitle}" 吗？此操作不可撤销。`);
         if (!confirmed) return;
 
         try {
             await deleteMutation.mutateAsync(projectId);
-            alert("项目已成功删除");
         } catch (err) {
             const errorMessage = (err as any)?.error?.message || "删除失败";
-            const shouldRetry = window.confirm(`${errorMessage}\n\n是否重试？`);
-            if (shouldRetry) {
-                handleDelete(projectId, projectTitle);
-            }
+            alert(errorMessage);
         }
     };
 
     if (isLoading) {
-        return <main className="p-6"><p>加载中...</p></main>;
+        return (
+            <main className="mx-auto max-w-6xl p-6 sm:p-10">
+                <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                    {[1, 2, 3].map((i) => (
+                        <div key={i} className="h-48 animate-pulse rounded-xl bg-stone-100" />
+                    ))}
+                </div>
+            </main>
+        );
     }
 
     if (error) {
-        return <main className="p-6"><p className="text-red-600">加载失败: {String(error)}</p></main>;
+        return (
+            <main className="mx-auto max-w-6xl p-6 sm:p-10">
+                <div className="rounded-lg bg-red-50 p-4 text-red-600">
+                    加载失败: {String(error)}
+                </div>
+            </main>
+        );
     }
 
-    const projects = data?.pages.flatMap((page) => page.items) ?? [];
+    const projects = projectsData?.pages.flatMap((page) => page.items) ?? [];
 
     return (
-        <main className="p-6">
-            <h1 className="text-2xl font-semibold mb-4">Projects</h1>
-
-            {projects.length === 0 && <p className="text-gray-500">暂无项目</p>}
-
-            <div className="grid gap-4">
-                {projects.map((project) => (
-                    <div key={project.projectId} className="border p-4 rounded flex justify-between items-start">
-                        <div className="flex-1">
-                            <h2 className="text-lg font-medium">{project.title}</h2>
-                            <p className="text-sm text-gray-600">来源: {project.sourceType}</p>
-                            <p className="text-sm text-gray-600">
-                                更新时间: {new Date(project.updatedAtMs).toLocaleString()}
-                            </p>
-                            <Link
-                                href={`/projects/${project.projectId}`}
-                                className="text-blue-600 hover:underline mt-2 inline-block"
-                            >
-                                查看详情
-                            </Link>
-                        </div>
-
-                        <button
-                            onClick={() => handleDelete(project.projectId, project.title)}
-                            disabled={deleteMutation.isPending}
-                            className="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700 disabled:bg-gray-400"
-                        >
-                            {deleteMutation.isPending ? "删除中..." : "删除"}
-                        </button>
-                    </div>
-                ))}
+        <main className="mx-auto max-w-6xl space-y-8 p-6 sm:p-10">
+            <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                    <h1 className="text-3xl font-bold tracking-tight text-stone-900">
+                        我的项目
+                    </h1>
+                    <p className="mt-2 text-stone-600">
+                        管理和查看您创建的所有分析项目
+                    </p>
+                </div>
+                <div className="w-full sm:w-72">
+                    <SearchInput
+                        onSearch={setSearchQuery}
+                        placeholder="搜索项目 ID 或章节..."
+                    />
+                </div>
             </div>
 
-            {hasNextPage && (
-                <button
-                    onClick={() => fetchNextPage()}
-                    disabled={isFetchingNextPage}
-                    className="mt-4 px-4 py-2 bg-blue-600 text-white rounded disabled:bg-gray-400"
-                >
-                    {isFetchingNextPage ? "加载中..." : "加载更多"}
-                </button>
+            {searchQuery ? (
+                // Search Mode
+                <div className="animate-in fade-in slide-in-from-bottom-2">
+                    <h2 className="mb-4 text-lg font-medium text-stone-700">搜索结果</h2>
+                    <SearchResults
+                        data={searchResult.data}
+                        isLoading={searchResult.isLoading}
+                        isError={searchResult.isError}
+                        error={searchResult.error}
+                        hasNextPage={searchResult.hasNextPage}
+                        isFetchingNextPage={searchResult.isFetchingNextPage}
+                        fetchNextPage={searchResult.fetchNextPage}
+                    />
+                </div>
+            ) : (
+                // List Mode
+                <>
+                    {projects.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-stone-200 bg-stone-50 py-20 text-center">
+                            <p className="text-lg font-medium text-stone-500">暂无项目</p>
+                            <Link
+                                href="/ingest"
+                                className="mt-4 text-sm font-medium text-stone-900 underline underline-offset-4 hover:text-stone-700"
+                            >
+                                创建第一个分析任务
+                            </Link>
+                        </div>
+                    ) : (
+                        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                            {projects.map((project) => (
+                                <Link
+                                    key={project.projectId}
+                                    href={`/projects/${project.projectId}/results`}
+                                    className="group relative flex flex-col justify-between overflow-hidden rounded-xl border border-stone-200 bg-white p-6 shadow-sm transition-all hover:border-stone-300 hover:shadow-md active:scale-[0.99]"
+                                >
+                                    <div className="space-y-4">
+                                        <div className="flex items-start justify-between">
+                                            <div className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${project.sourceType === 'youtube' ? 'bg-red-50 text-red-700' :
+                                                    project.sourceType === 'bilibili' ? 'bg-pink-50 text-pink-700' :
+                                                        'bg-blue-50 text-blue-700'
+                                                }`}>
+                                                {project.sourceType === 'youtube' ? 'YouTube' :
+                                                    project.sourceType === 'bilibili' ? 'Bilibili' : 'Upload'}
+                                            </div>
+                                            <button
+                                                onClick={(e) => handleDelete(e, project.projectId, project.title)}
+                                                className="opacity-0 transition-opacity group-hover:opacity-100 p-1 text-stone-400 hover:text-red-600"
+                                                title="删除项目"
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+                                                    <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.52.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clipRule="evenodd" />
+                                                </svg>
+                                            </button>
+                                        </div>
+
+                                        <div>
+                                            <h3 className="font-semibold text-stone-900 line-clamp-2 leading-relaxed">
+                                                {project.title || "无标题项目"}
+                                            </h3>
+                                            <p className="mt-2 text-xs text-stone-500 font-mono">
+                                                Updated: {new Date(project.updatedAtMs).toLocaleDateString()}
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <div className="mt-6 flex items-center text-sm font-medium text-stone-900 opacity-60 transition-opacity group-hover:opacity-100">
+                                        查看分析结果
+                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 ml-1">
+                                            <path fillRule="evenodd" d="M3 10a.75.75 0 01.75-.75h10.638L10.23 5.29a.75.75 0 111.04-1.08l5.5 5.25a.75.75 0 010 1.08l-5.5 5.25a.75.75 0 11-1.04-1.08l4.158-3.96H3.75A.75.75 0 013 10z" clipRule="evenodd" />
+                                        </svg>
+                                    </div>
+                                </Link>
+                            ))}
+                        </div>
+                    )}
+
+                    {hasNextPage && (
+                        <div className="mt-8 text-center bg-stone-50 p-4 rounded-xl border border-dashed border-stone-200">
+                            <button
+                                onClick={() => fetchNextPage()}
+                                disabled={isFetchingNextPage}
+                                className="px-6 py-2 text-sm font-medium text-stone-600 hover:text-stone-900 disabled:opacity-50"
+                            >
+                                {isFetchingNextPage ? "加载中..." : "加载更多项目"}
+                            </button>
+                        </div>
+                    )}
+                </>
             )}
         </main>
     );
