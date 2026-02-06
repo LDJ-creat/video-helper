@@ -10,6 +10,7 @@ export const queryKeys = {
   asset: (assetId: string) => ["assets", assetId] as const,
   // Search query keys
   search: (query: string) => ["search", query] as const,
-  // Settings query keys
-  settings: ["settings"] as const,
+  // LLM Settings query keys
+  llmCatalog: ["llm", "catalog"] as const,
+  llmActive: ["llm", "active"] as const,
 };

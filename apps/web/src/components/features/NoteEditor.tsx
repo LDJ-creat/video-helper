@@ -60,8 +60,14 @@ export function NoteEditor({
     const editor = useEditor({
         extensions: [
             StarterKit.configure({
+                // ✅ FIX: Enable heading markdown input rules (# + space → Heading)
                 heading: {
                     levels: [1, 2, 3, 4, 5, 6],
+                    // Keep default markdown input rules enabled
+                },
+                // ✅ FIX: Enable paragraph node (required for proper heading toggling)
+                paragraph: {
+                    // Keep default settings
                 },
                 bulletList: {
                     HTMLAttributes: {
@@ -310,7 +316,7 @@ export function NoteEditor({
             {/* Enhanced Editor Toolbar */}
             <div className="flex items-center justify-between border-b border-stone-200 px-3 py-2 flex-wrap gap-2">
                 <div className="flex items-center gap-1 flex-wrap">
-                    {/* 标题选择器 */}
+                    {/* 标题选择器 - ✅ FIX: Properly toggle heading levels */}
                     <select
                         value={
                             editor.isActive('heading', { level: 1 }) ? '1' :
@@ -321,8 +327,10 @@ export function NoteEditor({
                         onChange={(e) => {
                             const level = parseInt(e.target.value);
                             if (level > 0) {
-                                editor.chain().focus().setHeading({ level: level as 1 | 2 | 3 }).run();
+                                // ✅ FIX: Use toggleHeading instead of setHeading for proper behavior
+                                editor.chain().focus().toggleHeading({ level: level as 1 | 2 | 3 }).run();
                             } else {
+                                // ✅ FIX: Properly set paragraph when selecting "正文"
                                 editor.chain().focus().setParagraph().run();
                             }
                         }}

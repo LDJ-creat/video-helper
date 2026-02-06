@@ -21,6 +21,9 @@ export const endpoints = {
     saveMindmap: (projectId: string, resultId: string) => `${API_V1}/projects/${projectId}/results/${resultId}/mindmap`,
     // Search endpoints
     search: () => `${API_V1}/search`,
-    // Settings endpoints
-    settingsAnalyze: () => `${API_V1}/settings/analyze`,
+    // LLM Settings endpoints (vNext per api.md Section 6)
+    llmCatalog: () => `${API_V1}/settings/llm/catalog`,
+    llmActive: () => `${API_V1}/settings/llm/active`,
+    llmProviderSecret: (providerId: string) => `${API_V1}/settings/llm/providers/${providerId}/secret`,
+    llmTest: () => `${API_V1}/settings/llm/active/test`,
 };
