@@ -39,9 +39,9 @@ _PROVIDERS: tuple[LLMCatalogProvider, ...] = (
 	LLMCatalogProvider(
 		provider_id="nvidia",
 		display_name="NVIDIA (OpenAI-compatible)",
-		base_url="https://integrate.api.nvidia.com/v1",
+		base_url="https://integrate.api.nvidia.com/v1/chat/completions",
 		models=(
-			LLMCatalogModel(model_id="nvidia:minimaxai/minimax-m2.1", display_name="Minimax M2.1"),
+			LLMCatalogModel(model_id="minimaxai/minimax-m2.1", display_name="Minimax M2.1"),
 		),
 	),
 	LLMCatalogProvider(

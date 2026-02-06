@@ -1,27 +1,18 @@
 from __future__ import annotations
 
 import time
+import logging
 from dataclasses import dataclass
 from typing import Any
 
 import httpx
 
-
+logger = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class LLMActiveTestError(RuntimeError):
 	reason: str
 
 
-def _endpoint_url(base_url: str) -> str:
-	base = (base_url or "").strip().rstrip("/")
-	lower = base.lower()
-	if lower.endswith("/v1"):
-		return base + "/chat/completions"
-	if lower.endswith("/chat/completions") or lower.endswith("/v1/chat/completions"):
-		return base
-	if lower.endswith("/responses") or lower.endswith("/v1/responses"):
-		return base
-	return base + "/v1/chat/completions"
 
 
 def run_llm_connectivity_test(
@@ -38,18 +29,17 @@ def run_llm_connectivity_test(
 	Raises LLMActiveTestError with stable reasons on failure.
 	"""
 
-	url = _endpoint_url(base_url)
 	start = time.perf_counter()
 
 	payload: dict[str, Any] = {
 		"model": model,
-		"messages": [{"role": "user", "content": "ping"}],
-		"max_tokens": 1,
-		"temperature": 0,
+		"messages": [{"role": "user", "content": "ping for connectivity test"}],
+		"max_tokens": 20,
+		"temperature": 0.1,
 	}
 
 	client = httpx.Client(
-		timeout=max(1.0, float(timeout_s)),
+		timeout=max(10.0, float(timeout_s)),
 		transport=transport,
 		headers={
 			"Authorization": f"Bearer {api_key}",
@@ -58,8 +48,11 @@ def run_llm_connectivity_test(
 		},
 	)
 	try:
-		resp = client.post(url, json=payload)
+		resp = client.post(base_url, json=payload)
+		logger.warning("LLM connectivity test response status: %s", resp.status_code)
+		logger.warning("LLM connectivity test response data: %s", resp.text)
 	except httpx.RequestError as e:
+		logger.error("LLM connectivity test request error: %s", str(e))
 		raise LLMActiveTestError(reason="provider_unavailable") from e
 	finally:
 		client.close()
