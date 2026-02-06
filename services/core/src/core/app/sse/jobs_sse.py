@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from core.contracts.error_codes import ErrorCode
 from core.contracts.error_envelope import build_error_envelope
-from core.contracts.sse_events import SseEventType, format_sse_event
+from core.contracts.sse_events import SseEventType, build_payload, format_sse_event
 from core.app.sse.event_bus import GLOBAL_JOB_EVENT_BUS
 from core.db.repositories.jobs import get_job_by_id
 from core.db.session import get_db_session
@@ -51,15 +51,17 @@ async def job_events(
 			),
 		)
 
-	# Best-effort: accept Last-Event-ID header but we don't replay yet.
+	# Best-effort: accept Last-Event-ID header and replay buffered events.
 	last_event_id = request.headers.get("Last-Event-ID")
 
 	async def event_stream():
 		try:
+			cursor_event_id = last_event_id
 			# Best-effort replay if we still have buffered events for this job.
-			replay = GLOBAL_JOB_EVENT_BUS.replay_after(job.job_id, last_event_id)
+			replay = GLOBAL_JOB_EVENT_BUS.replay_after(job.job_id, cursor_event_id)
 			for event_type, event_id, payload in replay:
 				yield format_sse_event(event_type=event_type, event_id=event_id, payload=payload)
+				cursor_event_id = event_id
 
 			# If replay isn't possible, start from current state snapshot.
 			if not replay:
@@ -70,27 +72,47 @@ async def job_events(
 					message=f"status={job.status}",
 				)
 				yield format_sse_event(event_type=event_type, event_id=event_id, payload=payload)
+				cursor_event_id = event_id
 
 			# Test helper: emit a single frame and close.
 			if once:
 				return
 
-			# Heartbeats keep the connection alive and allow FE timeout detection.
+			# Realtime push: wait for new events and stream them immediately.
+			# Keep-alive: if no new events arrive within timeout, emit a lightweight
+			# heartbeat frame (not persisted to the bus) to prevent proxies from
+			# buffering/closing idle connections.
 			while True:
 				if await request.is_disconnected():
 					return
 
 				try:
-					await asyncio.sleep(1)
+					new_events = await asyncio.to_thread(
+						GLOBAL_JOB_EVENT_BUS.wait_for_events_after,
+						job.job_id,
+						cursor_event_id,
+						timeout_s=1.0,
+					)
 				except asyncio.CancelledError:
 					return
 
-				event_type, event_id, payload = GLOBAL_JOB_EVENT_BUS.emit_heartbeat(
+				if new_events:
+					for event_type, event_id, payload in new_events:
+						yield format_sse_event(event_type=event_type, event_id=event_id, payload=payload)
+						cursor_event_id = event_id
+					continue
+
+				# Keep-alive heartbeat (do not advance last_event_id)
+				hb_id = cursor_event_id or "0"
+				payload = build_payload(
+					event_id=hb_id,
 					job_id=job.job_id,
 					project_id=job.project_id,
 					stage=job.stage,
+					progress=job.progress,
+					message=None,
 				)
-				yield format_sse_event(event_type=event_type, event_id=event_id, payload=payload)
+				yield format_sse_event(event_type=SseEventType.HEARTBEAT, event_id=hb_id, payload=payload)
 		except asyncio.CancelledError:
 			return
 

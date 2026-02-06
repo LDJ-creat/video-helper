@@ -82,6 +82,12 @@
   - 新 schemaVersion
   - 持久化 `contentBlocks`、`mindmap`、`assetRefs`（方案A：不再持久化顶层 chapters/highlights）
 
+可观测性/进度监测（必须满足现有 SSE + 轮询机制）：
+
+- plan 阶段开始/结束时必须更新并持久化：`job.stage="plan"`、`job.progress=...`、`job.updated_at_ms`。
+- 同步向 SSE 事件总线发送：`emit_state(status=running)`、`emit_progress(progress=...)`、必要的 `emit_log(...)`。
+- 在对外 stage 映射表中加入 `plan -> PublicStage.ANALYZE`（或其它你认可的稳定 PublicStage），以保证 `GET /api/v1/jobs/{jobId}` 的 stage 可被前端稳定识别。
+
 ### 3) LLM 调用策略（一致性优先）
 - Plan 阶段推荐 **单次串行调用**：一个 LLM 输出整个 plan，保证 ID/粒度统一。
 - 可选两段式（仍串行）：当摘要材料不足时，先局部补料再修正 plan。
@@ -107,12 +113,82 @@
 - 修改：`services/core/src/core/pipeline/stages/assemble_result.py`
   - 允许存储 `contentBlocks`
 - 可能修改：`services/core/src/core/db/models/result.py`
-  - 新增 JSON 列 `content_blocks`（如果选择显式列），或复用 `note` / `chapters` 字段不建议。
-  - MVP 可先将 `contentBlocks` 存入 `note` 不合适；建议增加列并迁移。
+  - 新增 JSON 列 `content_blocks`（如果选择显式列）。
 
-## 数据迁移策略（MVP）
-- SQLite 增加 `results.content_blocks` JSON 列（nullable=false with default `[]` 或 nullable=true + 读时补默认）。
-- 旧结果读取：缺失 `contentBlocks` 时，后端可 best-effort 从 `chapters/highlights/keyframes` 组合生成一个简化 `contentBlocks` 以保持 API 稳定（可选）。
+
+## 数据迁移策略（vNext，需与方案A一致）
+
+目标：升级到“只持久化 `contentBlocks`（+ mindmap/note_json/asset_refs）”后：
+
+- 新 Job 写入不再依赖 legacy 的 `results.chapters / results.highlights / results.note`，避免 NOT NULL legacy 列导致插入失败。
+- 老库升级后，尽量不丢历史 Result 的可渲染性：至少能返回非空 `contentBlocks`（哪怕是 best-effort 派生）。
+
+### 1) 结果表结构变更（SQLite）
+
+落地目标（ORM 视角）：
+
+- `results.content_blocks`（JSON，非空，默认 `[]`）
+- `results.mindmap`（JSON，非空，默认 `{}`）
+- `results.note_json`（JSON，非空，默认 `{}`；当前实现仍承载 tiptap doc，后续可演进为导出格式）
+- `results.asset_refs`（JSON，非空，默认 `[]`；方案A 仅要求保留 video 引用，截图已内联在 highlight.keyframe.contentUrl）
+
+不再写入（legacy）：
+
+- `results.chapters`
+- `results.highlights`
+- `results.note`
+
+### 2) 启动时 schema-compat 升级策略（必须幂等）
+
+后端启动时做 best-effort 兼容升级（当前代码已采用“检测列 → 必要时重建表”的策略）：
+
+1) 读取 `PRAGMA table_info(results)`，判断是否存在 legacy NOT NULL 列（典型：`chapters/highlights/note`）。
+2) 若存在：
+   - `ALTER TABLE results RENAME TO results_old`
+   - `CREATE TABLE results (...)` 仅包含 vNext 所需列（content_blocks/mindmap/note_json/asset_refs + version + timestamps）
+   - 将 `results_old` 拷贝到新表：
+     - `mindmap`：若旧表有则原样拷贝，否则填 `{}`
+     - `asset_refs`：若旧表有则原样拷贝（可选：过滤仅保留 kind=video）
+     - `note_json`：优先用 `note_json`，否则用 legacy `note`（避免丢失历史笔记 JSON）
+     - `content_blocks`：
+       - 若旧表已有 `content_blocks`：原样拷贝
+       - 否则：执行“派生回填”（见下节 3）
+   - `DROP TABLE results_old`
+3) 若不存在 legacy 列：只需确保 vNext 列存在（`ALTER TABLE ADD COLUMN ... DEFAULT ...`）。
+
+安全性建议：
+
+- migration 仅在 SQLite 本地文件上执行，且应当“可重复运行无副作用”。
+- 若重建失败：保留 `results_old` 作为人工恢复入口（或输出日志指引）。
+
+### 3) 旧结果派生回填（关键：避免升级后历史结果变空）
+
+当旧表无 `content_blocks` 但存在 `chapters/highlights/(chapter.keyframes)` 时，需要生成一个最小可渲染的 `contentBlocks`：
+
+- 每个 chapter → 一个 block：
+  - `blockId = "b_{chapterId}"`（确定性、可复现）
+  - `idx/title/startMs/endMs` 来自 chapter
+- chapter 下的 highlights → block.highlights：
+  - `highlightId/idx/text` 来自 highlight
+  - `startMs/endMs`：若只有 `timeMs`，按 `timeMs±5000ms` 夹紧到 block 范围
+  - `keyframe`：从 chapter.keyframes 中选择与 highlight 时间最接近的一个（若存在），写成：
+    - `{assetId, contentUrl: "/api/v1/assets/{assetId}/content", timeMs, caption?}`
+
+说明：该派生逻辑必须与 assemble_result 的派生逻辑保持一致（作为“legacy→contentBlocks”单一规则源），以便：
+
+- 升级迁移时（历史数据）派生
+- 运行期兜底（当某条 Result 的 content_blocks 意外为空）派生
+
+### 4) 兼容读路径（运行期）
+
+即使完成迁移，也建议在运行期增加防御：
+
+- 若 `results.content_blocks` 为空，但存在 legacy artifacts（仅在迁移保留 legacy 列或其它落盘处可取到时）：按上述派生算法生成并返回（可选：顺便写回 DB 进行 backfill）。
+
+### 5) 回滚/排障建议
+
+- 迁移前拷贝一份 `core.sqlite3`（或输出到 `DATA_DIR/_backup/`）。
+- 发生异常时：优先检查是否残留 `results_old`，并通过 sqlite 客户端人工导出恢复。
 
 ## 验收标准（Acceptance Criteria）
 - 新建 job 成功跑完后：
