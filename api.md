@@ -210,9 +210,8 @@ data: {"eventId":"13","tsMs":1738030000456,"jobId":"...","projectId":"...","stag
 
 - 获取最新分析结果接口：返回项目的最新结果，包含：
 	- 视频内容对应的思维导图 graph（nodes/edges）
-	- 视频内容对应的笔记 note（tiptap json）
-	- 笔记模块/章节对应的关键帧截图信息（以 asset 引用为主）
-	- 视频内容时段划分 chapters（用于前端点击跳转到对应时间播放）
+	- `contentBlocks`：统一的“内容块 + highlights + keyframes + 时间锚点”渲染入口
+	- 关键帧图片（keyframes）直接内联 `contentUrl`，前端无需二次请求拿路径
 
 #### Results API
 
@@ -224,51 +223,63 @@ data: {"eventId":"13","tsMs":1738030000456,"jobId":"...","projectId":"...","stag
 
 响应（示例）：
 
+说明（vNext，LLM-plan 统一产物）：
+
+- `contentBlocks`：作为“内容重点 + 关键帧 + 时间锚点”的统一渲染入口（后端由同一次 plan 生成，保证一致性）。
+- `mindmap.nodes[*].data.targetBlockId` / `targetHighlightId`：用于把思维导图节点与内容精确关联（联动锚点）。
+- 不再单独返回顶层 `chapters` / `highlights` / `note`，避免重复与不必要的 payload。
+
 ```json
 {
 	"resultId": "6a5c...",
 	"projectId": "2d2f...",
-	"schemaVersion": "2026-01-29",
+	"schemaVersion": "2026-02-06",
+	"pipelineVersion": "0",
 	"createdAtMs": 1738030000000,
-	"chapters": [
+	"contentBlocks": [
 		{
-			"chapterId": "c01...",
+			"blockId": "b01...",
 			"idx": 0,
 			"title": "Intro",
-			"summary": "...",
 			"startMs": 0,
 			"endMs": 60000,
-			"keyframes": [
+			"highlights": [
 				{
-					"assetId": "a01...",
+					"highlightId": "h01...",
 					"idx": 0,
-					"timeMs": 12000,
-					"caption": "..."
+					"text": "...",
+					"startMs": 12000,
+					"endMs": 18000,
+					"keyframe": {
+						"assetId": "a01...",
+						"contentUrl": "/api/v1/assets/a01.../content",
+						"timeMs": 15000,
+						"caption": "..."
+					}
 				}
 			]
 		}
 	],
-	"highlights": [
-		{
-			"highlightId": "h01...",
-			"chapterId": "c01...",
-			"idx": 0,
-			"text": "...",
-			"timeMs": 15000
-		}
-	],
 	"mindmap": {
-		"nodes": [{"id": "n1", "label": "Intro"}],
+		"nodes": [
+			{
+				"id": "n1",
+				"label": "Intro",
+				"data": {"targetBlockId": "b01..."}
+			},
+			{
+				"id": "n2",
+				"label": "Key Point",
+				"data": {"targetHighlightId": "h01..."}
+			}
+		],
 		"edges": [{"id": "e1", "source": "n1", "target": "n2"}]
-	},
-	"note": {
-		"type": "doc",
-		"content": []
 	},
 	"assetRefs": [
 		{
-			"assetId": "a01...",
-			"kind": "screenshot"
+			"assetId": "v01...",
+			"kind": "video",
+			"contentUrl": "/api/v1/assets/v01.../content"
 		}
 	]
 }
@@ -378,7 +389,9 @@ data: {"eventId":"13","tsMs":1738030000456,"jobId":"...","projectId":"...","stag
 
 #### 编辑章节（标题/顺序/可选时间范围）
 
-**PATCH /api/v1/projects/{projectId}/results/latest/chapters/{chapterId}**
+#### 编辑内容块（标题/顺序/可选时间范围）
+
+**PATCH /api/v1/projects/{projectId}/results/latest/blocks/{blockId}**
 
 请求（`application/json`）：以下字段均可选（至少提供 1 个）。
 
@@ -393,11 +406,11 @@ data: {"eventId":"13","tsMs":1738030000456,"jobId":"...","projectId":"...","stag
 
 语义：
 
-- `title`：修改章节标题（必须是非空字符串）
-- `idx`：修改章节排序；服务端会按 `idx` 重新排序并归一化为 `0..n-1`
+- `title`：修改内容块标题（必须是非空字符串）
+- `idx`：修改内容块排序；服务端会按 `idx` 重新排序并归一化为 `0..n-1`
 - `startMs/endMs`：默认禁用；仅当环境变量 `ALLOW_CHAPTER_TIME_EDIT=1` 时允许修改，并校验：
 	- `startMs/endMs` 必须是整数，且 `0 <= startMs < endMs`
-	- 按 idx 顺序章节时间范围不允许重叠（否则 `CHAPTER_OVERLAP`）
+	- MVP：仅校验本 block 的范围合法性（不做全局 overlap 校验）
 
 响应（200）：
 
@@ -408,30 +421,34 @@ data: {"eventId":"13","tsMs":1738030000456,"jobId":"...","projectId":"...","stag
 错误：
 
 - 404：`PROJECT_NOT_FOUND` | `RESULT_NOT_FOUND` | `CHAPTER_NOT_FOUND`
-- 400：`VALIDATION_ERROR` | `CHAPTER_TIME_EDIT_DISABLED` | `CHAPTER_OVERLAP`
+- 400：`VALIDATION_ERROR` | `CHAPTER_TIME_EDIT_DISABLED`
 - 500：`INTERNAL_ERROR`
 
-#### 更新章节 Keyframes（绑定/替换/排序/解绑）
+#### 绑定/解绑 Highlight Keyframe（精确到 highlight）
 
-**PUT /api/v1/projects/{projectId}/results/latest/chapters/{chapterId}/keyframes**
+**PUT /api/v1/projects/{projectId}/results/latest/highlights/{highlightId}/keyframe**
 
-请求（`application/json`）：`keyframes` 必须是 array；每项可为 string（assetId）或 object。
+请求（`application/json`）：绑定时必须给 `assetId`；解绑时 `assetId=null`。
 
 ```json
 {
-	"keyframes": [
-		"a01...",
-		{"assetId": "a02...", "timeMs": 12000, "caption": "..."}
-	]
+	"assetId": "a01...",
+	"timeMs": 12000,
+	"caption": "..."
 }
+```
+
+解绑：
+
+```json
+{ "assetId": null }
 ```
 
 语义：
 
-- 该接口是“替换语义”：用请求中的列表整体替换该章节的 `keyframes`。
-- 服务端会按请求顺序写回 `idx=0..n-1`；重复的 `assetId` 会被去重（保留首次出现）。
+- 该接口是“覆盖语义”：每个 highlight 最多绑定 1 个 `keyframe`。
 - 资产必须属于同一 project；否则返回 `ASSET_NOT_IN_PROJECT`。
-- 该接口会把新增引用补进 result 的 `assetRefs`（若之前不存在）。
+- 后端会把 `contentUrl` 写入 `highlight.keyframe.contentUrl`（形如 `/api/v1/assets/{assetId}/content`）。
 
 响应（200）：
 
@@ -453,6 +470,11 @@ data: {"eventId":"13","tsMs":1738030000456,"jobId":"...","projectId":"...","stag
 
 - 搜索接口：根据关键词搜索笔记（MVP 可先做标题/摘要；后续再扩展到 transcript/RAG）。
 
+返回锚点（vNext）：
+
+- 优先返回 `highlightId`（更精确），同时返回所属 `blockId`。
+- 若只命中内容块标题，则仅返回 `blockId`。
+
 #### Search API
 
 **GET /api/v1/search**
@@ -470,7 +492,8 @@ Query Parameters:
 	"items": [
 		{
 			"projectId": "2d2f...",
-			"chapterId": "c01..."
+			"blockId": "b01...",
+			"highlightId": "h01..."
 		}
 	],
 	"nextCursor": null
@@ -480,7 +503,8 @@ Query Parameters:
 说明：
 
 - `items[].projectId` 必填，用于跳转到 Project。
-- `items[].chapterId` 可选：当 query 命中章节标题/摘要或 highlights 文本时，后端尽力返回可定位章节；否则为 `null`。
+- `items[].blockId` 可选：命中内容块标题或其 highlights 时，后端尽力返回定位 block；否则为 `null`。
+- `items[].highlightId` 可选：当 query 命中某条 highlight 文本时，后端尽力返回更精确的定位锚点；否则为 `null`。
 - 排序与分页：稳定排序（推荐按 `projects.updatedAtMs desc, projects.projectId desc`），cursor 编码最后一条的排序键。
 
 错误：query 为空
@@ -732,13 +756,19 @@ vNext 使用 SQLite：
 
 - `id` TEXT PRIMARY KEY
 - `project_id` TEXT NOT NULL
-- `schema_version` TEXT       -- 轻量版本标识（可选但建议保留）
-- `created_at` INTEGER NOT NULL
+- `schema_version` TEXT       -- 轻量版本标识（建议保留）
+- `pipeline_version` TEXT     -- 流水线/算法版本（建议保留）
+- `created_at_ms` INTEGER NOT NULL
+- `updated_at_ms` INTEGER NOT NULL
 
 -- 结构化 JSON（先存 TEXT）
-- `mindmap_json` TEXT NOT NULL           -- graph: nodes/edges
-- `note_tiptap_json` TEXT NOT NULL       -- tiptap/prosemirror doc
-- `transcript_json` TEXT                 -- 可选：segments（带时间戳）
+- `content_blocks_json` TEXT NOT NULL    -- vNext 主渲染入口：blocks(highlights+time+highlight.keyframe)
+- `mindmap_json` TEXT NOT NULL           -- graph: nodes/edges（node 可 targetBlockId/targetHighlightId）
+- `note_json` TEXT NOT NULL              -- 导出/同步用结构化 note（暂不在 results/latest 返回）
+- `asset_refs_json` TEXT NOT NULL        -- 仅需保留 video 类资源引用（截图已内联在 highlight.keyframe.contentUrl）
+
+-- 可选：为搜索/回溯保留的派生字段
+- `transcript_json` TEXT                 -- segments（带时间戳）
 
 -- 为搜索/列表优化的派生字段（可选）
 - `summary` TEXT
@@ -750,7 +780,7 @@ vNext 使用 SQLite：
 - 外键：`results.project_id -> projects.id`
 - 索引：`results(project_id, created_at DESC)`
 
-## 4) chapters（内容分段/时段划分）
+## 4) chapters（Legacy：方案A 不再使用）
 
 用途：章节列表与时间跳转（start_ms/end_ms）。
 
@@ -818,7 +848,7 @@ vNext 使用 SQLite：
 
 - `id` TEXT PRIMARY KEY         -- asset_id
 - `project_id` TEXT NOT NULL
-- `kind` TEXT NOT NULL          -- screenshot | upload | user_image | cover
+- `kind` TEXT NOT NULL          -- video | screenshot | upload | user_image | cover
 - `origin` TEXT NOT NULL        -- generated | uploaded | remote
 - `mime` TEXT
 - `width` INTEGER

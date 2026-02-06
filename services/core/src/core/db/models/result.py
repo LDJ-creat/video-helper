@@ -17,8 +17,12 @@ class Result(Base):
     created_at_ms: Mapped[int] = mapped_column(Integer, nullable=False)
     updated_at_ms: Mapped[int] = mapped_column(Integer, nullable=False)
 
-    chapters: Mapped[list[dict]] = mapped_column(JSON, nullable=False)
-    highlights: Mapped[list[dict]] = mapped_column(JSON, nullable=False)
-    mindmap: Mapped[dict] = mapped_column(JSON, nullable=False)
-    note: Mapped[dict] = mapped_column(JSON, nullable=False)
-    asset_refs: Mapped[list[dict]] = mapped_column(JSON, nullable=False)
+    # vNext: single source of truth for render/edit is content_blocks.
+    content_blocks: Mapped[list[dict]] = mapped_column(JSON, nullable=False, default=list)
+    mindmap: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+
+    # Export-oriented structured note (e.g. Notion blocks). FE rendering uses content_blocks.
+    note_json: Mapped[dict] = mapped_column("note_json", JSON, nullable=False, default=dict)
+
+    # Asset references required by the FE; vNext keeps only video here.
+    asset_refs: Mapped[list[dict]] = mapped_column(JSON, nullable=False, default=list)

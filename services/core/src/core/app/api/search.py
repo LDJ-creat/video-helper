@@ -14,43 +14,47 @@ from core.schemas.search import SearchItemDTO, SearchResponseDTO
 router = APIRouter(tags=["search"])
 
 
-def _find_chapter_id_for_match(*, query_lc: str, result: object) -> str | None:
+def _find_anchor_for_match(*, query_lc: str, result: object) -> tuple[str | None, str | None]:
 	if not query_lc:
-		return None
+		return None, None
 
-	# Prefer a chapter hit from chapters[].title/summary.
-	if isinstance(result, dict):
-		chapters = result.get("chapters")
-		if isinstance(chapters, list):
-			for ch in chapters:
-				if not isinstance(ch, dict):
-					continue
-				cid = ch.get("chapterId")
-				if not isinstance(cid, str) or not cid:
-					continue
-				title = ch.get("title")
-				summary = ch.get("summary")
-				text = " ".join(
-					[
-						str(title) if isinstance(title, str) else "",
-						str(summary) if isinstance(summary, str) else "",
-					]
-				).lower()
-				if query_lc in text:
-					return cid
+	if not isinstance(result, dict):
+		return None, None
 
-		# Next, try highlights[].text and reuse highlight.chapterId.
-		highlights = result.get("highlights")
-		if isinstance(highlights, list):
-			for hl in highlights:
-				if not isinstance(hl, dict):
-					continue
-				cid = hl.get("chapterId")
-				text = hl.get("text")
-				if isinstance(cid, str) and cid and isinstance(text, str) and query_lc in text.lower():
-					return cid
+	content_blocks = result.get("contentBlocks")
+	if not isinstance(content_blocks, list):
+		return None, None
 
-	return None
+	# Prefer highlight text hit (more precise anchor).
+	for b in content_blocks:
+		if not isinstance(b, dict):
+			continue
+		bid = b.get("blockId")
+		if not isinstance(bid, str) or not bid:
+			continue
+		hls = b.get("highlights")
+		if not isinstance(hls, list):
+			continue
+		for hl in hls:
+			if not isinstance(hl, dict):
+				continue
+			hid = hl.get("highlightId")
+			text = hl.get("text")
+			if isinstance(hid, str) and hid and isinstance(text, str) and query_lc in text.lower():
+				return bid, hid
+
+	# Fallback: block title hit.
+	for b in content_blocks:
+		if not isinstance(b, dict):
+			continue
+		bid = b.get("blockId")
+		if not isinstance(bid, str) or not bid:
+			continue
+		title = b.get("title")
+		if isinstance(title, str) and query_lc in title.lower():
+			return bid, None
+
+	return None, None
 
 
 @router.get("/search", response_model=SearchResponseDTO)
@@ -82,12 +86,15 @@ def search(
 	items: list[SearchItemDTO] = []
 	q_lc = q.lower()
 	for project, result in rows:
-		chapter_id = None
+		block_id = None
+		highlight_id = None
 		if result is not None:
-			chapter_id = _find_chapter_id_for_match(query_lc=q_lc, result={
-				"chapters": getattr(result, "chapters", None),
-				"highlights": getattr(result, "highlights", None),
-			})
-		items.append(SearchItemDTO(projectId=project.project_id, chapterId=chapter_id))
+			block_id, highlight_id = _find_anchor_for_match(
+				query_lc=q_lc,
+				result={
+					"contentBlocks": getattr(result, "content_blocks", None),
+				},
+			)
+		items.append(SearchItemDTO(projectId=project.project_id, blockId=block_id, highlightId=highlight_id))
 
 	return SearchResponseDTO(items=items, nextCursor=next_cursor)

@@ -26,19 +26,16 @@ def validate_result_dto(payload: Mapping) -> dict:
 
 	result = _as_dict(dict(payload), name="result")
 
-	for key in ("resultId", "projectId", "schemaVersion", "pipelineVersion", "createdAtMs", "chapters", "highlights", "mindmap", "note", "assetRefs"):
+	for key in ("resultId", "projectId", "schemaVersion", "pipelineVersion", "createdAtMs", "contentBlocks", "mindmap", "assetRefs"):
 		if key not in result:
 			raise SmokeValidationError(f"result.{key} missing")
 
-	chapters = result.get("chapters")
-	highlights = result.get("highlights")	
+	content_blocks = result.get("contentBlocks")
 	asset_refs = result.get("assetRefs")
 	mindmap = result.get("mindmap")
 
-	if not _is_list(chapters) or len(chapters) < 1:
-		raise SmokeValidationError("result.chapters must be a non-empty array")
-	if not _is_list(highlights) or len(highlights) < 1:
-		raise SmokeValidationError("result.highlights must be a non-empty array")
+	if not _is_list(content_blocks) or len(content_blocks) < 1:
+		raise SmokeValidationError("result.contentBlocks must be a non-empty array")
 	if not _is_list(asset_refs) or len(asset_refs) < 1:
 		raise SmokeValidationError("result.assetRefs must be a non-empty array")
 

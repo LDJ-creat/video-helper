@@ -58,9 +58,7 @@ def get_latest_result(projectId: str, request: Request, session: Session = Depen
 		schemaVersion=result.schema_version,
 		pipelineVersion=result.pipeline_version,
 		createdAtMs=result.created_at_ms,
-		chapters=result.chapters,
-		highlights=result.highlights,
+		contentBlocks=result.content_blocks,
 		mindmap=result.mindmap,
-		note=result.note,
 		assetRefs=result.asset_refs,
 	)

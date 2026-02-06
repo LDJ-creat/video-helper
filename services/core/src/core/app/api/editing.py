@@ -164,7 +164,7 @@ def save_note(
 		return _validation_error(request=request, message=msg)
 
 	updated_at_ms = _now_ms()
-	result.note = note or {"type": "doc", "content": []}
+	result.note_json = note or {"type": "doc", "content": []}
 	result.updated_at_ms = updated_at_ms
 	try:
 		session.commit()
@@ -224,10 +224,23 @@ def save_mindmap(
 	return JSONResponse(status_code=200, content=resp.model_dump(), headers={"ETag": _etag_for_updated_at(updated_at_ms)})
 
 
-def _find_chapter(chapters: list[dict], chapter_id: str) -> tuple[int, dict] | None:
-	for idx, ch in enumerate(chapters or []):
-		if isinstance(ch, dict) and ch.get("chapterId") == chapter_id:
-			return idx, ch
+def _find_block(content_blocks: list[dict], block_id: str) -> tuple[int, dict] | None:
+	for idx, b in enumerate(content_blocks or []):
+		if isinstance(b, dict) and b.get("blockId") == block_id:
+			return idx, b
+	return None
+
+
+def _find_highlight(content_blocks: list[dict], highlight_id: str) -> tuple[dict, dict] | None:
+	for b in content_blocks or []:
+		if not isinstance(b, dict):
+			continue
+		hls = b.get("highlights")
+		if not isinstance(hls, list):
+			continue
+		for h in hls:
+			if isinstance(h, dict) and h.get("highlightId") == highlight_id:
+				return b, h
 	return None
 
 
@@ -240,10 +253,10 @@ def _env_bool(name: str, default: bool = False) -> bool:
 	return default
 
 
-@router.patch("/projects/{projectId}/results/latest/chapters/{chapterId}", response_model=UpdatedAtResponseDTO)
-def edit_chapter(
+@router.patch("/projects/{projectId}/results/latest/blocks/{blockId}", response_model=UpdatedAtResponseDTO)
+def edit_block(
 	projectId: str,
-	chapterId: str,
+	blockId: str,
 	request: Request,
 	payload: dict = Body(...),
 	session: Session = Depends(get_db_session),
@@ -252,42 +265,42 @@ def edit_chapter(
 	if err is not None:
 		return err
 
-	chapters = result.chapters or []
-	found = _find_chapter(chapters, chapterId)
+	content_blocks = result.content_blocks or []
+	found = _find_block(content_blocks, blockId)
 	if found is None:
 		return JSONResponse(
 			status_code=404,
 			content=build_error_envelope(
 				code=ErrorCode.CHAPTER_NOT_FOUND,
-				message="Chapter does not exist",
-				details={"chapterId": chapterId},
+				message="Block does not exist",
+				details={"blockId": blockId},
 				request_id=getattr(request.state, "request_id", None),
 			),
 		)
 
-	_, chapter = found
+	_, block = found
 
 	if "title" in payload:
 		title = payload.get("title")
 		if not _is_non_empty_str(title):
 			return _validation_error(request=request, message="title must be a non-empty string")
-		chapter["title"] = str(title).strip()
-		flag_modified(result, "chapters")
+		block["title"] = str(title).strip()
+		flag_modified(result, "content_blocks")
 
 	if "idx" in payload:
 		new_idx = payload.get("idx")
 		if not isinstance(new_idx, int) or new_idx < 0:
 			return _validation_error(request=request, message="idx must be a non-negative integer")
-		chapter["idx"] = int(new_idx)
-		sorted_ch = sorted(
-			[(i, c) for i, c in enumerate(chapters) if isinstance(c, dict)],
+		block["idx"] = int(new_idx)
+		sorted_blocks = sorted(
+			[(i, b) for i, b in enumerate(content_blocks) if isinstance(b, dict)],
 			key=lambda t: (int(t[1].get("idx") if isinstance(t[1].get("idx"), int) else t[0]), t[0]),
 		)
-		chapters = [c for _, c in sorted_ch]
-		for i, c in enumerate(chapters):
-			c["idx"] = i
-		result.chapters = chapters
-		flag_modified(result, "chapters")
+		content_blocks = [b for _, b in sorted_blocks]
+		for i, b in enumerate(content_blocks):
+			b["idx"] = i
+		result.content_blocks = content_blocks
+		flag_modified(result, "content_blocks")
 
 	if "startMs" in payload or "endMs" in payload:
 		if not _env_bool("ALLOW_CHAPTER_TIME_EDIT", default=False):
@@ -295,43 +308,21 @@ def edit_chapter(
 				status_code=400,
 				content=build_error_envelope(
 					code=ErrorCode.CHAPTER_TIME_EDIT_DISABLED,
-					message="Chapter time editing is disabled",
-					details={"chapterId": chapterId},
+					message="Block time editing is disabled",
+					details={"blockId": blockId},
 					request_id=getattr(request.state, "request_id", None),
 				),
 			)
 
-		start_ms = payload.get("startMs", chapter.get("startMs"))
-		end_ms = payload.get("endMs", chapter.get("endMs"))
+		start_ms = payload.get("startMs", block.get("startMs"))
+		end_ms = payload.get("endMs", block.get("endMs"))
 		if not isinstance(start_ms, int) or not isinstance(end_ms, int):
 			return _validation_error(request=request, message="startMs/endMs must be integers")
 		if start_ms < 0 or end_ms <= start_ms:
 			return _validation_error(request=request, message="startMs must be < endMs")
-		chapter["startMs"] = int(start_ms)
-		chapter["endMs"] = int(end_ms)
-		flag_modified(result, "chapters")
-
-		ordered = sorted(
-			[c for c in (result.chapters or []) if isinstance(c, dict)],
-			key=lambda c: int(c.get("idx") if isinstance(c.get("idx"), int) else 0),
-		)
-		prev_end: int | None = None
-		for c in ordered:
-			s = c.get("startMs")
-			e = c.get("endMs")
-			if not isinstance(s, int) or not isinstance(e, int) or e <= s:
-				return _validation_error(request=request, message="invalid chapter time ranges")
-			if prev_end is not None and s < prev_end:
-				return JSONResponse(
-					status_code=400,
-					content=build_error_envelope(
-						code=ErrorCode.CHAPTER_OVERLAP,
-						message="Chapters must not overlap",
-						details={"chapterId": chapterId},
-						request_id=getattr(request.state, "request_id", None),
-					),
-				)
-			prev_end = e
+		block["startMs"] = int(start_ms)
+		block["endMs"] = int(end_ms)
+		flag_modified(result, "content_blocks")
 
 	updated_at_ms = _now_ms()
 	result.updated_at_ms = updated_at_ms
@@ -343,8 +334,8 @@ def edit_chapter(
 			status_code=500,
 			content=build_error_envelope(
 				code=ErrorCode.INTERNAL_ERROR,
-				message="Failed to save chapter edits",
-				details={"projectId": projectId, "chapterId": chapterId},
+				message="Failed to save block edits",
+				details={"projectId": projectId, "blockId": blockId},
 				request_id=getattr(request.state, "request_id", None),
 			),
 		)
@@ -353,10 +344,10 @@ def edit_chapter(
 	return JSONResponse(status_code=200, content=resp.model_dump(), headers={"ETag": _etag_for_updated_at(updated_at_ms)})
 
 
-@router.put("/projects/{projectId}/results/latest/chapters/{chapterId}/keyframes", response_model=UpdatedAtResponseDTO)
-def update_chapter_keyframes(
+@router.put("/projects/{projectId}/results/latest/highlights/{highlightId}/keyframe", response_model=UpdatedAtResponseDTO)
+def update_highlight_keyframe(
 	projectId: str,
-	chapterId: str,
+	highlightId: str,
 	request: Request,
 	payload: dict = Body(...),
 	session: Session = Depends(get_db_session),
@@ -365,45 +356,32 @@ def update_chapter_keyframes(
 	if err is not None:
 		return err
 
-	chapters = result.chapters or []
-	found = _find_chapter(chapters, chapterId)
+	content_blocks = result.content_blocks or []
+	found = _find_highlight(content_blocks, highlightId)
 	if found is None:
 		return JSONResponse(
 			status_code=404,
 			content=build_error_envelope(
 				code=ErrorCode.CHAPTER_NOT_FOUND,
-				message="Chapter does not exist",
-				details={"chapterId": chapterId},
+				message="Highlight does not exist",
+				details={"highlightId": highlightId},
 				request_id=getattr(request.state, "request_id", None),
 			),
 		)
 
-	_, chapter = found
-	items = payload.get("keyframes")
-	if not isinstance(items, list):
-		return _validation_error(request=request, message="keyframes must be an array")
+	_, hl = found
+	asset_id = payload.get("assetId")
+	time_ms = payload.get("timeMs")
+	caption = payload.get("caption")
 
-	new_keyframes: list[dict] = []
-	seen: set[str] = set()
-	for i, it in enumerate(items):
-		if isinstance(it, str):
-			asset_id = it
-			time_ms = None
-			caption = None
-		elif isinstance(it, dict):
-			asset_id = it.get("assetId")
-			time_ms = it.get("timeMs")
-			caption = it.get("caption")
-		else:
-			return _validation_error(request=request, message="keyframes[*] must be string or object", details={"index": i})
-
+	# Unbind keyframe when assetId is null.
+	if asset_id is None:
+		hl.pop("keyframe", None)
+		flag_modified(result, "content_blocks")
+	else:
 		if not _is_non_empty_str(asset_id):
-			return _validation_error(request=request, message="assetId must be a non-empty string", details={"index": i})
+			return _validation_error(request=request, message="assetId must be a non-empty string")
 		asset_id = str(asset_id)
-		if asset_id in seen:
-			continue
-		seen.add(asset_id)
-
 		asset = get_asset_by_id(session, asset_id)
 		if asset is None:
 			return JSONResponse(
@@ -426,45 +404,14 @@ def update_chapter_keyframes(
 				),
 			)
 
-		kf: dict = {"assetId": asset_id, "idx": len(new_keyframes)}
+		keyframe: dict = {"assetId": asset_id, "contentUrl": f"/api/v1/assets/{asset_id}/content"}
 		if isinstance(time_ms, int):
-			kf["timeMs"] = int(time_ms)
-		if _is_non_empty_str(caption):
-			kf["caption"] = str(caption).strip()
-		new_keyframes.append(kf)
-
-		asset.chapter_id = chapterId
-		if isinstance(time_ms, int):
+			keyframe["timeMs"] = int(time_ms)
 			asset.time_ms = int(time_ms)
-
-	prev_asset_ids: set[str] = set()
-	prev = chapter.get("keyframes")
-	if isinstance(prev, list):
-		for it in prev:
-			if isinstance(it, dict) and _is_non_empty_str(it.get("assetId")):
-				prev_asset_ids.add(str(it.get("assetId")))
-
-	removed = prev_asset_ids - {kf["assetId"] for kf in new_keyframes}
-	if removed:
-		for aid in removed:
-			asset = get_asset_by_id(session, aid)
-			if asset is not None and asset.project_id == projectId and asset.chapter_id == chapterId:
-				asset.chapter_id = None
-
-	chapter["keyframes"] = new_keyframes
-	flag_modified(result, "chapters")
-
-	refs = result.asset_refs or []
-	ref_ids = {r.get("assetId") for r in refs if isinstance(r, dict)}
-	for kf in new_keyframes:
-		aid = kf.get("assetId")
-		if aid and aid not in ref_ids:
-			asset = get_asset_by_id(session, str(aid))
-			kind = asset.kind if isinstance(asset, Asset) else "screenshot"
-			refs.append({"assetId": str(aid), "kind": str(kind)})
-			ref_ids.add(aid)
-	result.asset_refs = refs
-	flag_modified(result, "asset_refs")
+		if _is_non_empty_str(caption):
+			keyframe["caption"] = str(caption).strip()
+		hl["keyframe"] = keyframe
+		flag_modified(result, "content_blocks")
 
 	updated_at_ms = _now_ms()
 	result.updated_at_ms = updated_at_ms
@@ -476,8 +423,8 @@ def update_chapter_keyframes(
 			status_code=500,
 			content=build_error_envelope(
 				code=ErrorCode.INTERNAL_ERROR,
-				message="Failed to update keyframes",
-				details={"projectId": projectId, "chapterId": chapterId},
+				message="Failed to update highlight keyframe",
+				details={"projectId": projectId, "highlightId": highlightId},
 				request_id=getattr(request.state, "request_id", None),
 			),
 		)

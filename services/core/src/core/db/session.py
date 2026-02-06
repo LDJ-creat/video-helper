@@ -171,6 +171,71 @@ def _ensure_sqlite_schema_compat() -> None:
 			conn.execute(text("ALTER TABLE results ADD COLUMN updated_at_ms INTEGER NOT NULL DEFAULT 0"))
 			conn.execute(text("UPDATE results SET updated_at_ms = created_at_ms WHERE updated_at_ms = 0"))
 
+		# vNext schema (方案A): only content_blocks + mindmap + note_json + asset_refs.
+		# Older DBs had NOT NULL chapters/highlights/note columns; if we stop writing
+		# them, inserts will fail. Rebuild the table to drop legacy columns.
+		needs_rebuild = any(
+			c in result_cols
+			for c in (
+				"chapters",
+				"highlights",
+				"note",  # old column name
+			)
+		)
+		if needs_rebuild:
+			conn.execute(text("ALTER TABLE results RENAME TO results_old"))
+			conn.execute(
+				text(
+					"""
+					CREATE TABLE results (
+						result_id TEXT PRIMARY KEY,
+						project_id TEXT NOT NULL,
+						schema_version TEXT NOT NULL,
+						pipeline_version TEXT NOT NULL,
+						created_at_ms INTEGER NOT NULL,
+						updated_at_ms INTEGER NOT NULL,
+						content_blocks TEXT NOT NULL DEFAULT '[]',
+						mindmap TEXT NOT NULL DEFAULT '{}',
+						note_json TEXT NOT NULL DEFAULT '{}',
+						asset_refs TEXT NOT NULL DEFAULT '[]'
+					)
+					"""
+				)
+			)
+
+			old_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(results_old)"))]
+			content_blocks_expr = "content_blocks" if "content_blocks" in old_cols else "'[]'"
+			mindmap_expr = "mindmap" if "mindmap" in old_cols else "'{}'"
+			# Prefer note_json if present, else fall back to legacy note.
+			note_expr = "note_json" if "note_json" in old_cols else ("note" if "note" in old_cols else "'{}'")
+			asset_refs_expr = "asset_refs" if "asset_refs" in old_cols else "'[]'"
+
+			conn.execute(
+				text(
+					f"""
+					INSERT INTO results (
+						result_id, project_id, schema_version, pipeline_version,
+						created_at_ms, updated_at_ms,
+						content_blocks, mindmap, note_json, asset_refs
+					)
+					SELECT
+						result_id, project_id, schema_version, pipeline_version,
+						created_at_ms, updated_at_ms,
+						{content_blocks_expr}, {mindmap_expr}, {note_expr}, {asset_refs_expr}
+					FROM results_old
+					"""
+				)
+			)
+			conn.execute(text("DROP TABLE results_old"))
+			result_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(results)"))]
+
+		# Ensure required vNext columns exist for non-legacy DBs.
+		if "content_blocks" not in result_cols:
+			conn.execute(text("ALTER TABLE results ADD COLUMN content_blocks TEXT NOT NULL DEFAULT '[]'"))
+		if "note_json" not in result_cols:
+			# If old DB already had note column but not note_json, we keep it via rebuild above.
+			conn.execute(text("ALTER TABLE results ADD COLUMN note_json TEXT NOT NULL DEFAULT '{}'"))
+
 
 def get_db_session() -> Generator[Session, None, None]:
 	SessionLocal = get_sessionmaker()
