@@ -119,3 +119,6 @@ development_status:
   epic-11: in-progress
   11-1-be-core-smoke-closed-loop: review
   epic-11-retrospective: optional
+
+  epic-12: review
+  12-1-be-core-llm-plan-pipeline:review

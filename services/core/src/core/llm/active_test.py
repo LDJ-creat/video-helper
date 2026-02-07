@@ -28,14 +28,17 @@ def run_llm_connectivity_test(
 	Returns latency in ms on success.
 	Raises LLMActiveTestError with stable reasons on failure.
 	"""
-
+	logger.warning("LLM connectivity test: base_url=%s", base_url)
+	logger.warning("LLM connectivity test: model=%s", model)
+	logger.warning("LLM connectivity test: api_key=%s", api_key)
+  
 	start = time.perf_counter()
 
 	payload: dict[str, Any] = {
 		"model": model,
-		"messages": [{"role": "user", "content": "ping for connectivity test"}],
-		"max_tokens": 20,
-		"temperature": 0.1,
+		"messages": [{"role": "user", "content": "just a ping for LLM connectivity test,you can response with a simple message and keep it short."}],
+		# "max_tokens": 20,
+		# "temperature": 0.1,
 	}
 
 	client = httpx.Client(

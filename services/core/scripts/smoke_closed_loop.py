@@ -51,10 +51,14 @@ def _is_job_done(status: str | None) -> bool:
 	return (status or "") in {"succeeded", "failed", "canceled"}
 
 
-def create_job(*, client: httpx.Client, api_base: str, source_type: str, source_url: str, title: str) -> dict:
+def create_job(*, client: httpx.Client, api_base: str, source_type: str, source_url: str, title: str | None) -> dict:
+	payload: dict = {"sourceType": source_type, "sourceUrl": source_url}
+	if isinstance(title, str) and title.strip():
+		payload["title"] = title.strip()
+
 	resp = client.post(
 		f"{api_base}/api/v1/jobs",
-		json={"sourceType": source_type, "sourceUrl": source_url, "title": title},
+		json=payload,
 		headers={"Accept": "application/json"},
 	)
 	resp.raise_for_status()
@@ -110,6 +114,18 @@ def get_latest_result(*, client: httpx.Client, api_base: str, project_id: str) -
 	return data
 
 
+def get_project(*, client: httpx.Client, api_base: str, project_id: str) -> dict:
+	resp = client.get(
+		f"{api_base}/api/v1/projects/{project_id}",
+		headers={"Accept": "application/json"},
+	)
+	resp.raise_for_status()
+	data = resp.json()
+	if not isinstance(data, dict):
+		raise RuntimeError("project GET returned non-object JSON")
+	return data
+
+
 def get_asset(*, client: httpx.Client, api_base: str, asset_id: str) -> dict:
 	resp = client.get(f"{api_base}/api/v1/assets/{asset_id}", headers={"Accept": "application/json"})
 	resp.raise_for_status()
@@ -140,7 +156,7 @@ def main() -> int:
 		"--url",
 		default="https://www.bilibili.com/video/BV1jgifB7EAp/?spm_id_from=333.337.search-card.all.click&vd_source=8e03b1a6cd89d2b50af0c43b7de269ff",
 	)
-	parser.add_argument("--title", default="smoke-closed-loop")
+	parser.add_argument("--title", default="")
 	parser.add_argument("--job-id", default="")
 	parser.add_argument("--project-id", default="")	
 	parser.add_argument("--summary-out", default="")
@@ -173,7 +189,7 @@ def main() -> int:
 					api_base=api_base,
 					source_type=str(args.source_type),
 					source_url=str(args.url),
-					title=str(args.title),
+					title=str(args.title) if str(args.title).strip() else None,
 				)
 				job_id = str(created["jobId"])
 				project_id = str(created["projectId"])
@@ -195,6 +211,12 @@ def main() -> int:
 
 			if not project_id:
 				raise RuntimeError("missing projectId")
+
+			project = get_project(client=client, api_base=api_base, project_id=project_id)
+			title = project.get("title")
+			print(f"[smoke] project title={_safe_snippet(str(title) if title is not None else '', max_len=120)}")
+			if not (isinstance(title, str) and title.strip()):
+				raise RuntimeError("project title is empty (expected auto-title from video name)")
 
 			result = get_latest_result(client=client, api_base=api_base, project_id=project_id)
 			validated = validate_result_dto(result)

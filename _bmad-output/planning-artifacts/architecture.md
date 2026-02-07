@@ -659,7 +659,7 @@ Support `Last-Event-ID` for best-effort reconnect/continuation.
 
 **Database naming conventions:**
 
-- Tables: `snake_case` + plural (e.g. `projects`, `jobs`, `results`, `chapter_keyframes`).
+- Tables: `snake_case` + plural (e.g. `projects`, `jobs`, `results`, `assets`).
 - Columns: `snake_case` (e.g. `created_at`, `updated_at`, `time_ms`, `latest_result_id`).
 - Primary keys: `id` (TEXT UUID).
 - Foreign keys: `{entity}_id` (e.g. `project_id`, `job_id`, `result_id`, `chapter_id`).

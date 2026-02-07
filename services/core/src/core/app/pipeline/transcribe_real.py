@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -11,7 +12,7 @@ from core.contracts.error_codes import ErrorCode
 from core.db.models.project import Project
 from core.db.session import get_data_dir
 from core.external.ffmpeg import FfmpegError, extract_audio_wav_16k_mono
-from core.external.ytdlp import YtDlpError, download_with_ytdlp
+from core.external.ytdlp import YtDlpError, download_with_ytdlp, fetch_video_title
 from core.external.asr_faster_whisper import AsrError, transcribe_with_faster_whisper
 
 
@@ -32,6 +33,55 @@ def _env_bool(name: str, default: bool = False) -> bool:
 	if raw in {"0", "false", "no", "n", "off"}:
 		return False
 	return default
+
+
+def _now_ms() -> int:
+	return int(time.time() * 1000)
+
+
+def _env_int(name: str, default: int) -> int:
+	raw = (os.environ.get(name) or "").strip()
+	if not raw:
+		return default
+	try:
+		return int(raw)
+	except ValueError:
+		return default
+
+
+def _maybe_set_project_title(*, project: Project) -> None:
+	"""Best-effort: set project.title to the video's title when missing.
+
+	This runs in the worker (off the API request path), so it's OK to spend a bit
+	of time probing.
+	"""
+
+	if isinstance(project.title, str) and project.title.strip():
+		return
+
+	# Upload: derive from filename.
+	if project.source_type == "upload" and isinstance(project.source_path, str) and project.source_path:
+		try:
+			stem = Path(project.source_path).name
+			stem2 = Path(stem).stem.strip()
+			if stem2:
+				project.title = stem2
+				project.updated_at_ms = _now_ms()
+				return
+		except Exception:
+			pass
+
+	# URL sources: probe via yt-dlp.
+	if isinstance(project.source_url, str) and project.source_url.strip():
+		timeout_s = float(max(1, _env_int("YTDLP_TITLE_TIMEOUT_S_WORKER", 30)))
+		try:
+			title = fetch_video_title(url=project.source_url, timeout_s=timeout_s)
+			if isinstance(title, str) and title.strip():
+				project.title = title.strip()
+				project.updated_at_ms = _now_ms()
+				return
+		except Exception:
+			return
 
 
 def map_transcribe_error(exc: Exception) -> dict:
@@ -157,6 +207,7 @@ def run_real_transcribe(
 		)
 
 	plan = plan_media_source(project)
+	_maybe_set_project_title(project=project)
 
 	_progress(0.05, f"mediaSource={plan.kind}")
 	updated_source_path: str | None = None

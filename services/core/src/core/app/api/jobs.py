@@ -29,6 +29,7 @@ from core.schemas.jobs import CreateJobRequest, JobCreatedDTO, JobDTO
 from core.schemas.logs import JobLogsPageDTO, LogItemDTO
 from core.app.logs.job_logs import read_job_logs_page
 from core.storage.layout import allocate_upload_path
+from core.external.ytdlp import fetch_video_title
 
 
 router = APIRouter(tags=["jobs"])
@@ -36,6 +37,11 @@ router = APIRouter(tags=["jobs"])
 
 _ALLOWED_URL_SOURCE_TYPES: set[str] = {"youtube", "bilibili"}
 _UPLOAD_SOURCE_TYPE = "upload"
+
+
+def _normalize_title(value: str | None) -> str | None:
+	text = (value or "").strip()
+	return text or None
 
 
 def _max_upload_bytes() -> int:
@@ -201,7 +207,9 @@ async def _llm_preflight_or_error(request: Request, session: Session) -> JSONRes
 
 	# Keep job creation fast even if operator sets a large timeout for full requests.
 	env_timeout_s = float(max(1, _env_int("LLM_TIMEOUT_S", 60)))
-	timeout_s = min(10.0, env_timeout_s)
+	# Some providers have slow first-byte latency; allow override for smoke/ops.
+	preflight_cap_s = float(max(1, _env_int("LLM_PREFLIGHT_TIMEOUT_S", 30)))
+	timeout_s = min(preflight_cap_s, env_timeout_s)
 
 	try:
 		await asyncio.to_thread(
@@ -297,9 +305,15 @@ async def create_job(request: Request, session: Session = Depends(get_db_session
 		project_id = str(uuid.uuid4())
 		job_id = str(uuid.uuid4())
 
+		title = _normalize_title(req.title)
+		if title is None:
+			timeout_s = float(max(1, _env_int("YTDLP_TITLE_TIMEOUT_S", 8)))
+			# Avoid blocking the event loop with subprocess.
+			title = await asyncio.to_thread(fetch_video_title, url=req.sourceUrl, timeout_s=timeout_s)
+
 		project = Project(
 			project_id=project_id,
-			title=req.title,
+			title=title,
 			source_type=source_type,
 			source_url=req.sourceUrl,
 			source_path=None,
@@ -411,7 +425,12 @@ async def create_job(request: Request, session: Session = Depends(get_db_session
 			)
 
 		title_raw = form.get("title")
-		title = str(title_raw) if title_raw not in (None, "") else None
+		title = _normalize_title(str(title_raw)) if title_raw not in (None, "") else None
+		if title is None and file.filename:
+			try:
+				title = Path(str(file.filename)).stem.strip() or None
+			except Exception:
+				title = None
 
 		project = Project(
 			project_id=project_id,

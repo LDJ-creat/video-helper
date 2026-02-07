@@ -214,6 +214,23 @@ if (-not $SkipStartBackend) {
     $env:TRANSCRIBE_DEVICE = $TranscribeDevice
     $env:TRANSCRIBE_COMPUTE_TYPE = $TranscribeComputeType
 
+    # LLM calls can have slow first-byte latency; keep smoke stable.
+    if ([string]::IsNullOrEmpty($env:LLM_TIMEOUT_S)) {
+        $env:LLM_TIMEOUT_S = "180"
+    }
+    if ([string]::IsNullOrEmpty($env:LLM_PREFLIGHT_TIMEOUT_S)) {
+        $env:LLM_PREFLIGHT_TIMEOUT_S = "60"
+    }
+    if ([string]::IsNullOrEmpty($env:LLM_MAX_ATTEMPTS)) {
+        $env:LLM_MAX_ATTEMPTS = "3"
+    }
+    if ([string]::IsNullOrEmpty($env:LLM_PLAN_MAX_SEGMENTS)) {
+        $env:LLM_PLAN_MAX_SEGMENTS = "40"
+    }
+    if ([string]::IsNullOrEmpty($env:LLM_PLAN_MAX_CHARS)) {
+        $env:LLM_PLAN_MAX_CHARS = "8000"
+    }
+
     if (-not [string]::IsNullOrEmpty($YtDlpCookiesFromBrowser)) {
         $env:YTDLP_COOKIES_FROM_BROWSER = $YtDlpCookiesFromBrowser
     }

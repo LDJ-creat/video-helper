@@ -35,6 +35,7 @@ _INTERNAL_STAGE_TO_PUBLIC.update(
         "decode": PublicStage.INGEST,
         "speech_to_text": PublicStage.TRANSCRIBE,
         "chapters": PublicStage.SEGMENT,
+        "plan": PublicStage.ANALYZE,
         "highlights": PublicStage.ANALYZE,
         "mindmap": PublicStage.ANALYZE,
         "keyframes": PublicStage.EXTRACT_KEYFRAMES,

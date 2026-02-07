@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import time
 from urllib.parse import urlparse
 from typing import Any, Protocol
 
@@ -172,20 +173,46 @@ class LLMAnalyzeProvider:
 				"promptLen": len(joined),
 			}
 
-		try:
-			resp = self._client.post(self._endpoint_url(), json=payload)
-		except httpx.TimeoutException:
-			details = {"reason": "timeout", "task": task_name}
-			if debug_enabled:
-				details["debug"] = debug_meta
-			raise AnalyzeError(code=ErrorCode.JOB_STAGE_FAILED, message="LLM request timed out", details=details)
-		except httpx.RequestError as e:
-			# Network/transport errors.
-			details = {"reason": "upstream_error", "task": task_name, "errorType": type(e).__name__}
-			if debug_enabled:
-				details["debug"] = debug_meta
-			raise AnalyzeError(code=ErrorCode.JOB_STAGE_FAILED, message="LLM request failed", details=details)
+		max_attempts = max(1, _env_int("LLM_MAX_ATTEMPTS", 1))
+		attempt = 0
+		resp: httpx.Response | None = None
+		while attempt < max_attempts:
+			attempt += 1
+			try:
+				resp = self._client.post(self._endpoint_url(), json=payload)
+			except httpx.TimeoutException:
+				if attempt < max_attempts:
+					# Exponential backoff (0.5s, 1s, 2s, 4s...) capped.
+					time.sleep(min(8.0, 0.5 * (2 ** (attempt - 1))))
+					continue
+				details = {"reason": "timeout", "task": task_name, "attempt": attempt, "maxAttempts": max_attempts}
+				if debug_enabled:
+					details["debug"] = debug_meta
+				raise AnalyzeError(code=ErrorCode.JOB_STAGE_FAILED, message="LLM request timed out", details=details)
+			except httpx.RequestError as e:
+				# Network/transport errors.
+				if attempt < max_attempts:
+					time.sleep(min(8.0, 0.5 * (2 ** (attempt - 1))))
+					continue
+				details = {
+					"reason": "upstream_error",
+					"task": task_name,
+					"errorType": type(e).__name__,
+					"attempt": attempt,
+					"maxAttempts": max_attempts,
+				}
+				if debug_enabled:
+					details["debug"] = debug_meta
+				raise AnalyzeError(code=ErrorCode.JOB_STAGE_FAILED, message="LLM request failed", details=details)
 
+			# Retry on transient upstream failures.
+			status = int(resp.status_code)
+			if status >= 500 and attempt < max_attempts:
+				time.sleep(min(8.0, 0.5 * (2 ** (attempt - 1))))
+				continue
+			break
+
+		assert resp is not None
 		status = int(resp.status_code)
 		if status == 401:
 			details = {"reason": "missing_credentials", "task": task_name}

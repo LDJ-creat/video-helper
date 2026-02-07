@@ -37,6 +37,14 @@ _PROVIDERS: tuple[LLMCatalogProvider, ...] = (
 		),
 	),
 	LLMCatalogProvider(
+		provider_id="qwen",
+		display_name="Qwen",
+		base_url="https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+		models=(
+			LLMCatalogModel(model_id="qwen-plus", display_name="Qwen Plus"),
+		),
+	),
+	LLMCatalogProvider(
 		provider_id="nvidia",
 		display_name="NVIDIA (OpenAI-compatible)",
 		base_url="https://integrate.api.nvidia.com/v1/chat/completions",

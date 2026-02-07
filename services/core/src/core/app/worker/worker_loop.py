@@ -13,10 +13,8 @@ from sqlalchemy.orm import Session
 from core.app.sse.event_bus import GLOBAL_JOB_EVENT_BUS
 from core.app.logs.job_logs import append_job_log
 from core.app.pipeline.analyze_provider import AnalyzeError
-from core.app.pipeline.highlights import generate_highlights
-from core.app.pipeline.keyframes import extract_keyframes, map_keyframes_error
-from core.app.pipeline.mindmap import generate_mindmap
-from core.app.pipeline.segment import build_chapter_error, build_chapters_from_transcript
+from core.app.pipeline.keyframes import extract_keyframes_at_times, map_keyframes_error
+from core.app.pipeline.llm_plan import generate_plan
 from core.app.pipeline.transcribe_real import map_transcribe_error, run_real_transcribe
 from core.contracts.error_codes import ErrorCode
 from core.db.session import get_sessionmaker
@@ -183,9 +181,8 @@ class PipelineJobProcessor:
     """MVP pipeline runner for WT-BE-06.
 
     Executes:
-            ingest → speech_to_text (public: transcribe) → chapters (public: segment)
-                → highlights/mindmap (public: analyze) → keyframes (public: extract_keyframes)
-                → assemble_result
+            ingest → speech_to_text (public: transcribe) → plan (public: analyze)
+                → keyframes (public: extract_keyframes) → assemble_result
     """
 
     def __init__(self, *, default_duration_ms: int = 60_000):
@@ -301,144 +298,122 @@ class PipelineJobProcessor:
                         message="progress=0.5",
                     )
 
-                # ---- Segment ----
-                if job.chapters is None:
-                    job.stage = "chapters"
-                    job.progress = max(job.progress or 0.0, 0.6)
-                    job.updated_at_ms = _now_ms()
-                    session.add(job)
-                    session.commit()
+                # ---- Plan (LLM) ----
+                job.stage = "plan"
+                job.progress = max(job.progress or 0.0, 0.6)
+                job.updated_at_ms = _now_ms()
+                session.add(job)
+                session.commit()
 
-                    _log(job_id=job.job_id, project_id=job.project_id, stage=job.stage, level="info", message="segment started")
+                _log(job_id=job.job_id, project_id=job.project_id, stage=job.stage, level="info", message="plan started")
+                GLOBAL_JOB_EVENT_BUS.emit_state(job_id=job.job_id, project_id=job.project_id, stage=job.stage, message="status=running")
+                GLOBAL_JOB_EVENT_BUS.emit_progress(job_id=job.job_id, project_id=job.project_id, stage=job.stage, progress=job.progress, message="progress=0.6")
 
-                    GLOBAL_JOB_EVENT_BUS.emit_state(
-                        job_id=job.job_id,
-                        project_id=job.project_id,
-                        stage=job.stage,
-                        message="segment=running",
-                    )
-                    GLOBAL_JOB_EVENT_BUS.emit_progress(
-                        job_id=job.job_id,
-                        project_id=job.project_id,
-                        stage=job.stage,
-                        progress=job.progress,
-                        message="progress=0.6",
-                    )
+                plan = generate_plan(transcript=job.transcript or {})
+                content_blocks = plan.get("contentBlocks") if isinstance(plan, dict) else None
+                mindmap = plan.get("mindmap") if isinstance(plan, dict) else None
+                if not isinstance(content_blocks, list) or not isinstance(mindmap, dict):
+                    raise ValueError("plan output invalid")
 
-                    chapters = build_chapters_from_transcript(job.transcript or {})
-                    job.chapters = chapters
-                    job.progress = 0.9
-                    job.updated_at_ms = _now_ms()
-                    session.add(job)
-                    session.commit()
+                job.progress = max(job.progress or 0.0, 0.9)
+                job.updated_at_ms = _now_ms()
+                session.add(job)
+                session.commit()
 
-                    _log(job_id=job.job_id, project_id=job.project_id, stage=job.stage, level="info", message="segment finished")
+                _log(job_id=job.job_id, project_id=job.project_id, stage=job.stage, level="info", message="plan finished")
+                GLOBAL_JOB_EVENT_BUS.emit_state(job_id=job.job_id, project_id=job.project_id, stage=job.stage, message="plan=ready")
+                GLOBAL_JOB_EVENT_BUS.emit_progress(job_id=job.job_id, project_id=job.project_id, stage=job.stage, progress=job.progress, message="progress=0.9")
 
-                    GLOBAL_JOB_EVENT_BUS.emit_state(
-                        job_id=job.job_id,
-                        project_id=job.project_id,
-                        stage=job.stage,
-                        message="chapters=ready",
-                    )
-                    GLOBAL_JOB_EVENT_BUS.emit_progress(
-                        job_id=job.job_id,
-                        project_id=job.project_id,
-                        stage=job.stage,
-                        progress=job.progress,
-                        message="progress=0.9",
-                    )
+                # ---- Keyframes (plan-driven) ----
+                job.stage = "keyframes"
+                job.progress = max(job.progress or 0.0, 0.96)
+                job.updated_at_ms = _now_ms()
+                session.add(job)
+                session.commit()
 
-                # ---- Analyze (highlights + mindmap) ----
-                # Persisted in Result; we generate artifacts here.
-                if job.chapters is not None:
-                    chapters_payload = job.chapters.get("chapters") if isinstance(job.chapters, dict) else None
-                    if not isinstance(chapters_payload, list):
-                        raise ValueError("job.chapters.chapters must be a list")
+                _log(job_id=job.job_id, project_id=job.project_id, stage=job.stage, level="info", message="extract_keyframes started")
+                GLOBAL_JOB_EVENT_BUS.emit_state(job_id=job.job_id, project_id=job.project_id, stage=job.stage, message="status=running")
+                GLOBAL_JOB_EVENT_BUS.emit_progress(job_id=job.job_id, project_id=job.project_id, stage=job.stage, progress=job.progress, message="progress=0.96")
 
-                    job.stage = "highlights"
-                    job.progress = max(job.progress or 0.0, 0.92)
-                    job.updated_at_ms = _now_ms()
-                    session.add(job)
-                    session.commit()
-
-                    _log(job_id=job.job_id, project_id=job.project_id, stage=job.stage, level="info", message="analyze(highlights) started")
-                    GLOBAL_JOB_EVENT_BUS.emit_state(job_id=job.job_id, project_id=job.project_id, stage=job.stage, message="status=running")
-                    GLOBAL_JOB_EVENT_BUS.emit_progress(job_id=job.job_id, project_id=job.project_id, stage=job.stage, progress=job.progress, message="progress=0.92")
-
-                    highlights = generate_highlights(transcript=job.transcript or {}, chapters=chapters_payload)
-
-                    job.stage = "mindmap"
-                    job.progress = max(job.progress or 0.0, 0.94)
-                    job.updated_at_ms = _now_ms()
-                    session.add(job)
-                    session.commit()
-
-                    _log(job_id=job.job_id, project_id=job.project_id, stage=job.stage, level="info", message="analyze(mindmap) started")
-                    GLOBAL_JOB_EVENT_BUS.emit_state(job_id=job.job_id, project_id=job.project_id, stage=job.stage, message="status=running")
-                    GLOBAL_JOB_EVENT_BUS.emit_progress(job_id=job.job_id, project_id=job.project_id, stage=job.stage, progress=job.progress, message="progress=0.94")
-
-                    mindmap = generate_mindmap(chapters=chapters_payload, highlights=highlights)
-
-                    _log(job_id=job.job_id, project_id=job.project_id, stage=job.stage, level="info", message="analyze finished")
-
-                    # ---- Keyframes ----
-                    job.stage = "keyframes"
-                    job.progress = max(job.progress or 0.0, 0.96)
-                    job.updated_at_ms = _now_ms()
-                    session.add(job)
-                    session.commit()
-
-                    _log(job_id=job.job_id, project_id=job.project_id, stage=job.stage, level="info", message="extract_keyframes started")
-                    GLOBAL_JOB_EVENT_BUS.emit_state(job_id=job.job_id, project_id=job.project_id, stage=job.stage, message="status=running")
-                    GLOBAL_JOB_EVENT_BUS.emit_progress(job_id=job.job_id, project_id=job.project_id, stage=job.stage, progress=job.progress, message="progress=0.96")
-
-                    keyframes_artifacts = extract_keyframes(
-                        session=session,
-                        project=project,
-                        job_id=job.job_id,
-                        chapters=chapters_payload,
-                        frames_per_chapter=_env_int("KEYFRAMES_PER_CHAPTER", 3),
-                        allow_skip_if_placeholder=True,
-                        transcript_meta=job.transcript_meta,
-                    )
-
-                    # Attach keyframes to chapter objects for Result rendering.
-                    for ch in chapters_payload:
-                        if not isinstance(ch, dict):
+                times_ms: list[int] = []
+                for b in content_blocks:
+                    if not isinstance(b, dict):
+                        continue
+                    hls = b.get("highlights")
+                    if not isinstance(hls, list):
+                        continue
+                    for h in hls:
+                        if not isinstance(h, dict):
                             continue
-                        cid = ch.get("chapterId")
-                        if isinstance(cid, str) and cid in keyframes_artifacts.keyframes_by_chapter:
-                            ch["keyframes"] = keyframes_artifacts.keyframes_by_chapter[cid]
+                        kf = h.get("keyframe")
+                        if not isinstance(kf, dict):
+                            continue
+                        tm = kf.get("timeMs")
+                        if isinstance(tm, int):
+                            times_ms.append(int(tm))
 
-                    # ---- Assemble Result ----
-                    job.stage = "assemble_result"
-                    job.progress = max(job.progress or 0.0, 0.99)
-                    job.updated_at_ms = _now_ms()
-                    session.add(job)
-                    session.commit()
+                keyframes_artifacts = extract_keyframes_at_times(
+                    session=session,
+                    project=project,
+                    job_id=job.job_id,
+                    times_ms=times_ms,
+                    allow_skip_if_placeholder=True,
+                    transcript_meta=job.transcript_meta,
+                )
 
-                    _log(job_id=job.job_id, project_id=job.project_id, stage=job.stage, level="info", message="assemble_result started")
-                    GLOBAL_JOB_EVENT_BUS.emit_state(job_id=job.job_id, project_id=job.project_id, stage=job.stage, message="status=running")
-                    GLOBAL_JOB_EVENT_BUS.emit_progress(job_id=job.job_id, project_id=job.project_id, stage=job.stage, progress=job.progress, message="progress=0.99")
+                # Backfill asset references into plan keyframes.
+                for b in content_blocks:
+                    if not isinstance(b, dict):
+                        continue
+                    hls = b.get("highlights")
+                    if not isinstance(hls, list):
+                        continue
+                    for h in hls:
+                        if not isinstance(h, dict):
+                            continue
+                        kf = h.get("keyframe")
+                        if not isinstance(kf, dict):
+                            continue
+                        tm = kf.get("timeMs")
+                        if not isinstance(tm, int):
+                            continue
+                        info = keyframes_artifacts.keyframes_by_time.get(int(tm))
+                        if not isinstance(info, dict):
+                            continue
+                        asset_id = info.get("assetId")
+                        if isinstance(asset_id, str) and asset_id:
+                            kf["assetId"] = asset_id
+                            kf["contentUrl"] = f"/api/v1/assets/{asset_id}/content"
 
-                    # Provide a playable source video asset to the frontend.
-                    # This is derived from project.source_path (downloaded via yt-dlp for URL sources).
-                    asset_refs = list(keyframes_artifacts.asset_refs or [])
-                    video_asset_id = _ensure_source_video_asset(session=session, project=project)
-                    if video_asset_id:
-                        asset_refs.insert(0, {"assetId": video_asset_id, "kind": "video"})
+                # ---- Assemble Result ----
+                job.stage = "assemble_result"
+                job.progress = max(job.progress or 0.0, 0.99)
+                job.updated_at_ms = _now_ms()
+                session.add(job)
+                session.commit()
 
-                    assemble_result(
-                        session,
-                        project_id=project.project_id,
-                        chapters=chapters_payload,
-                        highlights=highlights,
-                        mindmap=mindmap,
-                        asset_refs=asset_refs,
-                        pipeline_version=os.environ.get("PIPELINE_VERSION") or "0",
-                    )
+                _log(job_id=job.job_id, project_id=job.project_id, stage=job.stage, level="info", message="assemble_result started")
+                GLOBAL_JOB_EVENT_BUS.emit_state(job_id=job.job_id, project_id=job.project_id, stage=job.stage, message="status=running")
+                GLOBAL_JOB_EVENT_BUS.emit_progress(job_id=job.job_id, project_id=job.project_id, stage=job.stage, progress=job.progress, message="progress=0.99")
 
-                    _log(job_id=job.job_id, project_id=job.project_id, stage=job.stage, level="info", message="assemble_result finished")
+                # Provide a playable source video asset to the frontend.
+                # This is derived from project.source_path (downloaded via yt-dlp for URL sources).
+                asset_refs = list(keyframes_artifacts.asset_refs or [])
+                video_asset_id = _ensure_source_video_asset(session=session, project=project)
+                if video_asset_id:
+                    asset_refs.insert(0, {"assetId": video_asset_id, "kind": "video"})
+
+                assemble_result(
+                    session,
+                    project_id=project.project_id,
+                    content_blocks=content_blocks,
+                    mindmap=mindmap,
+                    asset_refs=asset_refs,
+                    schema_version=plan.get("schemaVersion") if isinstance(plan.get("schemaVersion"), str) else "2026-02-06",
+                    pipeline_version=os.environ.get("PIPELINE_VERSION") or "0",
+                )
+
+                _log(job_id=job.job_id, project_id=job.project_id, stage=job.stage, level="info", message="assemble_result finished")
 
             except ValueError as e:
                 error = (
@@ -471,10 +446,10 @@ class PipelineJobProcessor:
                     error = map_keyframes_error(e)
                 elif job.stage == "assemble_result" and isinstance(e, AssembleResultError):
                     error = {"code": ErrorCode.JOB_STAGE_FAILED, "message": str(e), "details": {"reason": e.kind}}
-                elif job.stage in {"highlights", "mindmap"} and isinstance(e, AnalyzeError):
+                elif job.stage in {"plan", "highlights", "mindmap"} and isinstance(e, AnalyzeError):
                     error = e.to_error()
                 else:
-                    error = build_chapter_error(message=str(e), details={"reason": "unexpected"})
+                    error = {"code": ErrorCode.JOB_STAGE_FAILED, "message": str(e), "details": {"reason": "unexpected"}}
                 mark_job_failed(session, job_id=job.job_id, now_ms=_now_ms(), error=error)
                 session.commit()
 
@@ -497,19 +472,19 @@ class PipelineJobProcessor:
         GLOBAL_JOB_EVENT_BUS.emit_state(
             job_id=job_id,
             project_id=project_id,
-            stage="chapters",
+            stage="assemble_result",
             message="status=succeeded",
         )
 
         GLOBAL_JOB_EVENT_BUS.emit_progress(
             job_id=job_id,
             project_id=project_id,
-            stage="chapters",
+            stage="assemble_result",
             progress=1.0,
             message="progress=1.0",
         )
 
-        _log(job_id=job_id, project_id=project_id, stage="chapters", level="info", message="job succeeded")
+        _log(job_id=job_id, project_id=project_id, stage="assemble_result", level="info", message="job succeeded")
 
 
 class WorkerService:

@@ -255,3 +255,55 @@ def download_with_ytdlp(
 
 	abs_path2, rel = _ensure_under_data_dir(abs_path)
 	return YtDlpDownloadResult(abs_path=abs_path2, rel_path=rel)
+
+
+def fetch_video_title(*, url: str, timeout_s: float = 15.0) -> str | None:
+	"""Best-effort fetch a video's title via yt-dlp without downloading.
+
+	Returns None on failure. Never raises YtDlpError.
+	"""
+
+	runner = _resolve_ytdlp_runner()
+	if not runner:
+		return None
+
+	cmd = runner + [
+		"--ignore-config",
+		"--no-playlist",
+		"--skip-download",
+		"--no-warnings",
+		"--no-progress",
+		"--print",
+		"%(title)s",
+		url,
+	]
+	cmd = _apply_optional_network_args(cmd)
+
+	try:
+		completed = subprocess.run(
+			cmd,
+			stdout=subprocess.PIPE,
+			stderr=subprocess.STDOUT,
+			text=True,
+			timeout=float(timeout_s),
+			check=False,
+			creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+		)
+	except Exception:
+		return None
+
+	if completed.returncode != 0:
+		return None
+
+	out = (completed.stdout or "").strip()
+	if not out:
+		return None
+
+	for raw in out.splitlines():
+		line = (raw or "").strip()
+		if not line:
+			continue
+		# Keep a reasonable bound to avoid pathological output.
+		return line[:300]
+
+	return None
