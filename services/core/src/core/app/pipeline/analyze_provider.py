@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import time
+import logging
 from urllib.parse import urlparse
 from typing import Any, Protocol
 
@@ -16,6 +17,7 @@ from core.db.session import get_sessionmaker
 from core.llm.catalog import find_provider, resolve_runtime_model_name
 from core.llm.secrets_crypto import decrypt_api_key
 
+logger = logging.getLogger(__name__)
 
 class AnalyzeProvider(Protocol):
 	def generate_json(self, task_name: str, input_dict: dict) -> dict: ...
@@ -307,10 +309,6 @@ def _parse_content_as_json(content: Any) -> Any:
 
 
 def llm_provider_from_env(*, transport: httpx.BaseTransport | None = None) -> LLMAnalyzeProvider:
-	provider = (os.environ.get("ANALYZE_PROVIDER") or "").strip().lower()
-	if provider != "llm":
-		raise AnalyzeError(code=ErrorCode.JOB_STAGE_FAILED, message="LLM provider not enabled", details={"reason": "disabled"})
-
 	api_base = _env_str("LLM_API_BASE")
 	api_key = _env_str("LLM_API_KEY")
 	model = _normalize_model_id(_env_str("LLM_MODEL") or "minimaxai/minimax-m2.1")
@@ -407,9 +405,12 @@ def llm_provider_for_jobs(*, transport: httpx.BaseTransport | None = None) -> LL
 	if provider is not None:
 		return provider
 
-	if (os.environ.get("ANALYZE_PROVIDER") or "").strip().lower() != "llm":
+	try:
+		return llm_provider_from_env(transport=transport)
+	except AnalyzeError:
+		# Env-based LLM not properly configured -> treat as unavailable for jobs.
+		logger.error("LLM not configured")
 		return None
-	return llm_provider_from_env(transport=transport)
 
 
 def llm_provider_from_runtime(

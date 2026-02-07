@@ -215,9 +215,6 @@ async def _llm_preflight_or_error(request: Request, session: Session) -> JSONRes
 		base_url = provider.base_url
 		model = runtime_model
 	else:
-		if (_env_str("ANALYZE_PROVIDER") or "").lower() != "llm":
-			return None
-
 		base_url = _env_str("LLM_API_BASE")
 		api_key = _env_str("LLM_API_KEY")
 		model = _normalize_model_id(_env_str("LLM_MODEL") or "minimaxai/minimax-m2.1")
