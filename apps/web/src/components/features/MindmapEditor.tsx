@@ -192,7 +192,7 @@ export function MindmapEditor({
     const initialNodes: Node[] = getLayoutedElements(tempNodes, initialMindmap.edges); // Use passed edges
 
     const initialEdges: Edge[] = initialMindmap.edges.map((edge) => ({
-        id: edge.id,
+        id: edge.id || `edge_${edge.source}_${edge.target}`,
         source: edge.source,
         target: edge.target,
         label: edge.label,

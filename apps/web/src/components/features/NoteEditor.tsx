@@ -1,7 +1,10 @@
 "use client";
 
-import { useEditor, EditorContent, JSONContent, ReactNodeViewRenderer } from "@tiptap/react";
+
+import { useEditor, EditorContent, JSONContent, ReactNodeViewRenderer, NodeViewWrapper, NodeViewContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
+import { Heading } from '@tiptap/extension-heading';
+import { Paragraph } from '@tiptap/extension-paragraph';
 import { Underline } from '@tiptap/extension-underline';
 import { Highlight as TiptapHighlight } from '@tiptap/extension-highlight';
 import { Link } from '@tiptap/extension-link';
@@ -29,9 +32,22 @@ const BlockAttributes = Extension.create({
                     blockId: {
                         default: null,
                         keepOnSplit: false,
+                        renderHTML: attributes => ({
+                            'data-block-id': attributes.blockId,
+                        }),
                     },
-                    startMs: { default: null },
-                    endMs: { default: null },
+                    startMs: {
+                        default: null,
+                        renderHTML: attributes => ({
+                            'data-start-ms': attributes.startMs,
+                        }),
+                    },
+                    endMs: {
+                        default: null,
+                        renderHTML: attributes => ({
+                            'data-end-ms': attributes.endMs,
+                        }),
+                    },
                 },
             },
             {
@@ -40,9 +56,25 @@ const BlockAttributes = Extension.create({
                     highlightId: {
                         default: null,
                         keepOnSplit: false,
+                        renderHTML: attributes => ({
+                            'data-highlight-id': attributes.highlightId,
+                        }),
                     },
-                    keyframeUrl: { default: null },
-                    timeMs: { default: null },
+                    keyframeUrl: {
+                        default: null,
+                        renderHTML: attributes => {
+                            if (!attributes.keyframeUrl) return {};
+                            return {
+                                'data-keyframe-url': attributes.keyframeUrl,
+                            };
+                        }
+                    },
+                    timeMs: {
+                        default: null,
+                        renderHTML: attributes => ({
+                            'data-time-ms': attributes.timeMs,
+                        }),
+                    },
                 },
             },
         ];
@@ -57,6 +89,87 @@ export interface NoteEditorProps {
     onSaveError?: (error: Error) => void;
     onBlockNavigation?: (timeMs: number) => void;
 }
+
+// Navigation Extension to bridge React callback
+const NavigationExtension = Extension.create({
+    name: 'navigation',
+    addCommands() {
+        return {
+            navigateToTime: (timeMs: number) => ({ editor }) => {
+                editor.storage.navigation.onNavigate?.(timeMs);
+                return true;
+            }
+        }
+    },
+    addStorage() {
+        return {
+            onNavigate: null as ((ms: number) => void) | null,
+        }
+    }
+});
+
+function formatTime(ms: number): string {
+    if (ms === null || ms === undefined) return "00:00";
+    const totalSeconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+}
+
+// React Node Views
+const HeadingBlock = ({ node, editor }: { node: any, editor: any }) => {
+    const time = formatTime(node.attrs.startMs || 0);
+
+    return (
+        <NodeViewWrapper className="flex items-start gap-3 group -ml-12 pl-1 transition-colors rounded-lg hover:bg-stone-50/50">
+            <div
+                contentEditable={false}
+                className="flex-shrink-0 mt-1.5 px-2 py-0.5 w-[60px] text-center bg-stone-100 text-stone-600 font-mono text-xs rounded-full cursor-pointer hover:bg-blue-100 hover:text-blue-700 transition-colors select-none"
+                onClick={() => editor.commands.navigateToTime(node.attrs.startMs)}
+                title="点击跳转视频"
+            >
+                {time}
+            </div>
+            <NodeViewContent className="flex-1 font-semibold text-stone-800 text-lg leading-snug" />
+        </NodeViewWrapper>
+    );
+};
+
+const ParagraphBlock = ({ node, editor }: { node: any, editor: any }) => {
+    const hasTime = node.attrs.timeMs !== null && node.attrs.timeMs !== undefined;
+
+    return (
+        <NodeViewWrapper className="flex items-start gap-3 group -ml-12 pl-1 transition-colors rounded-lg hover:bg-stone-50/50">
+            <div
+                contentEditable={false}
+                className={`flex-shrink-0 mt-1 w-[60px] flex justify-center items-center h-6 ${hasTime ? 'cursor-pointer' : 'pointer-events-none'}`}
+                onClick={hasTime ? () => editor.commands.navigateToTime(node.attrs.timeMs) : undefined}
+            >
+                {hasTime && (
+                    <div className="p-1 rounded-full text-stone-300 hover:text-blue-600 hover:bg-blue-50 transition-all opacity-0 group-hover:opacity-100" title="点击跳转视频">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                        </svg>
+                    </div>
+                )}
+            </div>
+            <NodeViewContent className="flex-1 text-stone-600 leading-relaxed" />
+        </NodeViewWrapper>
+    );
+};
+
+// Custom Extensions
+const CustomHeading = Heading.extend({
+    addNodeView() {
+        return ReactNodeViewRenderer(HeadingBlock);
+    },
+}).configure({ levels: [1, 2, 3] });
+
+const CustomParagraph = Paragraph.extend({
+    addNodeView() {
+        return ReactNodeViewRenderer(ParagraphBlock);
+    },
+});
 
 export type NoteEditorRef = {
     scrollToBlock: (blockId: string) => void;
@@ -163,9 +276,13 @@ export const NoteEditor = forwardRef<NoteEditorRef, NoteEditorProps>(({
         immediatelyRender: false,
         extensions: [
             StarterKit.configure({
-                heading: { levels: [1, 2, 3] },
+                heading: false, // Use CustomHeading
+                paragraph: false, // Use CustomParagraph
             }),
+            CustomHeading,
+            CustomParagraph,
             BlockAttributes,
+            NavigationExtension, // Add Navigation
             Underline,
             TiptapHighlight,
             Link,
@@ -182,22 +299,18 @@ export const NoteEditor = forwardRef<NoteEditorRef, NoteEditorProps>(({
         },
         editorProps: {
             attributes: {
-                class: "prose prose-stone max-w-none focus:outline-none min-h-[300px] px-4 py-3",
+                class: "prose prose-stone max-w-none focus:outline-none min-h-[300px] px-4 py-3 ml-12", // Increased ml for the gutter
             },
-            handleClick: (view, pos, event) => {
-                const node = view.state.doc.nodeAt(pos);
-                if (node) {
-                    // Check if node (or parent) has timestamp
-                    const timeMs = node.attrs.timeMs || node.attrs.startMs;
-                    if (timeMs !== null && timeMs !== undefined && onBlockNavigation) {
-                        onBlockNavigation(timeMs);
-                        return true;
-                    }
-                }
-                return false;
-            }
+            // handleClick removed - handled by NodeViews
         },
     });
+
+    // Sync callback to editor storage
+    useEffect(() => {
+        if (editor && onBlockNavigation) {
+            editor.storage.navigation.onNavigate = onBlockNavigation;
+        }
+    }, [editor, onBlockNavigation]);
 
     // Handle initial content updates (if data loads later) - careful with loops
     // For now, we assume initialContentBlocks is stable or we ignore updates after mount 
