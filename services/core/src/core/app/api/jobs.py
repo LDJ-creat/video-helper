@@ -39,6 +39,33 @@ _ALLOWED_URL_SOURCE_TYPES: set[str] = {"youtube", "bilibili"}
 _UPLOAD_SOURCE_TYPE = "upload"
 
 
+def _canonical_source_url(source_type: str, source_url: str) -> str:
+	"""Canonicalize external source URLs for project identity.
+
+	We treat a Project as "the video" and a Job as "an analysis run".
+	To avoid creating duplicate projects for the same video, we strip
+	query/fragment noise and normalize host casing.
+	"""
+
+	try:
+		p = urlparse(source_url)
+	except Exception:
+		return source_url
+
+	scheme = (p.scheme or "").lower()
+	host = (p.netloc or "").lower()
+	path = p.path or ""
+	if path != "/":
+		path = path.rstrip("/")
+	if not path:
+		path = "/"
+
+	# Keep only stable identity components.
+	if scheme and host:
+		return f"{scheme}://{host}{path}"
+	return source_url
+
+
 def _normalize_title(value: str | None) -> str | None:
 	text = (value or "").strip()
 	return text or None
@@ -302,7 +329,21 @@ async def create_job(request: Request, session: Session = Depends(get_db_session
 			return preflight
 
 		now_ms = _now_ms()
-		project_id = str(uuid.uuid4())
+		canonical_url = _canonical_source_url(source_type, req.sourceUrl)
+
+		# Reuse existing project for the same external video.
+		existing: Project | None = (
+			session.query(Project)
+			.filter(Project.source_type == source_type)
+			.filter(
+				(Project.source_url == canonical_url)
+				| (Project.source_url.like(canonical_url + "%"))
+			)
+			.order_by(Project.updated_at_ms.desc())
+			.first()
+		)
+
+		project_id = existing.project_id if existing is not None else str(uuid.uuid4())
 		job_id = str(uuid.uuid4())
 
 		title = _normalize_title(req.title)
@@ -311,18 +352,32 @@ async def create_job(request: Request, session: Session = Depends(get_db_session
 			# Avoid blocking the event loop with subprocess.
 			title = await asyncio.to_thread(fetch_video_title, url=req.sourceUrl, timeout_s=timeout_s)
 
-		project = Project(
-			project_id=project_id,
-			title=title,
-			source_type=source_type,
-			source_url=req.sourceUrl,
-			source_path=None,
-			duration_ms=None,
-			format=None,
-			latest_result_id=None,
-			created_at_ms=now_ms,
-			updated_at_ms=now_ms,
-		)
+		if existing is None:
+			project = Project(
+				project_id=project_id,
+				title=title,
+				source_type=source_type,
+				source_url=canonical_url,
+				source_path=None,
+				duration_ms=None,
+				format=None,
+				latest_result_id=None,
+				created_at_ms=now_ms,
+				updated_at_ms=now_ms,
+			)
+			session.add(project)
+		else:
+			# Keep stored URL canonical and fill missing title opportunistically.
+			changed = False
+			if isinstance(canonical_url, str) and canonical_url and existing.source_url != canonical_url:
+				existing.source_url = canonical_url
+				changed = True
+			if (not _normalize_title(existing.title)) and title is not None:
+				existing.title = title
+				changed = True
+			if changed:
+				existing.updated_at_ms = now_ms
+				session.add(existing)
 		job = Job(
 			job_id=job_id,
 			project_id=project_id,
@@ -335,7 +390,6 @@ async def create_job(request: Request, session: Session = Depends(get_db_session
 			created_at_ms=now_ms,
 			updated_at_ms=now_ms,
 		)
-		session.add(project)
 		session.add(job)
 		session.commit()
 

@@ -122,3 +122,4 @@ development_status:
 
   epic-12: review
   12-1-be-core-llm-plan-pipeline:review
+  12-2-be-core-remove-legacy-pipeline: review

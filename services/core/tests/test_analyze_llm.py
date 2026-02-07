@@ -6,8 +6,7 @@ import httpx
 import pytest
 
 from core.app.pipeline.analyze_provider import AnalyzeError, llm_provider_from_env, llm_provider_from_runtime
-from core.app.pipeline.highlights import build_highlights_llm, generate_highlights
-from core.app.pipeline.mindmap import build_mindmap_llm, generate_mindmap
+from core.app.pipeline.llm_plan import generate_plan, validate_plan
 from core.app.pipeline.transcribe import build_placeholder_transcript
 from core.contracts.error_codes import ErrorCode
 
@@ -100,118 +99,64 @@ class _StubProvider:
 		return self._result
 
 
-def test_highlights_llm_normalizes_ids_and_time_bounds() -> None:
-	transcript = build_placeholder_transcript(duration_ms=20_000, segment_ms=5_000)
-	chapters = [
-		{"chapterId": "ch_1", "idx": 0, "title": "C1", "summary": "", "startMs": 0, "endMs": 10_000},
-		{"chapterId": "ch_2", "idx": 1, "title": "C2", "summary": "", "startMs": 10_000, "endMs": 20_000},
-	]
+def test_plan_validate_normalizes_near_miss_payload() -> None:
+	plan = {
+		"content_blocks": [
+			{
+				"id": 0,
+				"idx": "0",
+				"title": "Intro",
+				"timeRange": {"startMs": "0", "endMs": 10_000},
+				"highlights": [
+					{
+						"id": 1,
+						"idx": 0,
+						"quote": "Key point",
+						"timeMs": 10_000,
+					}
+				],
+			},
+		],
+		"mindmap": {"nodes": [{"id": "n1", "data": {"targetBlockId": 0}}], "edges": []},
+	}
 
-	provider = _StubProvider(
-		{
-			"chapters": [
-				{"chapterId": "ch_1", "items": [{"text": "A", "timeMs": 9999}, {"text": "B", "timeMs": 10_000}]},
-				{"chapterId": "ch_2", "items": [{"text": "C", "timeMs": 15_000}]},
-			]
-		}
-	)
+	out = validate_plan(plan)
+	assert out.get("schemaVersion")
+	blocks = out.get("contentBlocks")
+	assert isinstance(blocks, list) and len(blocks) == 1
+	b0 = blocks[0]
+	assert b0["blockId"] == "b0"
+	assert b0["idx"] == 0
+	assert b0["startMs"] == 0 and b0["endMs"] == 10_000
+	assert isinstance(b0.get("highlights"), list) and len(b0["highlights"]) == 1
+	h0 = b0["highlights"][0]
+	assert h0["highlightId"]
+	assert h0["idx"] == 0
+	assert isinstance(h0.get("keyframe"), dict)
+	# 10_000 must be clamped into [0, 10_000) => 9_999
+	assert h0["keyframe"]["timeMs"] == 9_999
 
-	hls = build_highlights_llm(transcript=transcript, chapters=chapters, provider=provider)
-	assert [h["highlightId"] for h in hls if h["chapterId"] == "ch_1"] == ["h_ch_1_0", "h_ch_1_1"]
-	# timeMs at 10_000 is outside [0, 10_000) -> must be corrected to None
-	ch1_times = [h.get("timeMs") for h in hls if h["chapterId"] == "ch_1"]
-	assert ch1_times == [9999, None]
+	nodes = out.get("mindmap", {}).get("nodes")
+	assert isinstance(nodes, list)
+	assert nodes[0].get("data", {}).get("targetBlockId") == "b0"
 
 
-def test_generate_highlights_falls_back_when_llm_unavailable() -> None:
+def test_generate_plan_placeholder_escape_hatch() -> None:
+	os.environ.pop("PLAN_PROVIDER", None)
+	try:
+		_set_env(PLAN_PROVIDER="placeholder")
+		transcript = build_placeholder_transcript(duration_ms=10_000, segment_ms=5_000)
+		out = generate_plan(transcript=transcript)
+		assert isinstance(out.get("contentBlocks"), list) and len(out["contentBlocks"]) >= 1
+		assert isinstance(out.get("mindmap"), dict)
+	finally:
+		os.environ.pop("PLAN_PROVIDER", None)
+
+
+def test_generate_plan_invalid_llm_output_maps_reason() -> None:
+	provider = _StubProvider({"schemaVersion": "2026-02-06", "contentBlocks": [], "mindmap": {"nodes": [], "edges": []}})
 	transcript = build_placeholder_transcript(duration_ms=10_000, segment_ms=5_000)
-	chapters = [{"chapterId": "ch_1", "idx": 0, "title": "C1", "summary": "", "startMs": 0, "endMs": 10_000}]
-
-	# No LLM_API_KEY set; allow fallback.
-	_set_env(ANALYZE_PROVIDER="llm", LLM_API_BASE="https://example.invalid", ANALYZE_ALLOW_RULES_FALLBACK="1")
-	os.environ.pop("LLM_API_KEY", None)
-
-	hls = generate_highlights(transcript=transcript, chapters=chapters)
-	assert isinstance(hls, list) and len(hls) >= 1
-	assert hls[0]["chapterId"] == "ch_1"
-
-
-def test_generate_highlights_missing_credentials_maps_reason_and_fallback(tmp_path) -> None:
-	os.environ["DATA_DIR"] = str(tmp_path)
-
-	transcript = build_placeholder_transcript(duration_ms=10_000, segment_ms=5_000)
-	chapters = [{"chapterId": "ch_1", "idx": 0, "title": "C1", "summary": "", "startMs": 0, "endMs": 10_000}]
-
-	_set_env(ANALYZE_PROVIDER="llm", LLM_API_BASE="https://example.invalid", ANALYZE_ALLOW_RULES_FALLBACK="0")
-	os.environ.pop("LLM_API_KEY", None)
 	with pytest.raises(AnalyzeError) as ei:
-		generate_highlights(transcript=transcript, chapters=chapters)
-	assert ei.value.details.get("reason") == "missing_credentials"
-
-	# When fallback enabled, keep pipeline moving.
-	_set_env(ANALYZE_PROVIDER="llm", LLM_API_BASE="https://example.invalid", ANALYZE_ALLOW_RULES_FALLBACK="1")
-	hls = generate_highlights(transcript=transcript, chapters=chapters)
-	assert isinstance(hls, list) and len(hls) >= 1
-
-
-def test_highlights_llm_invalid_output_maps_reason() -> None:
-	transcript = build_placeholder_transcript(duration_ms=10_000, segment_ms=5_000)
-	chapters = [{"chapterId": "ch_1", "idx": 0, "title": "C1", "summary": "", "startMs": 0, "endMs": 10_000}]
-
-	provider = _StubProvider({"nope": True})
-	with pytest.raises(AnalyzeError) as ei:
-		build_highlights_llm(transcript=transcript, chapters=chapters, provider=provider)
+		generate_plan(transcript=transcript, provider=provider)
 	assert ei.value.code == ErrorCode.JOB_STAGE_FAILED
 	assert ei.value.details.get("reason") == "invalid_llm_output"
-
-
-def test_mindmap_llm_builds_renderable_graph() -> None:
-	chapters = [
-		{"chapterId": "ch_1", "idx": 0, "title": "Intro", "summary": "", "startMs": 0, "endMs": 10_000},
-		{"chapterId": "ch_2", "idx": 1, "title": "Main", "summary": "", "startMs": 10_000, "endMs": 20_000},
-	]
-	highlights = [
-		{"highlightId": "h_ch_1_0", "chapterId": "ch_1", "idx": 0, "text": "Point A", "timeMs": 1000},
-		{"highlightId": "h_ch_2_0", "chapterId": "ch_2", "idx": 0, "text": "Point B", "timeMs": 12000},
-	]
-
-	provider = _StubProvider(
-		{
-			"chapters": [
-				{"chapterId": "ch_1", "topics": [{"label": "What is it"}]},
-				{"chapterId": "ch_2", "topics": [{"label": "How it works"}, {"label": "Examples"}]},
-			]
-		}
-	)
-
-	mm = build_mindmap_llm(chapters=chapters, highlights=highlights, provider=provider)
-	assert isinstance(mm, dict)
-	assert "nodes" in mm and "edges" in mm
-	ids = {n.get("id") for n in mm["nodes"] if isinstance(n, dict)}
-	assert "node_root" in ids
-	assert "node_ch_ch_1" in ids
-	assert "node_ch_ch_2" in ids
-
-
-def test_mindmap_llm_invalid_output_maps_reason() -> None:
-	chapters = [{"chapterId": "ch_1", "idx": 0, "title": "Intro", "summary": "", "startMs": 0, "endMs": 10_000}]
-	highlights = [{"highlightId": "h_ch_1_0", "chapterId": "ch_1", "idx": 0, "text": "Point A", "timeMs": 1000}]
-
-	provider = _StubProvider({"chapters": [{"chapterId": "wrong", "topics": [{"label": "x"}]}]})
-	with pytest.raises(AnalyzeError) as ei:
-		build_mindmap_llm(chapters=chapters, highlights=highlights, provider=provider)
-	assert ei.value.code == ErrorCode.JOB_STAGE_FAILED
-	assert ei.value.details.get("reason") == "invalid_llm_output"
-
-
-def test_generate_mindmap_falls_back_when_llm_unavailable() -> None:
-	chapters = [{"chapterId": "ch_1", "idx": 0, "title": "Intro", "summary": "", "startMs": 0, "endMs": 10_000}]
-	highlights = [{"highlightId": "h_ch_1_0", "chapterId": "ch_1", "idx": 0, "text": "Point A", "timeMs": 1000}]
-
-	_set_env(ANALYZE_PROVIDER="llm", LLM_API_BASE="https://example.invalid", ANALYZE_ALLOW_RULES_FALLBACK="1")
-	os.environ.pop("LLM_API_KEY", None)
-
-	mm = generate_mindmap(chapters=chapters, highlights=highlights)
-	assert isinstance(mm, dict)
-	assert isinstance(mm.get("nodes"), list)
-	assert isinstance(mm.get("edges"), list)
