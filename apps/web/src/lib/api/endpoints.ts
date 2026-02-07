@@ -16,7 +16,8 @@ export const endpoints = {
     asset: (assetId: string) => `${API_V1}/assets/${assetId}`,
     assetContent: (assetId: string) => `${API_V1}/assets/${assetId}/content`,
     // Notes endpoints   
-    saveNote: (projectId: string, resultId: string) => `${API_V1}/projects/${projectId}/results/${resultId}/note`,
+    // Content Blocks endpoints
+    saveContentBlocks: (projectId: string, resultId: string) => `${API_V1}/projects/${projectId}/results/latest/content-blocks`,
     // Mindmap endpoints
     saveMindmap: (projectId: string, resultId: string) => `${API_V1}/projects/${projectId}/results/${resultId}/mindmap`,
     // Search endpoints

@@ -4,6 +4,10 @@
 export type MindmapNode = {
     id: string;
     label: string;
+    data?: {
+        targetBlockId?: string;
+        targetHighlightId?: string;
+    };
     [key: string]: unknown; // 允许扩展字段
 };
 
@@ -11,6 +15,7 @@ export type MindmapEdge = {
     id: string;
     source: string;
     target: string;
+    label?: string;
     [key: string]: unknown;
 };
 
@@ -19,44 +24,39 @@ export type Mindmap = {
     edges: MindmapEdge[];
 };
 
-// TipTap 文档类型
-export type TiptapDoc = {
-    type: "doc";
-    content: unknown[];
-};
-
-// 关键帧类型
+// 关键帧类型 (Embedded in Highlight)
 export type Keyframe = {
     assetId: string;
-    idx: number;
+    contentUrl: string;
     timeMs: number;
     caption?: string;
-};
-
-// 章节类型
-export type Chapter = {
-    chapterId: string;
-    idx: number;
-    title: string;
-    summary?: string;
-    startMs: number;
-    endMs: number;
-    keyframes: Keyframe[];
 };
 
 // 重点类型
 export type Highlight = {
     highlightId: string;
-    chapterId: string;
-    idx: number;
+    idx: number; // 0-based within block
     text: string;
-    timeMs?: number;
+    startMs: number;
+    endMs: number;
+    keyframe?: Keyframe;
+};
+
+// 内容块类型
+export type ContentBlock = {
+    blockId: string;
+    idx: number; // 0-based
+    title: string;
+    startMs: number;
+    endMs: number;
+    highlights: Highlight[];
 };
 
 // Asset 引用类型
 export type AssetRef = {
     assetId: string;
     kind: "screenshot" | "upload" | "user_image" | "cover" | "video";
+    contentUrl?: string;
 };
 
 // Result 核心类型
@@ -64,11 +64,10 @@ export type Result = {
     resultId: string;
     projectId: string;
     schemaVersion: string;
+    pipelineVersion: string;
     createdAtMs: number;
-    chapters: Chapter[];
-    highlights: Highlight[];
+    contentBlocks: ContentBlock[];
     mindmap: Mindmap;
-    note: TiptapDoc;
     assetRefs: AssetRef[];
 };
 
@@ -84,3 +83,9 @@ export type Asset = {
     createdAtMs: number;
     contentUrl: string;
 };
+
+// Update Response
+export type UpdateResultResponse = {
+    updatedAtMs: number;
+};
+

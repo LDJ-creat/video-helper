@@ -5,13 +5,9 @@ import { useParams } from "next/navigation";
 import { useLatestResult } from "@/lib/api/resultQueries";
 import { ResultLayout } from "@/components/layout/ResultLayout";
 import { VideoPlayer, type VideoPlayerRef } from "@/components/features/VideoPlayer";
-import { ChapterList } from "@/components/features/ChapterList";
-import { KeyframeGrid } from "@/components/features/KeyframeGrid";
-import { HighlightList } from "@/components/features/HighlightList";
-import { MindmapViewer } from "@/components/features/MindmapViewer";
 import { MindmapEditor } from "@/components/features/MindmapEditor";
 import { FloatingPlayer } from "@/components/features/FloatingPlayer";
-import { NoteEditor } from "@/components/features/NoteEditor";
+import { NoteEditor, NoteEditorRef } from "@/components/features/NoteEditor";
 import { endpoints } from "@/lib/api/endpoints";
 
 export default function ResultPage() {
@@ -23,13 +19,12 @@ export default function ResultPage() {
 
     // Refs
     const videoPlayerRef = useRef<VideoPlayerRef>(null);
+    const noteEditorRef = useRef<NoteEditorRef>(null);
     const playerContainerRef = useRef<HTMLDivElement>(null);
     const [videoElement, setVideoElement] = useState<HTMLVideoElement | null>(null);
 
     // State
     const [isFloatingVisible, setIsFloatingVisible] = useState(false);
-    const [currentTimeMs, setCurrentTimeMs] = useState(0);
-    const [activeTab, setActiveTab] = useState<"mindmap" | "keyframes" | "highlights">("mindmap");
 
     // Intersection Observer for floating player
     useEffect(() => {
@@ -54,7 +49,7 @@ export default function ResultPage() {
         }
     }, [result]);
 
-    // Handle seek (章节/关键帧跳转)
+    // Handle seek
     const handleSeek = (timeMs: number) => {
         videoPlayerRef.current?.seekTo(timeMs);
         videoPlayerRef.current?.play();
@@ -68,6 +63,11 @@ export default function ResultPage() {
     // Handle close floating player
     const handleCloseFloating = () => {
         setIsFloatingVisible(false);
+    };
+
+    // Mindmap Navigation
+    const handleMindmapNavigation = (targetBlockId: string) => {
+        noteEditorRef.current?.scrollToBlock(targetBlockId);
     };
 
     // Loading state
@@ -90,19 +90,10 @@ export default function ResultPage() {
             <ResultLayout>
                 <div className="flex items-center justify-center min-h-[60vh]">
                     <div className="text-center max-w-md">
-                        <svg className="w-16 h-16 text-rose-500 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
                         <h2 className="text-xl font-semibold text-stone-900 mb-2">加载失败</h2>
                         <p className="text-stone-600 mb-4">
                             {error instanceof Error ? error.message : "未找到分析结果"}
                         </p>
-                        <button
-                            onClick={() => window.location.reload()}
-                            className="px-4 py-2 bg-stone-800 text-white rounded-lg hover:bg-stone-900 transition-colors"
-                        >
-                            重试
-                        </button>
                     </div>
                 </div>
             </ResultLayout>
@@ -119,109 +110,51 @@ export default function ResultPage() {
         );
     }
 
-    // 获取视频资源 URL：后端会在 assetRefs 里提供 kind=video 的源视频资产。
-    const videoAsset = result.assetRefs.find((ref) => ref.kind === "video")
-        ?? result.assetRefs.find((ref) => ref.kind !== "screenshot");
+    // 获取视频资源 URL
+    const videoAsset = result.assetRefs?.find((ref) => ref.kind === "video");
     const videoSrc = videoAsset ? endpoints.assetContent(videoAsset.assetId) : undefined;
-
-    // 收集所有章节的关键帧（用于 Keyframes Tab）
-    const allKeyframes = result.chapters.flatMap((ch) => ch.keyframes);
 
     return (
         <ResultLayout>
-            {/* Tri-Pane Grid */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                {/* Left Pane: 视频 + 导图/关键帧 (7 cols) */}
-                <div className="lg:col-span-7 space-y-6">
-                    {/* Video Player Container */}
-                    <div ref={playerContainerRef}>
-                        <VideoPlayer
-                            ref={videoPlayerRef}
-                            src={videoSrc}
-                            onTimeUpdate={setCurrentTimeMs}
-                        />
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[calc(100vh-100px)]">
+                {/* Left Pane: Mindmap */}
+                <div className="bg-white rounded-xl border border-stone-200 overflow-hidden flex flex-col">
+                    <div className="p-4 border-b border-stone-200">
+                        <h3 className="font-semibold text-stone-700">思维导图</h3>
                     </div>
-
-                    {/* Tabs for Mindmap / Keyframes / Highlights */}
-                    <div className="bg-white rounded-xl border border-stone-200 overflow-hidden">
-                        {/* Tab Headers */}
-                        <div className="flex border-b border-stone-200">
-                            <button
-                                onClick={() => setActiveTab("mindmap")}
-                                className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${activeTab === "mindmap"
-                                    ? "bg-orange-50 text-orange-700 border-b-2 border-orange-600"
-                                    : "text-stone-600 hover:bg-stone-50"
-                                    }`}
-                            >
-                                思维导图
-                            </button>
-                            <button
-                                onClick={() => setActiveTab("keyframes")}
-                                className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${activeTab === "keyframes"
-                                    ? "bg-orange-50 text-orange-700 border-b-2 border-orange-600"
-                                    : "text-stone-600 hover:bg-stone-50"
-                                    }`}
-                            >
-                                关键帧 ({allKeyframes.length})
-                            </button>
-                            <button
-                                onClick={() => setActiveTab("highlights")}
-                                className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${activeTab === "highlights"
-                                    ? "bg-orange-50 text-orange-700 border-b-2 border-orange-600"
-                                    : "text-stone-600 hover:bg-stone-50"
-                                    }`}
-                            >
-                                重点 ({result.highlights.length})
-                            </button>
-                        </div>
-
-                        {/* Tab Content */}
-                        <div className={activeTab === "mindmap" ? "h-[600px]" : "p-6"}>
-                            {activeTab === "mindmap" && (
-                                <MindmapEditor
-                                    projectId={projectId}
-                                    resultId={result.resultId}
-                                    initialMindmap={result.mindmap}
-                                    onSaveSuccess={() => console.log("Mindmap saved successfully")}
-                                    onSaveError={(error) => console.error("Failed to save mindmap:", error)}
-                                />
-                            )}
-                            {activeTab === "keyframes" && (
-                                <KeyframeGrid keyframes={allKeyframes} onKeyframeClick={handleSeek} />
-                            )}
-                            {activeTab === "highlights" && (
-                                <HighlightList highlights={result.highlights} onHighlightClick={handleSeek} />
-                            )}
-                        </div>
+                    <div className="flex-1 relative">
+                        <MindmapEditor
+                            projectId={projectId}
+                            resultId={result.resultId}
+                            initialMindmap={result.mindmap}
+                            onNodeNavigation={handleMindmapNavigation}
+                            onSaveSuccess={() => console.log("Mindmap saved successfully")}
+                            onSaveError={(error) => console.error("Failed to save mindmap:", error instanceof Error ? error.message : error)}
+                        />
                     </div>
                 </div>
 
-                {/* Right Pane: 章节 + 笔记 (5 cols) */}
-                <div className="lg:col-span-5 space-y-6">
-                    {/* Chapters List */}
-                    <div className="bg-white rounded-xl border border-stone-200 p-6">
-                        <h2 className="text-lg font-semibold text-stone-800 mb-4">章节</h2>
-                        <ChapterList
-                            chapters={result.chapters}
-                            onChapterClick={handleSeek}
-                            currentTimeMs={currentTimeMs}
+                {/* Right Pane: Video + Note */}
+                <div className="flex flex-col space-y-6 h-full overflow-y-auto pr-2">
+                    {/* Video Player Container */}
+                    <div ref={playerContainerRef} className="shrink-0 bg-black rounded-xl overflow-hidden shadow-sm">
+                        <VideoPlayer
+                            ref={videoPlayerRef}
+                            src={videoSrc}
                         />
                     </div>
 
                     {/* Note Editor */}
-                    <div className="bg-white rounded-xl border border-stone-200 overflow-hidden">
-                        <div className="px-6 py-4 border-b border-stone-200">
-                            <h2 className="text-lg font-semibold text-stone-800">笔记</h2>
-                        </div>
-                        <div className="h-[500px]">
-                            <NoteEditor
-                                projectId={projectId}
-                                resultId={result.resultId}
-                                initialContent={result.note as any}
-                                onSaveSuccess={() => console.log("Note saved successfully")}
-                                onSaveError={(error) => console.error("Failed to save note:", error)}
-                            />
-                        </div>
+                    <div className="bg-white rounded-xl border border-stone-200 overflow-hidden flex-1 flex flex-col">
+                        <NoteEditor
+                            ref={noteEditorRef}
+                            projectId={projectId}
+                            resultId={result.resultId}
+                            contentBlocks={result.contentBlocks || []}
+                            onBlockNavigation={handleSeek}
+                            onSaveSuccess={() => console.log("ContentBlocks saved successfully")}
+                            onSaveError={(error) => console.error("Failed to save content blocks:", error instanceof Error ? error.message : error)}
+                        />
                     </div>
                 </div>
             </div>
@@ -236,3 +169,4 @@ export default function ResultPage() {
         </ResultLayout>
     );
 }
+

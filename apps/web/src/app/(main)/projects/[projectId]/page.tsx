@@ -1,9 +1,13 @@
 "use client";
 
-import { useProjectDetail, useDeleteProject } from "@/lib/api/projectQueries";
+import { useProjectDetail } from "@/lib/api/projectQueries";
+import { useLatestResult } from "@/lib/api/resultQueries";
 import { use } from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRef, useState, useCallback } from "react";
+import { MindmapEditor } from "@/components/features/MindmapEditor";
+import { NoteEditor, NoteEditorRef } from "@/components/features/NoteEditor";
+import { VideoPlayer, VideoPlayerRef } from "@/components/features/VideoPlayer";
+import { AssetRef } from "@/lib/contracts/resultTypes";
 
 export default function ProjectDetailPage({
     params,
@@ -11,79 +15,96 @@ export default function ProjectDetailPage({
     params: Promise<{ projectId: string }>;
 }) {
     const { projectId } = use(params);
-    const { data: project, isLoading, error } = useProjectDetail(projectId);
-    const deleteMutation = useDeleteProject();
-    const router = useRouter();
+    const { data: project, isLoading: isProjectLoading } = useProjectDetail(projectId);
+    const { data: result, isLoading: isResultLoading } = useLatestResult(projectId);
 
-    const handleDelete = async () => {
-        if (!project) return;
+    const noteEditorRef = useRef<NoteEditorRef>(null);
+    const videoPlayerRef = useRef<VideoPlayerRef>(null);
 
-        const confirmed = window.confirm(`确定要删除项目 "${project.title}" 吗？此操作不可撤销。`);
-        if (!confirmed) return;
+    // Interaction Handlers
+    const handleMindmapNavigation = useCallback((targetBlockId: string) => {
+        noteEditorRef.current?.scrollToBlock(targetBlockId);
+    }, []);
 
-        try {
-            await deleteMutation.mutateAsync(projectId);
-            alert("项目已成功删除");
-            router.push("/projects");
-        } catch (err) {
-            const errorMessage = (err as any)?.error?.message || "删除失败";
-            const shouldRetry = window.confirm(`${errorMessage}\n\n是否重试？`);
-            if (shouldRetry) {
-                handleDelete();
-            }
-        }
-    };
+    const handleBlockNavigation = useCallback((timeMs: number) => {
+        videoPlayerRef.current?.seekTo(timeMs);
+        // Optional: Auto-play
+        // videoPlayerRef.current?.play(); 
+    }, []);
 
-    if (isLoading) {
-        return <main className="p-6"><p>加载中...</p></main>;
-    }
-
-    if (error) {
-        return <main className="p-6"><p className="text-red-600">加载失败: {String(error)}</p></main>;
+    if (isProjectLoading || isResultLoading) {
+        return (
+            <div className="flex items-center justify-center h-full">
+                <div className="w-8 h-8 border-4 border-orange-500 border-t-transparent rounded-full animate-spin" />
+            </div>
+        );
     }
 
     if (!project) {
-        return <main className="p-6"><p>项目未找到</p></main>;
+        return <div className="p-8 text-center text-stone-500">项目未找到</div>;
     }
 
-    const hasResult = !!project.latestResultId;
+    if (!result) {
+        // Fallback state if result is not ready (e.g. processing)
+        return (
+            <div className="p-8 flex flex-col items-center justify-center h-full space-y-4">
+                <h1 className="text-2xl font-bold text-stone-800">{project.title}</h1>
+                <p className="text-stone-500">分析结果尚未就绪，请稍候...</p>
+                <div className="text-sm text-stone-400">最新状态: {project.latestResultId ? "已生成" : "处理中"}</div>
+                {/* Can add a Link to go back or refresh */}
+            </div>
+        );
+    }
+
+    // Resolve Video Source
+    // Priority: AssetRef (video) > Project Source URL
+    const videoAsset = result.assetRefs?.find((a: AssetRef) => a.kind === 'video');
+    const videoSrc = videoAsset?.contentUrl || project.sourceUrl;
 
     return (
-        <main className="p-6">
-            <h1 className="text-2xl font-semibold mb-4">{project.title}</h1>
-
-            <div className="space-y-2 mb-6">
-                <p><strong>项目 ID:</strong> {project.projectId}</p>
-                <p><strong>来源类型:</strong> {project.sourceType}</p>
-                {project.sourceUrl && <p><strong>来源 URL:</strong> {project.sourceUrl}</p>}
-                <p><strong>创建时间:</strong> {new Date(project.createdAtMs).toLocaleString()}</p>
-                <p><strong>更新时间:</strong> {new Date(project.updatedAtMs).toLocaleString()}</p>
-                <p><strong>最新结果 ID:</strong> {project.latestResultId || "无"}</p>
+        <main className="flex h-[calc(100vh-64px)] overflow-hidden bg-stone-50">
+            {/* Left Panel: Mindmap (50%) - Fixed */}
+            <div className="w-1/2 h-full border-r border-stone-200 relative">
+                <MindmapEditor
+                    projectId={projectId}
+                    resultId={result.resultId}
+                    initialMindmap={result.mindmap}
+                    onNodeNavigation={handleMindmapNavigation}
+                />
             </div>
 
-            <div className="flex gap-4">
-                {hasResult ? (
-                    <Link
-                        href={`/projects/${project.projectId}/results`}
-                        className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-                    >
-                        打开结果
-                    </Link>
-                ) : (
-                    <div className="text-gray-500">
-                        <p>结果未就绪</p>
-                        {/* TODO: 可选择性跳转到 Jobs 页面查看进度 */}
-                    </div>
-                )}
+            {/* Right Panel: Video + Content (50%) - Scrollable */}
+            <div className="w-1/2 h-full flex flex-col bg-white overflow-y-auto">
+                {/* Video Section */}
+                <div className="sticky top-0 z-20 bg-black shadow-lg">
+                    <VideoPlayer
+                        ref={videoPlayerRef}
+                        src={videoSrc}
+                        className="w-full"
+                    />
+                </div>
 
-                <button
-                    onClick={handleDelete}
-                    disabled={deleteMutation.isPending}
-                    className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 disabled:bg-gray-400"
-                >
-                    {deleteMutation.isPending ? "删除中..." : "删除项目"}
-                </button>
+                {/* Content/Note Section */}
+                <div className="flex-1 p-4">
+                    <div className="mb-4 pb-4 border-b border-stone-100">
+                        <h2 className="text-xl font-bold text-stone-800 mb-2">{project.title}</h2>
+                        <div className="flex gap-2 text-xs text-stone-400">
+                            <span>{new Date(result.createdAtMs).toLocaleString()}</span>
+                            <span>•</span>
+                            <span>v{result.schemaVersion}</span>
+                        </div>
+                    </div>
+
+                    <NoteEditor
+                        ref={noteEditorRef}
+                        projectId={projectId}
+                        resultId={result.resultId}
+                        contentBlocks={result.contentBlocks || []}
+                        onBlockNavigation={handleBlockNavigation}
+                    />
+                </div>
             </div>
         </main>
     );
 }
+

@@ -1,29 +1,31 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "./queryKeys";
-import { fetchLatestResult, fetchAsset } from "./resultApi";
+import { fetchLatestResult, saveMindmap, saveContentBlocks } from "./resultApi";
+import type { Mindmap, ContentBlock } from "../contracts/resultTypes";
 
-/**
- * Hook: 获取项目的最新分析结果
- * @param projectId - 项目 ID
- * @param enabled - 是否启用查询（默认：projectId 存在时启用）
- */
-export function useLatestResult(projectId: string, enabled = true) {
+export function useLatestResult(projectId: string) {
     return useQuery({
         queryKey: queryKeys.result(projectId),
         queryFn: () => fetchLatestResult(projectId),
-        enabled: !!projectId && enabled,
+        retry: false, // Don't retry 404s endlessly
     });
 }
 
-/**
- * Hook: 获取 Asset 元信息
- * @param assetId - Asset ID
- * @param enabled - 是否启用查询（默认：assetId 存在时启用）
- */
-export function useAsset(assetId: string, enabled = true) {
-    return useQuery({
-        queryKey: queryKeys.asset(assetId),
-        queryFn: () => fetchAsset(assetId),
-        enabled: !!assetId && enabled,
+export function useSaveMindmap(projectId: string) {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (data: { resultId: string; mindmap: Mindmap }) =>
+            saveMindmap(projectId, data.resultId, data.mindmap),
+        onSuccess: () => {
+            // Optional: Invalidate or update cache?
+            // queryClient.invalidateQueries({ queryKey: queryKeys.result(projectId) });
+        }
+    });
+}
+
+export function useSaveContentBlocks(projectId: string) {
+    return useMutation({
+        mutationFn: (data: { resultId: string; contentBlocks: ContentBlock[] }) =>
+            saveContentBlocks(projectId, data.resultId, data.contentBlocks),
     });
 }
