@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { useLatestResult } from "@/lib/api/resultQueries";
 import { ResultLayout } from "@/components/layout/ResultLayout";
@@ -26,18 +26,31 @@ export default function ResultPage() {
     // State
     const [isFloatingVisible, setIsFloatingVisible] = useState(false);
 
-    // Intersection Observer for floating player
-    useEffect(() => {
-        if (!playerContainerRef.current) return;
+    // Callback ref for player container - sets up observer when element is attached
+    const playerContainerCallbackRef = useCallback((element: HTMLDivElement | null) => {
+        // Store ref for other uses
+        (playerContainerRef as React.MutableRefObject<HTMLDivElement | null>).current = element;
+
+        if (!element) return;
 
         const observer = new IntersectionObserver(
             ([entry]) => {
-                setIsFloatingVisible(!entry.isIntersecting);
+                // Show floating player when the main player is NOT intersecting (scrolled out of view)
+                if (!entry.isIntersecting && entry.boundingClientRect.top < 0) {
+                    setIsFloatingVisible(true);
+                } else if (entry.isIntersecting) {
+                    setIsFloatingVisible(false);
+                }
             },
-            { threshold: 0.1 }
+            {
+                threshold: 0,
+                rootMargin: '0px'
+            }
         );
 
-        observer.observe(playerContainerRef.current);
+        observer.observe(element);
+
+        // Cleanup when component unmounts or element changes
         return () => observer.disconnect();
     }, []);
 
@@ -116,10 +129,11 @@ export default function ResultPage() {
 
     return (
         <ResultLayout>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[calc(100vh-100px)]">
-                {/* Left Pane: Mindmap */}
-                <div className="bg-white rounded-xl border border-stone-200 overflow-hidden flex flex-col">
-                    <div className="p-4 border-b border-stone-200">
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 min-h-screen pb-20">
+                {/* Left Pane: Mindmap - Sticky on Desktop */}
+                <div className="lg:sticky lg:top-6 lg:h-[calc(100vh-3rem)] bg-white rounded-xl border border-stone-200 overflow-hidden flex flex-col shadow-sm">
+                    <div className="p-4 border-b border-stone-200 bg-stone-50/50">
                         <h3 className="font-semibold text-stone-700">思维导图</h3>
                     </div>
                     <div className="flex-1 relative">
@@ -134,10 +148,13 @@ export default function ResultPage() {
                     </div>
                 </div>
 
-                {/* Right Pane: Video + Note */}
-                <div className="flex flex-col space-y-6 h-full overflow-y-auto pr-2">
+                {/* Right Pane: Video + Note - Natural Scroll */}
+                <div className="flex flex-col space-y-6">
                     {/* Video Player Container */}
-                    <div ref={playerContainerRef} className="shrink-0 bg-black rounded-xl overflow-hidden shadow-sm">
+                    <div
+                        ref={playerContainerCallbackRef}
+                        className={`shrink-0 bg-black rounded-xl overflow-hidden shadow-lg border border-stone-800 transition-opacity duration-300 ${isFloatingVisible ? 'opacity-20 pointer-events-none grayscale' : 'opacity-100'}`}
+                    >
                         <VideoPlayer
                             ref={videoPlayerRef}
                             src={videoSrc}
@@ -145,7 +162,7 @@ export default function ResultPage() {
                     </div>
 
                     {/* Note Editor */}
-                    <div className="bg-white rounded-xl border border-stone-200 overflow-hidden flex-1 flex flex-col">
+                    <div className="bg-white rounded-xl border border-stone-200 shadow-sm flex-1 flex flex-col">
                         <NoteEditor
                             ref={noteEditorRef}
                             projectId={projectId}
@@ -169,4 +186,3 @@ export default function ResultPage() {
         </ResultLayout>
     );
 }
-

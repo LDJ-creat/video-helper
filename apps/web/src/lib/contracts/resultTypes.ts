@@ -13,9 +13,9 @@ export type MindmapNode = {
 
 export type MindmapEdge = {
     id: string;
-    source: string;
-    target: string;
-    label?: string;
+    from: string;
+    to: string;
+    label?: string | null;
     [key: string]: unknown;
 };
 

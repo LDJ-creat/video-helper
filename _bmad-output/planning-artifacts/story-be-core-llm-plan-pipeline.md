@@ -54,7 +54,7 @@
       {"id":"n1","type":"topic","label":"...","data":{"targetBlockId":"b01"}},
       {"id":"n2","type":"detail","label":"...","data":{"targetHighlightId":"h01"}}
     ],
-    "edges": [{"id":"e1","source":"n1","target":"n2"}]
+    "edges": [{"id":"e1","from":"n1","to":"n2","label":"..."}]
   }
 }
 ```

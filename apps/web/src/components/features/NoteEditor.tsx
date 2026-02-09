@@ -13,7 +13,7 @@ import { TaskItem } from '@tiptap/extension-task-item';
 import { Typography } from '@tiptap/extension-typography';
 import { Placeholder } from '@tiptap/extension-placeholder';
 import { TextAlign } from '@tiptap/extension-text-align';
-import { Extension } from '@tiptap/react';
+import { Extension, Editor } from '@tiptap/react';
 import { useEffect, useRef, useState, useCallback, useImperativeHandle, forwardRef } from "react";
 import { useRouter } from "next/navigation";
 import { useSaveContentBlocks } from "@/lib/api/resultQueries";
@@ -95,11 +95,12 @@ const NavigationExtension = Extension.create({
     name: 'navigation',
     addCommands() {
         return {
-            navigateToTime: (timeMs: number) => ({ editor }) => {
+            navigateToTime: (timeMs: number) => ({ editor }: { editor: Editor }) => {
+                // @ts-ignore - Valid command structure for Tiptap
                 editor.storage.navigation.onNavigate?.(timeMs);
                 return true;
             }
-        }
+        } as any
     },
     addStorage() {
         return {
@@ -371,20 +372,20 @@ export const NoteEditor = forwardRef<NoteEditorRef, NoteEditorProps>(({
     if (!editor) return <div>Loading Editor...</div>;
 
     return (
-        <div className="flex flex-col h-full bg-white relative">
+        <div className="flex flex-col h-full bg-white relative rounded-xl">
             {/* Toolbar (Simplified for brevity, can restore full toolbar if needed) */}
-            <div className="flex items-center justify-between border-b border-stone-200 px-3 py-2 bg-white sticky top-0 z-10">
-                <div className="text-sm font-medium text-stone-500">
+            <div className="flex items-center justify-between border-b border-stone-100 px-4 py-3 bg-white sticky top-0 z-10 rounded-t-xl">
+                <div className="text-sm font-medium text-stone-600">
                     笔记编辑器 ({(contentBlocks || []).length} Blocks)
                 </div>
                 <div className="flex items-center gap-2 text-sm">
-                    {saveStatus === "saving" && <span className="text-stone-600">保存中...</span>}
-                    {saveStatus === "saved" && <span className="text-green-600">已保存</span>}
+                    {saveStatus === "saving" && <span className="text-stone-400">保存中...</span>}
+                    {saveStatus === "saved" && <span className="text-green-600 flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-green-500" /> 已保存</span>}
                     {saveStatus === "error" && <span className="text-rose-600">保存失败</span>}
                 </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto">
+            <div className="flex-1">
                 <EditorContent editor={editor} />
             </div>
         </div>

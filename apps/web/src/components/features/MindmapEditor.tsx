@@ -191,18 +191,22 @@ export function MindmapEditor({
 
     const initialNodes: Node[] = getLayoutedElements(tempNodes, initialMindmap.edges); // Use passed edges
 
-    const initialEdges: Edge[] = initialMindmap.edges.map((edge) => ({
-        id: edge.id || `edge_${edge.source}_${edge.target}`,
-        source: edge.source,
-        target: edge.target,
-        label: edge.label,
-        type: "smoothstep",
-        animated: false,
-        style: { stroke: "#FDBA74", strokeWidth: 2 },
-        labelStyle: { fill: "#78350f", fontWeight: 500, fontSize: 12 },
-        labelBgStyle: { fill: "#fff7ed", fillOpacity: 0.9, rx: 4, ry: 4 },
-        labelShowBg: true,
-    }));
+    const initialEdges: Edge[] = initialMindmap.edges.map((edge: any) => {
+        const source = edge.source || edge.from;
+        const target = edge.target || edge.to;
+        return {
+            id: edge.id || `edge_${source}_${target}`,
+            source: String(source),
+            target: String(target),
+            label: edge.label,
+            type: "smoothstep",
+            animated: false,
+            style: { stroke: "#FDBA74", strokeWidth: 2 },
+            labelStyle: { fill: "#78350f", fontWeight: 500, fontSize: 12 },
+            labelBgStyle: { fill: "#fff7ed", fillOpacity: 0.9, rx: 4, ry: 4 },
+            labelShowBg: true,
+        };
+    });
 
     const [nodes, setNodes] = useState<Node[]>(initialNodes);
     const [edges, setEdges] = useState<Edge[]>(initialEdges);
@@ -382,8 +386,9 @@ export function MindmapEditor({
             })),
             edges: edges.map((edge) => ({
                 id: edge.id,
-                source: edge.source,
-                target: edge.target,
+                from: edge.source,
+                to: edge.target,
+                label: (edge.label as string) || null,
             })),
         };
 
@@ -425,8 +430,9 @@ export function MindmapEditor({
                 })),
                 edges: edges.map((edge) => ({
                     id: edge.id,
-                    source: edge.source,
-                    target: edge.target,
+                    from: edge.source,
+                    to: edge.target,
+                    label: (edge.label as string) || null,
                 })),
             };
 

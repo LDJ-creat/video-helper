@@ -273,7 +273,7 @@ data: {"eventId":"13","tsMs":1738030000456,"jobId":"...","projectId":"...","stag
 				"data": {"targetHighlightId": "h01..."}
 			}
 		],
-		"edges": [{"id": "e1", "source": "n1", "target": "n2"}]
+		"edges": [{"id": "e1", "from": "n1", "to": "n2","label":"..."}]
 	},
 	"assetRefs": [
 		{
@@ -352,7 +352,7 @@ data: {"eventId":"13","tsMs":1738030000456,"jobId":"...","projectId":"...","stag
 {
 	"mindmap": {
 		"nodes": [{"id": "n1", "label": "Intro"}],
-		"edges": [{"id": "e1", "source": "n1", "target": "n2"}]
+		"edges": [{"id": "e1", "from": "n1", "to": "n2"}]
 	}
 }
 ```
@@ -362,7 +362,7 @@ data: {"eventId":"13","tsMs":1738030000456,"jobId":"...","projectId":"...","stag
 ```json
 {
 	"nodes": [{"id": "n1", "label": "Intro"}],
-	"edges": [{"id": "e1", "source": "n1", "target": "n2"}]
+	"edges": [{"id": "e1", "from": "n1", "to": "n2"}]
 }
 ```
 
@@ -370,10 +370,10 @@ data: {"eventId":"13","tsMs":1738030000456,"jobId":"...","projectId":"...","stag
 
 - `nodes`/`edges` 必须是 array
 - `nodes[*].id` 必须是非空字符串，且全局唯一
-- `edges[*]` 必须包含 `id/source/target`，并且 `source/target` 必须引用已存在的 node id
+- `edges[*]` 必须包含 `id/from/to`，并且 `from/to` 必须引用已存在的 node id
 - 字段白名单（出现额外字段会 400）：
 	- node：`id` `type` `label` `chapterId` `position` `data`
-	- edge：`id` `source` `target` `label`
+	- edge：`id` `from` `to` `label`
 
 响应（200）：
 

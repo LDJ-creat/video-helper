@@ -30,6 +30,7 @@
     "next": "16.1.6",
     "react": "19.2.3",
     "react-dom": "19.2.3",
+    "react-draggable": "^4.5.0",
     "reactflow": "^11.11.4"
   },
   "devDependencies": {
@@ -40,6 +41,6 @@
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "5.9.3"
   }
 }
