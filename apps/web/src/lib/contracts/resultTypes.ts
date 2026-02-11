@@ -3,20 +3,20 @@
 // Mindmap 相关类型
 export type MindmapNode = {
     id: string;
+    type: "root" | "topic" | "detail";
     label: string;
+    level: number; // 0=root, 1=topic, 2=detail
     data?: {
         targetBlockId?: string;
         targetHighlightId?: string;
     };
-    [key: string]: unknown; // 允许扩展字段
 };
 
 export type MindmapEdge = {
     id: string;
-    from: string;
-    to: string;
+    source: string;
+    target: string;
     label?: string | null;
-    [key: string]: unknown;
 };
 
 export type Mindmap = {

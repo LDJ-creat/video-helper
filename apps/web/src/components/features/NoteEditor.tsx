@@ -174,6 +174,7 @@ const CustomParagraph = Paragraph.extend({
 
 export type NoteEditorRef = {
     scrollToBlock: (blockId: string) => void;
+    scrollToHighlight: (highlightId: string) => void;
 };
 
 // Conversion Helpers
@@ -320,12 +321,11 @@ export const NoteEditor = forwardRef<NoteEditorRef, NoteEditorProps>(({
     useImperativeHandle(ref, () => ({
         scrollToBlock: (blockId: string) => {
             if (!editor) return;
-            // Find node with blockId
             let pos = -1;
             editor.state.doc.descendants((node, position) => {
                 if (node.attrs.blockId === blockId) {
                     pos = position;
-                    return false; // stop
+                    return false;
                 }
             });
 
@@ -334,7 +334,23 @@ export const NoteEditor = forwardRef<NoteEditorRef, NoteEditorProps>(({
                 dom.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 editor.commands.setTextSelection(pos);
             }
-        }
+        },
+        scrollToHighlight: (highlightId: string) => {
+            if (!editor) return;
+            let pos = -1;
+            editor.state.doc.descendants((node, position) => {
+                if (node.attrs.highlightId === highlightId) {
+                    pos = position;
+                    return false;
+                }
+            });
+
+            if (pos >= 0) {
+                const dom = editor.view.domAtPos(pos).node as HTMLElement;
+                dom.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                editor.commands.setTextSelection(pos);
+            }
+        },
     }));
 
     const scheduleAutosave = useCallback(() => {

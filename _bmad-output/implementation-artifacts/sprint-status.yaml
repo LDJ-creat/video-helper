@@ -48,26 +48,26 @@ development_status:
   2-1-be-core-project-list-detail: review
   2-2-fe-web-project-pages: review
   2-3-be-core-delete-project: review
-  2-4-fe-web-delete-project-ui: ready-for-dev
+  2-4-fe-web-delete-project-ui: review
   epic-2-retrospective: optional
 
   epic-3: in-progress
-  3-1-be-core-create-job-url: ready-for-dev
-  3-2-be-core-create-job-upload: ready-for-dev
-  3-3-fe-web-ingest-page: review
-  3-4-be-core-video-metadata: ready-for-dev
   3-1-be-core-create-job-url: review
   3-2-be-core-create-job-upload: review
-  3-3-fe-web-ingest-page: ready-for-dev
+  3-3-fe-web-ingest-page: review
+  3-4-be-core-video-metadata: review
+  3-1-be-core-create-job-url: review
+  3-2-be-core-create-job-upload: review
+  3-3-fe-web-ingest-page: review
   3-4-be-core-video-metadata: review
   epic-3-retrospective: optional
 
   epic-4: in-progress
   4-1-be-core-job-get: review
   4-2-be-core-job-sse: review
-  4-3-fe-web-sse-fallback: ready-for-dev
+  4-3-fe-web-sse-fallback: review
   4-4-be-core-job-logs-tail: review
-  4-5-fe-web-job-page: ready-for-dev
+  4-5-fe-web-job-page: review
   4-6-be-core-job-cancel-retry: review
   epic-4-retrospective: optional
 
@@ -94,9 +94,9 @@ development_status:
   8-1-contract-result-assets-api: review
   8-2-be-core-assets-api: review
   8-3-be-core-result-assemble: review
-  8-4-fe-web-results-page: ready-for-dev
-  8-5-fe-web-floating-player: ready-for-dev
-  8-6-fe-web-seek-chapter-keyframe: ready-for-dev
+  8-4-fe-web-results-page: review
+  8-5-fe-web-floating-player: done
+  8-6-fe-web-seek-chapter-keyframe: review
   epic-8-retrospective: optional
 
   epic-9: in-progress
@@ -109,17 +109,17 @@ development_status:
   epic-9-retrospective: optional
 
   epic-10: in-progress
-  10-1-be-core-search: ready-for-dev
-  10-2-fe-web-search-ui: ready-for-dev
-  10-3-be-core-settings-validate: ready-for-dev
-  10-4-fe-web-settings-page: ready-for-dev
-  10-5-be-core-settings-secrets: in-progress
+  10-1-be-core-search: review
+  10-2-fe-web-search-ui: review
+  10-3-be-core-settings-validate: review
+  10-4-fe-web-settings-page: review
+  10-5-be-core-settings-secrets: review
   epic-10-retrospective: optional
 
   epic-11: in-progress
   11-1-be-core-smoke-closed-loop: review
   epic-11-retrospective: optional
 
-  epic-12: review
-  12-1-be-core-llm-plan-pipeline:review
+  epic-12: in-progress
+  12-1-be-core-llm-plan-pipeline: review
   12-2-be-core-remove-legacy-pipeline: review

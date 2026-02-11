@@ -7,36 +7,79 @@ import ReactFlow, {
     Controls,
     Background,
     BackgroundVariant,
-    MiniMap,
-    // MiniMap,
     ConnectionMode,
     Position,
 } from "reactflow";
 import "reactflow/dist/style.css";
 import dagre from 'dagre';
-import type { Mindmap } from "@/lib/contracts/resultTypes";
+import type { Mindmap, MindmapNode as MindmapNodeType } from "@/lib/contracts/resultTypes";
 
 type MindmapViewerProps = {
     mindmap: Mindmap;
     isLoading?: boolean;
+    onNodeClick?: (node: MindmapNodeType) => void;
 };
 
-// Layout function using Dagre
+// Node style presets by type
+const nodeStyleMap: Record<string, React.CSSProperties> = {
+    root: {
+        background: "linear-gradient(135deg, #292524 0%, #44403C 100%)",
+        border: "2px solid #57534E",
+        borderRadius: "16px",
+        padding: "14px 22px",
+        fontSize: "16px",
+        fontWeight: "700",
+        color: "#FAFAF9",
+        minWidth: "160px",
+        textAlign: "center",
+        boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+    },
+    topic: {
+        background: "#FFF7ED",
+        border: "2px solid #FDBA74",
+        borderRadius: "12px",
+        padding: "12px 18px",
+        fontSize: "14px",
+        fontWeight: "600",
+        color: "#292524",
+        minWidth: "130px",
+        textAlign: "center",
+        boxShadow: "0 2px 6px rgba(0,0,0,0.06)",
+    },
+    detail: {
+        background: "#FFFFFF",
+        border: "1.5px solid #D6D3D1",
+        borderRadius: "10px",
+        padding: "10px 14px",
+        fontSize: "13px",
+        fontWeight: "400",
+        color: "#57534E",
+        minWidth: "100px",
+        maxWidth: "200px",
+        textAlign: "center",
+    },
+};
+
+// Estimated node dimensions per type for dagre layout
+const nodeDimensions: Record<string, { width: number; height: number }> = {
+    root: { width: 240, height: 56 },
+    topic: { width: 220, height: 52 },
+    detail: { width: 200, height: 48 },
+};
+
 function getLayoutedElements(nodes: Node[], edges: Edge[]): Node[] {
     const dagreGraph = new dagre.graphlib.Graph();
     dagreGraph.setDefaultEdgeLabel(() => ({}));
-
-    // Set structure for Left-to-Right layout
-    dagreGraph.setGraph({ rankdir: 'LR', ranksep: 150, nodesep: 60 });
-
-    // Node dimensions (approximate size of the node style below)
-    // padding 12px 16px, minWidth 120px, fontSize 14px
-    // Let's estimate wider to avoid overlap
-    const nodeWidth = 220;
-    const nodeHeight = 80;
+    dagreGraph.setGraph({
+        rankdir: 'LR',
+        ranksep: 120,
+        nodesep: 40,
+        edgesep: 20,
+    });
 
     nodes.forEach((node) => {
-        dagreGraph.setNode(node.id, { width: nodeWidth, height: nodeHeight });
+        const dims = nodeDimensions[node.data._type] || nodeDimensions.topic;
+        dagreGraph.setNode(node.id, { width: dims.width, height: dims.height });
     });
 
     edges.forEach((edge) => {
@@ -47,8 +90,9 @@ function getLayoutedElements(nodes: Node[], edges: Edge[]): Node[] {
 
     return nodes.map((node) => {
         const nodeWithPosition = dagreGraph.node(node.id);
-        const x = nodeWithPosition ? nodeWithPosition.x - nodeWidth / 2 : 0;
-        const y = nodeWithPosition ? nodeWithPosition.y - nodeHeight / 2 : 0;
+        const dims = nodeDimensions[node.data._type] || nodeDimensions.topic;
+        const x = nodeWithPosition ? nodeWithPosition.x - dims.width / 2 : 0;
+        const y = nodeWithPosition ? nodeWithPosition.y - dims.height / 2 : 0;
 
         return {
             ...node,
@@ -59,30 +103,33 @@ function getLayoutedElements(nodes: Node[], edges: Edge[]): Node[] {
     });
 }
 
-export function MindmapViewer({ mindmap, isLoading = false }: MindmapViewerProps) {
-    // 1. Create initial nodes without position (will be calculated)
-    const initialNodes: Node[] = mindmap.nodes.map((node, idx) => ({
-        id: node.id,
-        type: "default",
-        data: { label: node.label },
-        position: { x: 0, y: 0 }, // Placeholder
-        style: {
-            background: idx === 0 ? "#FFF7ED" : "#FFFFFF", // Root 节点橙色背景
-            border: `2px solid ${idx === 0 ? "#FDBA74" : "#E7E5E4"}`,
-            borderRadius: "12px",
-            padding: "12px 16px",
-            fontSize: "14px",
-            fontWeight: idx === 0 ? "600" : "400",
-            color: "#292524",
-            minWidth: "120px",
-            textAlign: "center",
-        },
-    }));
+export function MindmapViewer({ mindmap, isLoading = false, onNodeClick }: MindmapViewerProps) {
+    // Build ReactFlow nodes from mindmap data
+    const initialNodes: Node[] = mindmap.nodes.map((node) => {
+        const nodeType = node.type || "topic";
+        const hasLink = !!(node.data?.targetBlockId || node.data?.targetHighlightId);
 
-    // 2. Map edges with fallback for legacy data
-    const edges: Edge[] = mindmap.edges.map((edge: any) => {
-        const source = edge.from || edge.source;
-        const target = edge.to || edge.target;
+        return {
+            id: node.id,
+            type: "default",
+            data: {
+                label: node.label,
+                _type: nodeType,
+                _data: node.data,
+                _raw: node,
+            },
+            position: { x: 0, y: 0 },
+            style: {
+                ...nodeStyleMap[nodeType] || nodeStyleMap.topic,
+                cursor: hasLink ? "pointer" : "default",
+            },
+        };
+    });
+
+    // Build edges
+    const edges: Edge[] = mindmap.edges.map((edge) => {
+        const source = edge.source || (edge as any).from;
+        const target = edge.target || (edge as any).to;
         return {
             id: edge.id || `edge-${source}-${target}`,
             source: String(source),
@@ -97,8 +144,17 @@ export function MindmapViewer({ mindmap, isLoading = false }: MindmapViewerProps
         };
     });
 
-    // 3. Apply layout
+    // Apply dagre layout
     const layoutedNodes = getLayoutedElements(initialNodes, edges);
+
+    // Handle node click -> trigger callback with original node data
+    const handleNodeClick = useCallback((_event: React.MouseEvent, node: Node) => {
+        if (!onNodeClick) return;
+        const rawNode = node.data._raw as MindmapNodeType;
+        if (rawNode?.data?.targetBlockId || rawNode?.data?.targetHighlightId) {
+            onNodeClick(rawNode);
+        }
+    }, [onNodeClick]);
 
     if (isLoading) {
         return (
@@ -123,9 +179,10 @@ export function MindmapViewer({ mindmap, isLoading = false }: MindmapViewerProps
                 edges={edges}
                 fitView
                 connectionMode={ConnectionMode.Loose}
-                nodesDraggable={false} // 只读模式
+                nodesDraggable={false}
                 nodesConnectable={false}
-                elementsSelectable={false}
+                elementsSelectable={true}
+                onNodeClick={handleNodeClick}
             >
                 <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="#E7E5E4" />
                 <Controls showInteractive={false} className="bg-white border border-stone-200 rounded-lg" />

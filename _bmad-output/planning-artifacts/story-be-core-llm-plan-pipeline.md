@@ -51,21 +51,27 @@
   ],
   "mindmap": {
     "nodes": [
-      {"id":"n1","type":"topic","label":"...","data":{"targetBlockId":"b01"}},
-      {"id":"n2","type":"detail","label":"...","data":{"targetHighlightId":"h01"}}
+      {"id":"n0","type":"root","label":"视频主题","level":0,"data":{}},
+      {"id":"n1","type":"topic","label":"...","level":1,"data":{"targetBlockId":"b01"}},
+      {"id":"n2","type":"detail","label":"...","level":2,"data":{"targetBlockId":"b01","targetHighlightId":"h01"}}
     ],
-    "edges": [{"id":"e1","from":"n1","to":"n2","label":"..."}]
+    "edges": [
+      {"id":"e1","source":"n0","target":"n1"},
+      {"id":"e2","source":"n1","target":"n2","label":"(optional)"}
+    ]
   }
 }
 ```
 
 约束：
+- `mindmap.nodes[*].type` 必须是 `root`、`topic` 或 `detail`。
+- 恰好 1 个 `root` 节点（level=0），无 `targetBlockId`。
+- `topic` 节点（level=1）**必须**包含 `data.targetBlockId`，引用 `contentBlocks[].blockId`。
+- `detail` 节点（level=2）**必须**包含 `data.targetBlockId`，**可选** `data.targetHighlightId`（引用 `highlights[].highlightId`）。
+- `edges[*].source` / `target` 必须引用已存在的 `nodes[].id`。`label` 可选。
+- 拓扑为 DAG：root → topics → details。root 无入边。
 - `mindmap.nodes[*].data.targetBlockId` 必须引用一个已存在的 `contentBlocks[].blockId`。
 - （可选）`mindmap.nodes[*].data.targetHighlightId`：用于更细粒度节点定位，必须引用一个已存在的 `contentBlocks[].highlights[].highlightId`。
-- `contentBlocks` 必须按 `idx` 连续，且时间范围不重叠（MVP：允许轻微 gap，但不 overlap）。
-- `contentBlocks[].highlights[]` 必须按 `idx` 连续（每个 block 内独立计数）。
-- `contentBlocks[].highlights[].startMs/endMs` 必须落在所属 block 的 `[startMs,endMs)`。
-- `contentBlocks[].highlights[].keyframe.timeMs`（若提供）必须落在所属 block 的 `[startMs,endMs)`。
 
 ### 2) Worker 流水线改造（阶段编排）
 在 `PipelineJobProcessor`（`app/worker/worker_loop.py`）中：

@@ -22,8 +22,12 @@ export default function ProjectDetailPage({
     const videoPlayerRef = useRef<VideoPlayerRef>(null);
 
     // Interaction Handlers
-    const handleMindmapNavigation = useCallback((targetBlockId: string) => {
-        noteEditorRef.current?.scrollToBlock(targetBlockId);
+    const handleMindmapNavigation = useCallback((targetBlockId: string, targetHighlightId?: string) => {
+        if (targetHighlightId) {
+            noteEditorRef.current?.scrollToHighlight(targetHighlightId);
+        } else {
+            noteEditorRef.current?.scrollToBlock(targetBlockId);
+        }
     }, []);
 
     const handleBlockNavigation = useCallback((timeMs: number) => {

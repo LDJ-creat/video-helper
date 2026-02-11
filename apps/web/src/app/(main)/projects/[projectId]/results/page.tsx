@@ -79,8 +79,12 @@ export default function ResultPage() {
     };
 
     // Mindmap Navigation
-    const handleMindmapNavigation = (targetBlockId: string) => {
-        noteEditorRef.current?.scrollToBlock(targetBlockId);
+    const handleMindmapNavigation = (targetBlockId: string, targetHighlightId?: string) => {
+        if (targetHighlightId) {
+            noteEditorRef.current?.scrollToHighlight(targetHighlightId);
+        } else {
+            noteEditorRef.current?.scrollToBlock(targetBlockId);
+        }
     };
 
     // Loading state

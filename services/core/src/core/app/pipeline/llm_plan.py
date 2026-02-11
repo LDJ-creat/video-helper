@@ -34,9 +34,24 @@ class PlanContentBlock(BaseModel):
     highlights: list[PlanHighlight] = []
 
 
+class PlanMindmapNode(BaseModel):
+    id: str
+    type: str = "topic"  # root | topic | detail
+    label: str = ""
+    level: int = 1  # 0=root, 1=topic, 2=detail
+    data: dict = {}
+
+
+class PlanMindmapEdge(BaseModel):
+    id: str
+    source: str
+    target: str
+    label: str | None = None
+
+
 class PlanMindmap(BaseModel):
-    nodes: list[dict] = []
-    edges: list[dict] = []
+    nodes: list[PlanMindmapNode] = []
+    edges: list[PlanMindmapEdge] = []
 
 
 class PlanOutput(BaseModel):
@@ -262,7 +277,7 @@ def _normalize_plan_payload(plan: dict) -> dict:
 
     plan["contentBlocks"] = merged
 
-    # Normalize mindmap anchor ids if provided as ints.
+    # Normalize mindmap nodes: type/level inference, anchor id normalization.
     mindmap = plan.get("mindmap")
     if isinstance(mindmap, dict):
         nodes = mindmap.get("nodes")
@@ -270,9 +285,14 @@ def _normalize_plan_payload(plan: dict) -> dict:
             for n in nodes:
                 if not isinstance(n, dict):
                     continue
+
+                # Ensure data dict exists.
                 data = n.get("data")
                 if not isinstance(data, dict):
-                    continue
+                    n["data"] = {}
+                    data = n["data"]
+
+                # Normalize anchor ids.
                 tb = data.get("targetBlockId")
                 if isinstance(tb, int):
                     data["targetBlockId"] = f"b{tb}"
@@ -280,8 +300,53 @@ def _normalize_plan_payload(plan: dict) -> dict:
                     data["targetBlockId"] = block_id_aliases[tb]
                 th = data.get("targetHighlightId")
                 if isinstance(th, int):
-                    # We don't know the exact block; preserve as a string id.
                     data["targetHighlightId"] = str(th)
+
+                # Infer type/level if missing or inconsistent.
+                node_type = n.get("type")
+                node_level = n.get("level")
+                has_block = isinstance(data.get("targetBlockId"), str) and data.get("targetBlockId")
+                has_highlight = isinstance(data.get("targetHighlightId"), str) and data.get("targetHighlightId")
+
+                if node_type not in ("root", "topic", "detail"):
+                    # Infer from data anchors.
+                    if has_highlight:
+                        node_type = "detail"
+                    elif has_block:
+                        node_type = "topic"
+                    else:
+                        node_type = "root"
+                    n["type"] = node_type
+
+                type_to_level = {"root": 0, "topic": 1, "detail": 2}
+                if not isinstance(node_level, int) or node_level not in (0, 1, 2):
+                    n["level"] = type_to_level.get(node_type, 1)
+
+                # Ensure id is a string.
+                if not isinstance(n.get("id"), str) or not n.get("id"):
+                    n["id"] = f"n{nodes.index(n)}"
+
+                # Ensure label is a string.
+                if not isinstance(n.get("label"), str):
+                    n["label"] = str(n.get("label", ""))
+
+        # Normalize edges: from/to -> source/target.
+        edges = mindmap.get("edges")
+        if isinstance(edges, list):
+            for e_i, e in enumerate(edges):
+                if not isinstance(e, dict):
+                    continue
+                if "source" not in e and "from" in e:
+                    e["source"] = e.pop("from")
+                if "target" not in e and "to" in e:
+                    e["target"] = e.pop("to")
+                if not isinstance(e.get("id"), str) or not e.get("id"):
+                    e["id"] = f"e{e_i}"
+                for k in ("source", "target"):
+                    if isinstance(e.get(k), int):
+                        e[k] = str(e[k])
+    else:
+        plan["mindmap"] = {"nodes": [], "edges": []}
 
     return plan
 
@@ -393,28 +458,64 @@ def validate_plan(plan: dict) -> dict:
                 if tm < start_ms or tm >= end_ms:
                     raise ValueError("keyframe.timeMs must fall within its block")
 
-    # Validate mindmap anchors.
+    # Validate mindmap structure.
     mindmap = out.get("mindmap")
-    nodes = mindmap.get("nodes") if isinstance(mindmap, dict) else None
-    if not isinstance(nodes, list):
+    if not isinstance(mindmap, dict):
+        raise ValueError("mindmap must be an object")
+
+    mm_nodes = mindmap.get("nodes")
+    if not isinstance(mm_nodes, list):
         raise ValueError("mindmap.nodes must be a list")
 
-    for n in nodes:
+    node_ids: set[str] = set()
+    root_count = 0
+
+    for n in mm_nodes:
         if not isinstance(n, dict):
             continue
+
+        nid = n.get("id")
+        if not isinstance(nid, str) or not nid:
+            raise ValueError("mindmap node id must be a non-empty string")
+        node_ids.add(nid)
+
+        ntype = n.get("type")
+        if ntype not in ("root", "topic", "detail"):
+            raise ValueError(f"mindmap node type must be root|topic|detail, got '{ntype}'")
+
+        if ntype == "root":
+            root_count += 1
+
         data = n.get("data")
         if not isinstance(data, dict):
-            continue
+            data = {}
 
+        # topic/detail nodes must have targetBlockId.
         tb = data.get("targetBlockId")
-        if tb is not None:
-            if not isinstance(tb, str) or tb not in block_ids:
+        if ntype in ("topic", "detail"):
+            if tb is not None and (not isinstance(tb, str) or tb not in block_ids):
                 raise ValueError("mindmap node targetBlockId must reference an existing blockId")
 
         th = data.get("targetHighlightId")
         if th is not None:
             if not isinstance(th, str) or th not in highlight_ids:
                 raise ValueError("mindmap node targetHighlightId must reference an existing highlightId")
+
+    if root_count < 1 and len(mm_nodes) > 0:
+        raise ValueError("mindmap must have at least 1 root node")
+
+    # Validate edges.
+    mm_edges = mindmap.get("edges")
+    if isinstance(mm_edges, list):
+        for e in mm_edges:
+            if not isinstance(e, dict):
+                continue
+            src = e.get("source")
+            tgt = e.get("target")
+            if isinstance(src, str) and src and src not in node_ids:
+                raise ValueError(f"mindmap edge source '{src}' must reference an existing node id")
+            if isinstance(tgt, str) and tgt and tgt not in node_ids:
+                raise ValueError(f"mindmap edge target '{tgt}' must reference an existing node id")
 
     return out
 
@@ -516,10 +617,23 @@ def _build_placeholder_plan(*, transcript: dict, schema_version: str) -> dict:
             }
         )
 
+    # Build hierarchical mindmap: root + one topic per block.
+    mm_nodes: list[dict] = [
+        {"id": "n_root", "type": "root", "label": "Video Overview", "level": 0, "data": {}},
+    ]
+    mm_edges: list[dict] = []
+    for i in range(block_count):
+        nid = f"n_b{i}"
+        mm_nodes.append({
+            "id": nid, "type": "topic", "label": f"Block {i}", "level": 1,
+            "data": {"targetBlockId": f"b{i}"},
+        })
+        mm_edges.append({"id": f"e_root_{nid}", "source": "n_root", "target": nid})
+
     return {
         "schemaVersion": schema_version,
         "contentBlocks": blocks,
-        "mindmap": {"nodes": [], "edges": []},
+        "mindmap": {"nodes": mm_nodes, "edges": mm_edges},
     }
 
 
@@ -574,7 +688,14 @@ def generate_plan(
         "Schema keys MUST be exactly: schemaVersion, contentBlocks, mindmap. All times MUST be int ms. "
         "contentBlocks[] item: {blockId:str, idx:int, title:str, startMs:int, endMs:int, highlights:[...]}. "
         "highlights[] item: {highlightId:str, idx:int, text:str, startMs:int, endMs:int, keyframe?:{timeMs:int}}. "
-        "mindmap: {nodes:[], edges:[]} with optional anchors targetBlockId/targetHighlightId referencing existing ids. "
+        # Mindmap structure specification
+        "mindmap: {nodes:[], edges:[]}. "
+        "node fields: {id:str, type:str, label:str, level:int, data:{targetBlockId?:str, targetHighlightId?:str}}. "
+        "node types: exactly 1 root(type=\"root\",level=0,no targetBlockId); "
+        "topic(type=\"topic\",level=1,data.targetBlockId REQUIRED referencing contentBlocks[].blockId); "
+        "detail(type=\"detail\",level=2,data.targetBlockId REQUIRED, data.targetHighlightId OPTIONAL). "
+        "edge fields: {id:str, source:str, target:str, label?:str}. source/target MUST reference node ids. label is OPTIONAL. "
+        "Topology: root->topics->details (DAG). root has no incoming edges. "
         "Constraints: contentBlocks idx contiguous from 0; no overlapping blocks; per-block highlights idx contiguous from 0; highlight ranges within block."
     )
 

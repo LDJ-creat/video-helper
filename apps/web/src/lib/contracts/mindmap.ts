@@ -8,8 +8,13 @@
  */
 export interface MindmapNode {
     id: string;
+    type: "root" | "topic" | "detail";
     label: string;
-    [key: string]: unknown; // Additional fields for ReactFlow
+    level: number;
+    data?: {
+        targetBlockId?: string;
+        targetHighlightId?: string;
+    };
 }
 
 /**
@@ -19,7 +24,7 @@ export interface MindmapEdge {
     id: string;
     source: string;
     target: string;
-    [key: string]: unknown; // Additional fields for ReactFlow
+    label?: string | null;
 }
 
 /**

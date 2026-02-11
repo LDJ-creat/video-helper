@@ -37,7 +37,7 @@ export interface MindmapEditorProps {
     initialMindmap: Mindmap;
     onSaveSuccess?: () => void;
     onSaveError?: (error: Error) => void;
-    onNodeNavigation?: (targetBlockId: string) => void; // NEW PROP
+    onNodeNavigation?: (targetBlockId: string, targetHighlightId?: string) => void; // NEW PROP
 }
 
 export type SaveStatus = "idle" | "saving" | "saved" | "error";
@@ -179,15 +179,21 @@ export function MindmapEditor({
 
     const { mutateAsync: saveMindmap } = useSaveMindmap(projectId); // FIXED: Pass projectId
 
-    const tempNodes = initialMindmap.nodes.map((node) => ({
-        id: node.id,
-        type: "stickyNote",
-        position: (node as any).position || { x: 0, y: 0 },
-        data: {
-            label: node.label || (node.data as any)?.label || "New Node",
-            targetBlockId: node.data?.targetBlockId
-        },
-    }));
+    const tempNodes = initialMindmap.nodes.map((node) => {
+        const nodeType = node.type || "topic";
+        return {
+            id: node.id,
+            type: "stickyNote",
+            position: (node as any).position || { x: 0, y: 0 },
+            data: {
+                label: node.label || (node.data as any)?.label || "New Node",
+                targetBlockId: node.data?.targetBlockId,
+                targetHighlightId: node.data?.targetHighlightId,
+                nodeType: nodeType,
+                nodeLevel: node.level ?? 1,
+            },
+        };
+    });
 
     const initialNodes: Node[] = getLayoutedElements(tempNodes, initialMindmap.edges); // Use passed edges
 
@@ -356,7 +362,7 @@ export function MindmapEditor({
     const onNodeClick: NodeMouseHandler = useCallback((event, node) => {
         setSelectedNodeId(node.id);
         if (node.data?.targetBlockId && onNodeNavigation) {
-            onNodeNavigation(node.data.targetBlockId);
+            onNodeNavigation(node.data.targetBlockId, node.data.targetHighlightId || undefined);
         }
     }, [onNodeNavigation]);
 
@@ -380,14 +386,19 @@ export function MindmapEditor({
         const mindmapData: Mindmap = {
             nodes: nodes.map((node) => ({
                 id: node.id,
+                type: node.data.nodeType || "topic",
                 label: node.data.label,
-                data: { targetBlockId: node.data.targetBlockId }, // Preserve this
+                level: node.data.nodeLevel ?? 1,
+                data: {
+                    targetBlockId: node.data.targetBlockId,
+                    targetHighlightId: node.data.targetHighlightId,
+                },
                 position: node.position,
             })),
             edges: edges.map((edge) => ({
                 id: edge.id,
-                from: edge.source,
-                to: edge.target,
+                source: edge.source,
+                target: edge.target,
                 label: (edge.label as string) || null,
             })),
         };
@@ -424,14 +435,19 @@ export function MindmapEditor({
             const mindmapData: Mindmap = {
                 nodes: nodes.map((node) => ({
                     id: node.id,
+                    type: node.data.nodeType || "topic",
                     label: node.data.label,
+                    level: node.data.nodeLevel ?? 1,
+                    data: {
+                        targetBlockId: node.data.targetBlockId,
+                        targetHighlightId: node.data.targetHighlightId,
+                    },
                     position: node.position,
-                    data: { targetBlockId: node.data.targetBlockId },
                 })),
                 edges: edges.map((edge) => ({
                     id: edge.id,
-                    from: edge.source,
-                    to: edge.target,
+                    source: edge.source,
+                    target: edge.target,
                     label: (edge.label as string) || null,
                 })),
             };
