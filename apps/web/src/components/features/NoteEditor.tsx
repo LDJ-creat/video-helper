@@ -1,6 +1,5 @@
 "use client";
 
-
 import { useEditor, EditorContent, JSONContent, ReactNodeViewRenderer, NodeViewWrapper, NodeViewContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { Heading } from '@tiptap/extension-heading';
@@ -16,11 +15,10 @@ import { TextAlign } from '@tiptap/extension-text-align';
 import { Extension, Editor } from '@tiptap/react';
 import { useEffect, useRef, useState, useCallback, useImperativeHandle, forwardRef } from "react";
 import { useRouter } from "next/navigation";
-import { useSaveContentBlocks } from "@/lib/api/resultQueries";
-import { ContentBlock, Highlight } from "@/lib/contracts/resultTypes";
+import { useSaveContentBlocks, useUploadAsset } from "@/lib/api/resultQueries";
+import { ContentBlock, Highlight, Keyframe } from "@/lib/contracts/resultTypes";
 
-
-const AUTOSAVE_DELAY_MS = 1200;
+const AUTOSAVE_DELAY_MS = 2000;
 
 // Custom extension to add attributes to nodes
 const BlockAttributes = Extension.create({
@@ -30,51 +28,23 @@ const BlockAttributes = Extension.create({
             {
                 types: ['heading'],
                 attributes: {
-                    blockId: {
-                        default: null,
-                        keepOnSplit: false,
-                        renderHTML: attributes => ({
-                            'data-block-id': attributes.blockId,
-                        }),
-                    },
-                    startMs: {
-                        default: null,
-                        renderHTML: attributes => ({
-                            'data-start-ms': attributes.startMs,
-                        }),
-                    },
-                    endMs: {
-                        default: null,
-                        renderHTML: attributes => ({
-                            'data-end-ms': attributes.endMs,
-                        }),
-                    },
+                    blockId: { default: null, keepOnSplit: false, renderHTML: attrs => ({ 'data-block-id': attrs.blockId }) },
+                    startMs: { default: null, renderHTML: attrs => ({ 'data-start-ms': attrs.startMs }) },
+                    endMs: { default: null, renderHTML: attrs => ({ 'data-end-ms': attrs.endMs }) },
                 },
             },
             {
                 types: ['paragraph'],
                 attributes: {
-                    highlightId: {
-                        default: null,
-                        keepOnSplit: false,
-                        renderHTML: attributes => ({
-                            'data-highlight-id': attributes.highlightId,
-                        }),
-                    },
-                    keyframeUrl: {
-                        default: null,
-                        renderHTML: attributes => {
-                            if (!attributes.keyframeUrl) return {};
-                            return {
-                                'data-keyframe-url': attributes.keyframeUrl,
-                            };
-                        }
-                    },
-                    timeMs: {
-                        default: null,
-                        renderHTML: attributes => ({
-                            'data-time-ms': attributes.timeMs,
-                        }),
+                    highlightId: { default: null, keepOnSplit: false, renderHTML: attrs => ({ 'data-highlight-id': attrs.highlightId }) },
+                    timeMs: { default: null, renderHTML: attrs => ({ 'data-time-ms': attrs.timeMs }) },
+                    keyframes: {
+                        default: [],
+                        parseHTML: element => {
+                            const attr = element.getAttribute('data-keyframes');
+                            return attr ? JSON.parse(attr) : [];
+                        },
+                        renderHTML: attrs => ({ 'data-keyframes': JSON.stringify(attrs.keyframes) })
                     },
                 },
             },
@@ -84,41 +54,38 @@ const BlockAttributes = Extension.create({
 
 export interface NoteEditorProps {
     projectId: string;
-    resultId: string;
+    resultId?: string;
     contentBlocks: ContentBlock[];
     onSaveSuccess?: () => void;
     onSaveError?: (error: Error) => void;
     onBlockNavigation?: (timeMs: number) => void;
 }
 
-// Navigation Extension to bridge React callback
+export interface NoteEditorRef {
+    scrollToBlock: (blockId: string) => void;
+    scrollToHighlight: (highlightId: string) => void;
+}
+
+// Navigation Extension
 const NavigationExtension = Extension.create({
     name: 'navigation',
+    addStorage() { return { onNavigate: null as ((ms: number) => void) | null }; },
     addCommands() {
         return {
             navigateToTime: (timeMs: number) => ({ editor }: { editor: Editor }) => {
-                // @ts-ignore - Valid command structure for Tiptap
-                editor.storage.navigation.onNavigate?.(timeMs);
-                return true;
+                // @ts-ignore
+                if (editor.storage.navigation?.onNavigate) {
+                    editor.storage.navigation.onNavigate(timeMs);
+                    return true;
+                }
+                return false;
             }
-        } as any
+        } as any;
     },
-    addStorage() {
-        return {
-            onNavigate: null as ((ms: number) => void) | null,
-        }
-    }
 });
 
-function formatTime(ms: number): string {
-    if (ms === null || ms === undefined) return "00:00";
-    const totalSeconds = Math.floor(ms / 1000);
-    const minutes = Math.floor(totalSeconds / 60);
-    const seconds = totalSeconds % 60;
-    return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-}
+/* ── React Node Views ── */
 
-// React Node Views
 const HeadingBlock = ({ node, editor }: { node: any, editor: any }) => {
     const hasTime = node.attrs.startMs !== null && node.attrs.startMs !== undefined;
 
@@ -131,9 +98,7 @@ const HeadingBlock = ({ node, editor }: { node: any, editor: any }) => {
             >
                 {hasTime && (
                     <div className="p-1.5 rounded-full text-stone-300 hover:text-blue-600 hover:bg-blue-50 transition-all opacity-0 group-hover:opacity-100" title="点击跳转视频">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                            <polygon points="5 3 19 12 5 21 5 3"></polygon>
-                        </svg>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
                     </div>
                 )}
             </div>
@@ -142,56 +107,118 @@ const HeadingBlock = ({ node, editor }: { node: any, editor: any }) => {
     );
 };
 
-const ParagraphBlock = ({ node, editor }: { node: any, editor: any }) => {
+const ParagraphBlock = ({ node, updateAttributes, editor }: { node: any, updateAttributes: any, editor: any }) => {
     const hasTime = node.attrs.timeMs !== null && node.attrs.timeMs !== undefined;
-    const keyframeUrl = node.attrs.keyframeUrl;
-    const [isZoomed, setIsZoomed] = useState(false);
+    const keyframes = (node.attrs.keyframes || []) as Keyframe[];
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const [zoomedImage, setZoomedImage] = useState<string | null>(null);
+
+    const handleAddKeyframeClick = () => {
+        fileInputRef.current?.click();
+    };
+
+    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const files = Array.from(e.target.files || []);
+        if (files.length === 0) return;
+
+        // Call editor command to upload multiple
+        // @ts-ignore
+        editor.commands.uploadKeyframes(files, (results: Array<{ url: string, assetId: string }>) => {
+            const newKeyframes = results.map(r => ({
+                assetId: r.assetId,
+                contentUrl: r.url,
+                timeMs: node.attrs.timeMs || 0
+            }));
+            updateAttributes({ keyframes: [...keyframes, ...newKeyframes] });
+        });
+
+        e.target.value = '';
+    };
+
+    const handleDeleteKeyframe = (assetId: string) => {
+        const newKeyframes = keyframes.filter(k => k.assetId !== assetId);
+        updateAttributes({ keyframes: newKeyframes });
+    };
 
     return (
         <>
-            <NodeViewWrapper className="flex items-start gap-3 group -ml-12 pl-1 transition-colors rounded-lg hover:bg-stone-50/50">
+            <NodeViewWrapper className="flex items-start gap-3 group -ml-12 pl-1 transition-colors rounded-lg hover:bg-stone-50/50 mb-6 relative">
+                <input
+                    type="file"
+                    multiple
+                    ref={fileInputRef}
+                    className="hidden"
+                    accept="image/*"
+                    onChange={handleFileChange}
+                />
+
                 <div
                     contentEditable={false}
-                    className={`flex-shrink-0 mt-1 w-[60px] flex justify-center items-center h-6 ${hasTime ? 'cursor-pointer' : 'pointer-events-none'}`}
-                    onClick={hasTime ? () => editor.commands.navigateToTime(node.attrs.timeMs) : undefined}
+                    className={`flex-shrink-0 mt-1 w-[60px] flex flex-col items-center gap-1`}
                 >
+                    <div
+                        className={`flex justify-center items-center h-6 ${hasTime ? 'cursor-pointer' : ''}`}
+                        onClick={hasTime ? () => editor.commands.navigateToTime(node.attrs.timeMs) : undefined}
+                    >
+                        {hasTime && (
+                            <div className="p-1 rounded-full text-stone-300 hover:text-blue-600 hover:bg-blue-50 transition-all opacity-0 group-hover:opacity-100" title="点击跳转视频">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Keyframe Add Button */}
                     {hasTime && (
-                        <div className="p-1 rounded-full text-stone-300 hover:text-blue-600 hover:bg-blue-50 transition-all opacity-0 group-hover:opacity-100" title="点击跳转视频">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                                <polygon points="5 3 19 12 5 21 5 3"></polygon>
-                            </svg>
-                        </div>
+                        <button
+                            onClick={handleAddKeyframeClick}
+                            className="opacity-0 group-hover:opacity-100 text-xs text-stone-400 hover:text-orange-500 transition-opacity p-1"
+                            title="添加图片"
+                        >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></svg>
+                        </button>
                     )}
                 </div>
-                <div className="flex-1">
-                    {keyframeUrl && (
-                        <div contentEditable={false} className="mb-2 select-none">
-                            <img
-                                src={keyframeUrl}
-                                alt="关键帧截图"
-                                className="rounded-lg border border-stone-200 shadow-sm w-full h-auto object-contain bg-stone-50 cursor-zoom-in hover:opacity-90 transition-opacity"
-                                loading="lazy"
-                                draggable={false}
-                                onClick={() => setIsZoomed(true)}
-                            />
+
+                <div className="flex-1 min-w-0">
+                    {/* Render Keyframes List */}
+                    {keyframes.length > 0 && (
+                        <div contentEditable={false} className="mb-4 flex flex-col gap-4 select-none">
+                            {keyframes.map((kf, idx) => (
+                                <div key={kf.assetId || idx} className="relative group/image w-full">
+                                    <img
+                                        src={kf.contentUrl}
+                                        alt="关键帧"
+                                        className="rounded-lg border border-stone-200 shadow-sm w-full h-auto object-cover bg-stone-50 cursor-zoom-in hover:opacity-95 transition-opacity"
+                                        draggable={false}
+                                        onClick={() => setZoomedImage(kf.contentUrl)}
+                                    />
+                                    <button
+                                        onClick={() => handleDeleteKeyframe(kf.assetId)}
+                                        className="absolute top-2 right-2 p-1.5 bg-black/60 hover:bg-red-500/80 text-white rounded-full opacity-0 group-hover/image:opacity-100 transition-all backdrop-blur-sm shadow-sm"
+                                        title="移除图片"
+                                    >
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                                    </button>
+                                </div>
+                            ))}
                         </div>
                     )}
-                    <NodeViewContent className="text-stone-600 leading-relaxed" />
+                    <NodeViewContent className="text-stone-700 leading-relaxed outline-none" />
                 </div>
             </NodeViewWrapper>
 
-            {/* Image zoom modal */}
-            {isZoomed && keyframeUrl && (
+            {/* Zoom Modal */}
+            {zoomedImage && (
                 <div
-                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-8"
-                    onClick={() => setIsZoomed(false)}
-                    onKeyDown={(e) => e.key === 'Escape' && setIsZoomed(false)}
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md p-8 animate-in fade-in duration-200"
+                    onClick={() => setZoomedImage(null)}
+                    onKeyDown={(e) => e.key === 'Escape' && setZoomedImage(null)}
                 >
                     <img
-                        src={keyframeUrl}
+                        src={zoomedImage}
                         alt="关键帧截图（放大）"
                         className="max-w-full max-h-full object-contain rounded-lg shadow-2xl cursor-zoom-out"
-                        onClick={(e) => { e.stopPropagation(); setIsZoomed(false); }}
+                        onClick={(e) => { e.stopPropagation(); setZoomedImage(null); }}
                     />
                 </div>
             )}
@@ -199,66 +226,49 @@ const ParagraphBlock = ({ node, editor }: { node: any, editor: any }) => {
     );
 };
 
-// Custom Extensions
+// Custom Node Views Definitions
 const CustomHeading = Heading.extend({
-    addNodeView() {
-        return ReactNodeViewRenderer(HeadingBlock);
-    },
+    addNodeView() { return ReactNodeViewRenderer(HeadingBlock); },
 }).configure({ levels: [1, 2, 3] });
 
 const CustomParagraph = Paragraph.extend({
-    addNodeView() {
-        return ReactNodeViewRenderer(ParagraphBlock);
-    },
+    addNodeView() { return ReactNodeViewRenderer(ParagraphBlock); },
 });
 
-export type NoteEditorRef = {
-    scrollToBlock: (blockId: string) => void;
-    scrollToHighlight: (highlightId: string) => void;
-};
-
-// Conversion Helpers
+// Helper Functions
 function blocksToTiptap(blocks: ContentBlock[]): JSONContent {
     const content: JSONContent[] = [];
 
     (blocks || []).forEach(block => {
-        // Block Title as Heading 2
         content.push({
             type: 'heading',
             attrs: { level: 2, blockId: block.blockId, startMs: block.startMs, endMs: block.endMs },
             content: [{ type: 'text', text: block.title }]
         });
 
-        // Highlights
         block.highlights.forEach(h => {
             const paragraphContent: JSONContent[] = [];
-
-            // Keyframe (Simulated as image inside paragraph or text for now since we lack Image extension in package.json)
-            // Ideally we would use an Image node, but without it installed, we might use a special styling/component.
-            // For MVP, we'll try to use a simple text representation or HTML if we could.
-            // Since we can't easily install new packages, let's assume we render keyframe as a separate paragraph or generic content.
-            // Actually, let's just append text. 
-            // Better: Use a "Keyframe" mark or just prepend text "[Keyframe]" if URL exists.
-            if (h.keyframe?.contentUrl) {
-                // If we implemented a custom node for Keyframe, valid. For now, let's treat it as attribute on paragraph 
-                // and render it via NodeView or just rely on the data.
-                // We will use the attribute 'keyframeUrl' on the paragraph to potentially render it custom later.
-            }
-
             paragraphContent.push({ type: 'text', text: h.text });
+
+            // Migration: Convert single keyframe to list if needed
+            let keyframes = h.keyframes || [];
+            if (!keyframes.length && (h as any).keyframe) {
+                keyframes = [(h as any).keyframe];
+            }
 
             content.push({
                 type: 'paragraph',
-                attrs: { highlightId: h.highlightId, timeMs: h.startMs, keyframeUrl: h.keyframe?.contentUrl },
+                attrs: {
+                    highlightId: h.highlightId,
+                    timeMs: h.startMs,
+                    keyframes: keyframes
+                },
                 content: paragraphContent
             });
         });
     });
 
-    return {
-        type: 'doc',
-        content
-    };
+    return { type: 'doc', content };
 }
 
 function tiptapToBlocks(json: JSONContent): ContentBlock[] {
@@ -268,7 +278,6 @@ function tiptapToBlocks(json: JSONContent): ContentBlock[] {
 
     json.content?.forEach((node) => {
         if (node.type === 'heading' && node.attrs?.level === 2) {
-            // Start new block
             currentBlock = {
                 blockId: node.attrs.blockId || `blk_${Date.now()}_${Math.random()}`,
                 idx: blockIdx++,
@@ -279,60 +288,103 @@ function tiptapToBlocks(json: JSONContent): ContentBlock[] {
             };
             blocks.push(currentBlock);
         } else if (node.type === 'paragraph' && currentBlock) {
-            // Add to current block
+            const keyframes = (node.attrs?.keyframes || []) as Keyframe[];
+
             const highlight: Highlight = {
                 highlightId: node.attrs?.highlightId || `hl_${Date.now()}_${Math.random()}`,
                 idx: currentBlock.highlights.length,
                 text: node.content?.map(c => c.text).join('') || '',
-                startMs: node.attrs?.timeMs || currentBlock.startMs, // Fallback
-                endMs: currentBlock.endMs, // Fallback
-                keyframe: node.attrs?.keyframeUrl ? {
-                    assetId: 'unknown', // Lost in conversion if not stored, MVP compromise
-                    contentUrl: node.attrs.keyframeUrl,
-                    timeMs: node.attrs.timeMs || 0
-                } : undefined
+                startMs: node.attrs?.timeMs || currentBlock.startMs,
+                endMs: currentBlock.endMs,
+                keyframes: keyframes
             };
             currentBlock.highlights.push(highlight);
         }
     });
-
     return blocks;
 }
 
 export const NoteEditor = forwardRef<NoteEditorRef, NoteEditorProps>(({
     projectId,
-    resultId,
     contentBlocks,
     onSaveSuccess,
     onSaveError,
     onBlockNavigation,
 }, ref) => {
     const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
-    const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
     const saveTimerRef = useRef<NodeJS.Timeout | null>(null);
     const hasPendingChangesRef = useRef(false);
 
     const { mutateAsync: saveBlocks } = useSaveContentBlocks(projectId);
+    const { mutateAsync: uploadAsset } = useUploadAsset(projectId);
+
+    // Stable ref for uploadAsset to be used in editor paste handler
+    const uploadAssetRef = useRef(uploadAsset);
+    useEffect(() => { uploadAssetRef.current = uploadAsset; }, [uploadAsset]);
+
+    const saveHandlerRef = useRef<() => Promise<void>>();
+
+    const handleSave = useCallback(async () => {
+        if (!editor || !hasPendingChangesRef.current) return;
+
+        const json = editor.getJSON();
+        const blocks = tiptapToBlocks(json);
+
+        setSaveStatus("saving");
+        try {
+            await saveBlocks(blocks);
+            hasPendingChangesRef.current = false;
+            setSaveStatus("saved");
+            onSaveSuccess?.();
+            setTimeout(() => setSaveStatus("idle"), 3000);
+        } catch (error) {
+            console.error("Save failed", error);
+            setSaveStatus("error");
+            onSaveError?.(error as Error);
+        }
+    }, [saveBlocks, onSaveSuccess, onSaveError]);
+
+    useEffect(() => {
+        saveHandlerRef.current = handleSave;
+    }, [handleSave]);
+
+    const scheduleAutosave = useCallback(() => {
+        if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = setTimeout(() => {
+            if (saveHandlerRef.current) saveHandlerRef.current();
+        }, AUTOSAVE_DELAY_MS);
+    }, []);
+
+    const UploadExtension = Extension.create({
+        name: 'uploadKeyframes',
+        addCommands() {
+            return {
+                uploadKeyframes: (files: File[], callback: (results: Array<{ url: string, assetId: string }>) => void) => async () => {
+                    try {
+                        const promises = files.map(file => uploadAsset({ file, kind: 'user_image' }));
+                        const results = await Promise.all(promises);
+                        const mapped = results.map(r => ({ url: r.contentUrl, assetId: r.assetId }));
+                        callback(mapped);
+                        return true;
+                    } catch (e) {
+                        console.error("Upload failed", e);
+                        return false;
+                    }
+                }
+            } as any;
+        }
+    });
 
     const editor = useEditor({
         immediatelyRender: false,
         extensions: [
-            StarterKit.configure({
-                heading: false, // Use CustomHeading
-                paragraph: false, // Use CustomParagraph
-            }),
+            StarterKit.configure({ heading: false, paragraph: false }),
             CustomHeading,
             CustomParagraph,
             BlockAttributes,
-            NavigationExtension, // Add Navigation
-            Underline,
-            TiptapHighlight,
-            Link,
-            TaskList,
-            TaskItem,
-            Typography,
-            Placeholder.configure({ placeholder: '输入内容...' }),
-            TextAlign.configure({ types: ['heading', 'paragraph'] }),
+            NavigationExtension,
+            UploadExtension,
+            Underline, TiptapHighlight, Link, TaskList, TaskItem, Typography, Placeholder, TextAlign
         ],
         content: blocksToTiptap(contentBlocks),
         onUpdate: () => {
@@ -340,23 +392,78 @@ export const NoteEditor = forwardRef<NoteEditorRef, NoteEditorProps>(({
             scheduleAutosave();
         },
         editorProps: {
-            attributes: {
-                class: "prose prose-stone max-w-none focus:outline-none min-h-[300px] px-4 py-3 ml-12", // Increased ml for the gutter
-            },
-            // handleClick removed - handled by NodeViews
+            attributes: { class: "prose prose-stone max-w-none focus:outline-none min-h-[300px] px-4 py-3 ml-12" },
+            handlePaste: (view, event) => {
+                const items = Array.from(event.clipboardData?.items || []);
+                const imageItems = items.filter(item => item.type.startsWith('image/'));
+
+                if (imageItems.length > 0) {
+                    event.preventDefault();
+                    const files: File[] = [];
+                    imageItems.forEach(item => {
+                        const f = item.getAsFile();
+                        if (f) files.push(f);
+                    });
+
+                    if (files.length === 0) return false;
+
+                    // Find the paragraph node context
+                    const { state, dispatch } = view;
+                    const { selection } = state;
+                    const { $from } = selection;
+
+                    // Find the paragraph node
+                    let targetPos = -1;
+                    let targetNode = null;
+
+                    // Check if current node is paragraph or find one up
+                    if ($from.parent.type.name === 'paragraph') {
+                        targetNode = $from.parent;
+                        targetPos = $from.before();
+                    } else {
+                        // Fallback? Try to find first paragraph in selection?
+                        // For now, only support if inside paragraph.
+                    }
+
+                    if (targetNode && targetPos !== -1) {
+                        // Perform upload batch
+                        const promises = files.map(file => uploadAssetRef.current({ file, kind: 'user_image' }));
+                        Promise.all(promises)
+                            .then((results) => {
+                                // Get FRESH node from state to avoid stale attrs if user typed fast
+                                const freshNode = view.state.doc.nodeAt(targetPos);
+                                if (!freshNode) return;
+
+                                const newKeyframes = results.map(res => ({
+                                    assetId: res.assetId,
+                                    contentUrl: res.contentUrl,
+                                    timeMs: freshNode.attrs.timeMs || 0
+                                }));
+
+                                const currentKeyframes = freshNode.attrs.keyframes || [];
+                                const combinedKeyframes = [...currentKeyframes, ...newKeyframes];
+
+                                const tr = view.state.tr.setNodeMarkup(targetPos, undefined, {
+                                    ...freshNode.attrs,
+                                    keyframes: combinedKeyframes
+                                });
+                                view.dispatch(tr);
+                            })
+                            .catch(err => console.error("Paste upload failed", err));
+                    }
+
+                    return true;
+                }
+                return false;
+            }
         },
     });
 
-    // Sync callback to editor storage
     useEffect(() => {
         if (editor && onBlockNavigation) {
             editor.storage.navigation.onNavigate = onBlockNavigation;
         }
     }, [editor, onBlockNavigation]);
-
-    // Handle initial content updates (if data loads later) - careful with loops
-    // For now, we assume initialContentBlocks is stable or we ignore updates after mount 
-    // to prevent overwriting user edits.
 
     useImperativeHandle(ref, () => ({
         scrollToBlock: (blockId: string) => {
@@ -368,7 +475,6 @@ export const NoteEditor = forwardRef<NoteEditorRef, NoteEditorProps>(({
                     return false;
                 }
             });
-
             if (pos >= 0) {
                 const dom = editor.view.domAtPos(pos).node as HTMLElement;
                 dom.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -384,7 +490,6 @@ export const NoteEditor = forwardRef<NoteEditorRef, NoteEditorProps>(({
                     return false;
                 }
             });
-
             if (pos >= 0) {
                 const dom = editor.view.domAtPos(pos).node as HTMLElement;
                 dom.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -393,55 +498,30 @@ export const NoteEditor = forwardRef<NoteEditorRef, NoteEditorProps>(({
         },
     }));
 
-    const scheduleAutosave = useCallback(() => {
-        if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-        saveTimerRef.current = setTimeout(handleSave, AUTOSAVE_DELAY_MS);
-    }, []);
-
-    const handleSave = useCallback(async () => {
-        if (!editor || !hasPendingChangesRef.current) return;
-
-        const json = editor.getJSON();
-        const blocks = tiptapToBlocks(json);
-
-        setSaveStatus("saving");
-        try {
-            await saveBlocks({ resultId, contentBlocks: blocks });
-            hasPendingChangesRef.current = false;
-            setSaveStatus("saved");
-            setLastSavedAt(new Date());
-            onSaveSuccess?.();
-        } catch (error) {
-            console.error("Save failed", error);
-            setSaveStatus("error");
-            onSaveError?.(error as Error);
-        }
-    }, [editor, resultId, saveBlocks, onSaveSuccess, onSaveError]);
-
-    // Cleanup and Flush
     useEffect(() => {
         return () => {
-            if (hasPendingChangesRef.current) handleSave(); // Best effort flush
+            if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+            if (hasPendingChangesRef.current && saveHandlerRef.current) {
+                saveHandlerRef.current();
+            }
         };
-    }, [handleSave]);
+    }, []);
 
-    if (!editor) return <div>Loading Editor...</div>;
+    if (!editor) return <div>Loading...</div>;
 
     return (
         <div className="flex flex-col h-full bg-white relative rounded-xl">
-            {/* Toolbar (Simplified for brevity, can restore full toolbar if needed) */}
             <div className="flex items-center justify-between border-b border-stone-100 px-4 py-3 bg-white sticky top-0 z-10 rounded-t-xl">
                 <div className="text-sm font-medium text-stone-600">
-                    笔记编辑器 ({(contentBlocks || []).length} Blocks)
+                    笔记编辑器 ({editor.storage.characterCount?.words?.() || 0} words)
                 </div>
                 <div className="flex items-center gap-2 text-sm">
                     {saveStatus === "saving" && <span className="text-stone-400">保存中...</span>}
-                    {saveStatus === "saved" && <span className="text-green-600 flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-green-500" /> 已保存</span>}
+                    {saveStatus === "saved" && <span className="text-green-600 flex items-center gap-1">✔ 已保存</span>}
                     {saveStatus === "error" && <span className="text-rose-600">保存失败</span>}
                 </div>
             </div>
-
-            <div className="flex-1">
+            <div className="flex-1 overflow-y-auto">
                 <EditorContent editor={editor} />
             </div>
         </div>

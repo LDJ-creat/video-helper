@@ -38,7 +38,7 @@ export type Highlight = {
     text: string;
     startMs: number;
     endMs: number;
-    keyframe?: Keyframe;
+    keyframes?: Keyframe[];
 };
 
 // 内容块类型

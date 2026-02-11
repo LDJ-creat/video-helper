@@ -16,7 +16,7 @@ class HighlightDTO(BaseModel):
     text: str
     startMs: int
     endMs: int
-    keyframe: HighlightKeyframeDTO | None = None
+    keyframes: list[HighlightKeyframeDTO] | None = None
 
 
 class ContentBlockDTO(BaseModel):

@@ -116,12 +116,12 @@ def assemble_result(
 				}
 				if best_kf is not None and isinstance(best_kf.get("assetId"), str) and best_kf.get("assetId"):
 					asset_id = str(best_kf.get("assetId"))
-					hl_out["keyframe"] = {
+					hl_out["keyframes"] = [{
 						"assetId": asset_id,
 						"contentUrl": f"/api/v1/assets/{asset_id}/content",
 						"timeMs": best_kf.get("timeMs"),
 						"caption": best_kf.get("caption"),
-					}
+					}]
 				out_hls.append(hl_out)
 
 			content_blocks.append(

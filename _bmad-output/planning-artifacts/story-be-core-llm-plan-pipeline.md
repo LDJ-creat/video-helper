@@ -12,7 +12,7 @@
 - 在 `transcribe` 之后引入 `plan` 阶段：基于 transcript（必要时基于 chunk summaries）生成可渲染的结构化计划。
 - 计划输出需保证：
   - mindmap 节点能引用 `targetBlockId`（用于定位内容块）
-  - tiptap 内容块（contentBlocks）内同时包含 highlights 与 keyframes（时间点 + 资产引用）
+  - tiptap 内容块（contentBlocks）内同时包含 highlights 与 keyframes（时间点列表 + 资产引用）
   - 全链路时间单位一致（ms）
 - keyframes 抽取改为使用 plan 给出的 `timeMs` 列表（不再等距采样）。
 - Result schema 升级：新增 `contentBlocks`（并保持对旧字段的兼容策略）。
@@ -44,7 +44,9 @@
           "text":"...",
           "startMs":12000,
           "endMs":18000,
-          "keyframe": {"timeMs":15000}
+          "startMs":12000,
+          "endMs":18000,
+          "keyframes": [{"timeMs":15000}]
         }
       ]
     }
@@ -83,7 +85,7 @@
   - 输出：`plan` JSON（内含 contentBlocks/mindmap + highlight.keyframe.timeMs）
 - 修改：keyframes 阶段
   - 不再调用 `_sample_times_ms`；改为遍历 plan 给出的 keyframeTimes
-  - 抽帧后回填：将 `assetId` 与 `contentUrl` 写回 `contentBlocks[].highlights[].keyframe`（`contentUrl` 形如 `/api/v1/assets/{assetId}/content`）
+  - 抽帧后回填：将 `assetId` 与 `contentUrl` 写回 `contentBlocks[].highlights[].keyframes`（`contentUrl` 形如 `/api/v1/assets/{assetId}/content`）
 - assemble_result：
   - 新 schemaVersion
   - 持久化 `contentBlocks`、`mindmap`、`assetRefs`（方案A：不再持久化顶层 chapters/highlights）
@@ -143,6 +145,7 @@
 - `results.chapters`
 - `results.highlights`
 - `results.note`
+- （legacy `highlight.keyframe` 已废弃，统一使用 `highlight.keyframes`）
 
 ### 2) 启动时 schema-compat 升级策略（必须幂等）
 
@@ -177,8 +180,8 @@
 - chapter 下的 highlights → block.highlights：
   - `highlightId/idx/text` 来自 highlight
   - `startMs/endMs`：若只有 `timeMs`，按 `timeMs±5000ms` 夹紧到 block 范围
-  - `keyframe`：从 chapter.keyframes 中选择与 highlight 时间最接近的一个（若存在），写成：
-    - `{assetId, contentUrl: "/api/v1/assets/{assetId}/content", timeMs}`
+  - `keyframes`：从 chapter.keyframes 中选择与 highlight 时间最接近的一个（若存在），写成列表：
+    - `[{assetId, contentUrl: "/api/v1/assets/{assetId}/content", timeMs}]`
 
 说明：该派生逻辑必须与 assemble_result 的派生逻辑保持一致（作为“legacy→contentBlocks”单一规则源），以便：
 
@@ -198,10 +201,10 @@
 
 ## 验收标准（Acceptance Criteria）
 - 新建 job 成功跑完后：
-  - Result 中存在 `contentBlocks`，每个 block 含 `highlights`；若 highlight 有 keyframe，则 `highlight.keyframe.assetId` 存在。
+  - Result 中存在 `contentBlocks`，每个 block 含 `highlights`；若 highlight 有 keyframes，则 `highlight.keyframes[0].assetId` 存在。
   - `mindmap.nodes[*].data.targetBlockId` 指向有效 block。
   - （若使用 `targetHighlightId`）指向有效 highlight。
-  - `highlight.keyframe.timeMs`（若提供）落在对应 block 时间范围。
+  - `highlight.keyframes[0].timeMs`（若提供）落在对应 block 时间范围。
 - 缺 key / LLM 不可用 / 输出不合法：job 失败，`job.error.details.reason` 指示 `missing_credentials` 或 `invalid_llm_output`。
 
 ## 测试建议

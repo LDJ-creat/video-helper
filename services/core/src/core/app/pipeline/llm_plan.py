@@ -22,7 +22,7 @@ class PlanHighlight(BaseModel):
     text: str
     startMs: int
     endMs: int
-    keyframe: PlanKeyframe | None = None
+    keyframes: list[PlanKeyframe] = []
 
 
 class PlanContentBlock(BaseModel):
@@ -161,28 +161,46 @@ def _normalize_plan_payload(plan: dict) -> dict:
                 else:
                     h["text"] = ""
 
-            # startMs/endMs + keyframe
+            # startMs/endMs + keyframes
             hs = _as_int(h.get("startMs"))
             he = _as_int(h.get("endMs"))
 
-            kf = h.get("keyframe")
-            if kf is None and "timeMs" in h:
+            # Normalize keyframes
+            kfs = h.get("keyframes")
+            if kfs is None:
+                kfs = []
+                kf_single = h.get("keyframe")
+                if isinstance(kf_single, dict):
+                    kfs.append(kf_single)
+            
+            if not isinstance(kfs, list):
+                kfs = []
+
+            # If no timeMs but explicit top-level timeMs, assign to first keyframe (legacy compat)
+            if not kfs and "timeMs" in h:
                 tm = _as_int(h.get("timeMs"))
                 if tm is not None:
-                    h["keyframe"] = {"timeMs": int(tm)}
-                    kf = h.get("keyframe")
-            if isinstance(kf, dict) and "timeMs" in kf:
-                tm = _as_int(kf.get("timeMs"))
-                if tm is not None:
-                    upper = max(b_start, int(b_end) - 1)
-                    kf["timeMs"] = max(b_start, min(int(tm), upper))
+                    kfs.append({"timeMs": int(tm)})
 
-            # If still missing a highlight range, synthesize it around keyframe time.
+            valid_kfs = []
+            for kf in kfs:
+                if isinstance(kf, dict) and "timeMs" in kf:
+                    tm = _as_int(kf.get("timeMs"))
+                    if tm is not None:
+                        upper = max(b_start, int(b_end) - 1)
+                        kf["timeMs"] = max(b_start, min(int(tm), upper))
+                        valid_kfs.append(kf)
+            h["keyframes"] = valid_kfs
+            # Remove legacy
+            h.pop("keyframe", None)
+
+            # If still missing a highlight range, synthesize it around first keyframe time.
             if hs is None or he is None:
                 tm = None
-                kf2 = h.get("keyframe")
-                if isinstance(kf2, dict):
-                    tm = _as_int(kf2.get("timeMs"))
+                kfs = h.get("keyframes", [])
+                if kfs and isinstance(kfs[0], dict):
+                    tm = _as_int(kfs[0].get("timeMs"))
+                
                 if tm is None:
                     tm = _as_int(h.get("timeMs"))
                 if tm is None:
@@ -448,8 +466,11 @@ def validate_plan(plan: dict) -> dict:
             if hs < start_ms or he > end_ms:
                 raise ValueError("highlight time range must fall within its block")
 
-            kf = h.get("keyframe")
-            if kf is not None:
+            kfs = h.get("keyframes")
+            if not isinstance(kfs, list):
+                raise ValueError("keyframes must be a list")
+            
+            for kf in kfs:
                 if not isinstance(kf, dict):
                     raise ValueError("keyframe must be an object")
                 tm = kf.get("timeMs")
@@ -611,7 +632,8 @@ def _build_placeholder_plan(*, transcript: dict, schema_version: str) -> dict:
                         "text": "placeholder highlight",
                         "startMs": max(int(b_start), int(mid) - 500),
                         "endMs": min(int(b_end), int(mid) + 500),
-                        "keyframe": {"timeMs": int(mid)},
+                        "endMs": min(int(b_end), int(mid) + 500),
+                        "keyframes": [{"timeMs": int(mid)}],
                     }
                 ],
             }
@@ -683,11 +705,11 @@ def generate_plan(
         "Write high-quality notes: blocks are coherent modules; highlights are the key knowledge points. "
         "Do NOT over-split: prefer fewer, more complete highlights; merge nearby points when they belong together. "
         "Highlight text may be refined/summarized (not verbatim transcript). Skip trivial content. "
-        "Keyframe is OPTIONAL: include only when a screenshot meaningfully helps learning (slide/diagram/code/formula/UI). "
-        "If keyframe is present, set keyframe.timeMs (int, ms) within that highlight's [startMs,endMs). "
+        "Keyframes are OPTIONAL: include only when screenshots meaningfully help learning (slide/diagram/code/formula/UI). "
+        "If keyframes are present, set keyframes item timeMs (int, ms) within that highlight's [startMs,endMs). "
         "Schema keys MUST be exactly: schemaVersion, contentBlocks, mindmap. All times MUST be int ms. "
         "contentBlocks[] item: {blockId:str, idx:int, title:str, startMs:int, endMs:int, highlights:[...]}. "
-        "highlights[] item: {highlightId:str, idx:int, text:str, startMs:int, endMs:int, keyframe?:{timeMs:int}}. "
+        "highlights[] item: {highlightId:str, idx:int, text:str, startMs:int, endMs:int, keyframes?:[{timeMs:int}]}. "
         # Mindmap structure specification
         "mindmap: {nodes:[], edges:[]}. "
         "node fields: {id:str, type:str, label:str, level:int, data:{targetBlockId?:str, targetHighlightId?:str}}. "

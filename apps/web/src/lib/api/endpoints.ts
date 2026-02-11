@@ -15,16 +15,20 @@ export const endpoints = {
     resultLatest: (projectId: string) => `${API_V1}/projects/${projectId}/results/latest`,
     asset: (assetId: string) => `${API_V1}/assets/${assetId}`,
     assetContent: (assetId: string) => `${API_V1}/assets/${assetId}/content`,
-    // Notes endpoints   
-    // Content Blocks endpoints
-    saveContentBlocks: (projectId: string, resultId: string) => `${API_V1}/projects/${projectId}/results/latest/content-blocks`,
-    // Mindmap endpoints
-    saveMindmap: (projectId: string, resultId: string) => `${API_V1}/projects/${projectId}/results/${resultId}/mindmap`,
+    // Editing endpoints (aligned with api.md Section 4)
+    saveContentBlocks: (projectId: string) => `${API_V1}/projects/${projectId}/results/latest/content-blocks`,
+    saveMindmap: (projectId: string) => `${API_V1}/projects/${projectId}/results/latest/mindmap`,
+    editBlock: (projectId: string, blockId: string) => `${API_V1}/projects/${projectId}/results/latest/blocks/${blockId}`,
+    updateHighlightKeyframe: (projectId: string, highlightId: string) => `${API_V1}/projects/${projectId}/results/latest/highlights/${highlightId}/keyframe`,
+    uploadAsset: (projectId: string) => `${API_V1}/projects/${projectId}/assets`,
     // Search endpoints
     search: () => `${API_V1}/search`,
+    // Settings endpoints (legacy analyze settings)
+    settingsAnalyze: () => `${API_V1}/settings/analyze`,
     // LLM Settings endpoints (vNext per api.md Section 6)
     llmCatalog: () => `${API_V1}/settings/llm/catalog`,
     llmActive: () => `${API_V1}/settings/llm/active`,
     llmProviderSecret: (providerId: string) => `${API_V1}/settings/llm/providers/${providerId}/secret`,
     llmTest: () => `${API_V1}/settings/llm/active/test`,
 };
+

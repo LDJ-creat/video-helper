@@ -250,11 +250,13 @@ data: {"eventId":"13","tsMs":1738030000456,"jobId":"...","projectId":"...","stag
 					"text": "...",
 					"startMs": 12000,
 					"endMs": 18000,
-					"keyframe": {
-						"assetId": "a01...",
-						"contentUrl": "/api/v1/assets/a01.../content",
-						"timeMs": 15000
-					}
+					"keyframes": [
+						{
+							"assetId": "a01...",
+							"contentUrl": "/api/v1/assets/a01.../content",
+							"timeMs": 15000
+						}
+					]
 				}
 			]
 		}
@@ -309,49 +311,6 @@ data: {"eventId":"13","tsMs":1738030000456,"jobId":"...","projectId":"...","stag
 - 写入目标：只写 `GET /projects/{projectId}/results/latest` 所返回的 **latest result**（覆盖式更新，不做结果版本化）。
 - 成功响应：统一返回 `{ "updatedAtMs": number }`，并返回响应头 `ETag: W/"{updatedAtMs}"`（best-effort 作为前端对账锚点）。
 
-#### 保存笔记（TipTap JSON）
-
-**PUT /api/v1/projects/{projectId}/results/latest/note**
-
-请求（`application/json`）：支持两种形态（推荐 1）：
-
-1) 包一层 `note`：
-
-```json
-{
-	"note": {
-		"type": "doc",
-		"content": []
-	}
-}
-```
-
-2) 直接传 TipTap JSON 根对象：
-
-```json
-{
-	"type": "doc",
-	"content": []
-}
-```
-
-最小校验：
-
-- `note` 必须是 object
-- `note.type` 必须是非空字符串
-- `note.content` 缺省时会补 `[]`；若存在则必须是 array
-
-响应（200）：
-
-```json
-{ "updatedAtMs": 1738030000456 }
-```
-
-错误：
-
-- 404：`PROJECT_NOT_FOUND` | `RESULT_NOT_FOUND`
-- 400：`VALIDATION_ERROR`
-- 500：`INTERNAL_ERROR`
 
 #### 保存思维导图（nodes/edges）
 
@@ -439,31 +398,35 @@ data: {"eventId":"13","tsMs":1738030000456,"jobId":"...","projectId":"...","stag
 - 400：`VALIDATION_ERROR` | `CHAPTER_TIME_EDIT_DISABLED`
 - 500：`INTERNAL_ERROR`
 
-#### 绑定/解绑 Highlight Keyframe（精确到 highlight）
+#### 绑定/解绑 Highlight Keyframes（精确到 highlight）
 
-**PUT /api/v1/projects/{projectId}/results/latest/highlights/{highlightId}/keyframe**
+**PUT /api/v1/projects/{projectId}/results/latest/highlights/{highlightId}/keyframes**
 
-请求（`application/json`）：绑定时必须给 `assetId`；解绑时 `assetId=null`。
+请求（`application/json`）：绑定时提供 `keyframes` 列表；清空时提供空列表或 `null`。
 
 ```json
 {
-	"assetId": "a01...",
-	"timeMs": 12000,
-	"caption": "..."
+	"keyframes": [
+		{
+			"assetId": "a01...",
+			"timeMs": 12000,
+			"caption": "..."
+		}
+	]
 }
 ```
 
-解绑：
+解绑（清空）：
 
 ```json
-{ "assetId": null }
+{ "keyframes": [] }
 ```
 
 语义：
 
-- 该接口是“覆盖语义”：每个 highlight 最多绑定 1 个 `keyframe`。
+- 该接口是“覆盖语义”：更新该 highlight 的所有 `keyframes`。
 - 资产必须属于同一 project；否则返回 `ASSET_NOT_IN_PROJECT`。
-- 后端会把 `contentUrl` 写入 `highlight.keyframe.contentUrl`（形如 `/api/v1/assets/{assetId}/content`）。
+- 后端会把 `contentUrl` 写入 `highlight.keyframes[i].contentUrl`。
 
 响应（200）：
 
@@ -777,10 +740,10 @@ vNext 使用 SQLite：
 - `updated_at_ms` INTEGER NOT NULL
 
 -- 结构化 JSON（先存 TEXT）
-- `content_blocks_json` TEXT NOT NULL    -- vNext 主渲染入口：blocks(highlights+time+highlight.keyframe)
+- `content_blocks_json` TEXT NOT NULL    -- vNext 主渲染入口：blocks(highlights+time+highlight.keyframes)
 - `mindmap_json` TEXT NOT NULL           -- graph: nodes/edges（node 可 targetBlockId/targetHighlightId）
 - `note_json` TEXT NOT NULL              -- 导出/同步用结构化 note（暂不在 results/latest 返回）
-- `asset_refs_json` TEXT NOT NULL        -- 仅需保留 video 类资源引用（截图已内联在 highlight.keyframe.contentUrl）
+- `asset_refs_json` TEXT NOT NULL        -- 仅需保留 video 类资源引用（截图已内联在 highlight.keyframes.contentUrl）
 
 -- 可选：为搜索/回溯保留的派生字段
 - `transcript_json` TEXT                 -- segments（带时间戳）

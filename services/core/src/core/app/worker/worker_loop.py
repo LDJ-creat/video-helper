@@ -345,12 +345,15 @@ class PipelineJobProcessor:
                     for h in hls:
                         if not isinstance(h, dict):
                             continue
-                        kf = h.get("keyframe")
-                        if not isinstance(kf, dict):
+                        kfs = h.get("keyframes")
+                        if not isinstance(kfs, list):
                             continue
-                        tm = kf.get("timeMs")
-                        if isinstance(tm, int):
-                            times_ms.append(int(tm))
+                        for kf in kfs:
+                            if not isinstance(kf, dict):
+                                continue
+                            tm = kf.get("timeMs")
+                            if isinstance(tm, int):
+                                times_ms.append(int(tm))
 
                 keyframes_artifacts = extract_keyframes_at_times(
                     session=session,
@@ -371,19 +374,22 @@ class PipelineJobProcessor:
                     for h in hls:
                         if not isinstance(h, dict):
                             continue
-                        kf = h.get("keyframe")
-                        if not isinstance(kf, dict):
+                        kfs = h.get("keyframes")
+                        if not isinstance(kfs, list):
                             continue
-                        tm = kf.get("timeMs")
-                        if not isinstance(tm, int):
-                            continue
-                        info = keyframes_artifacts.keyframes_by_time.get(int(tm))
-                        if not isinstance(info, dict):
-                            continue
-                        asset_id = info.get("assetId")
-                        if isinstance(asset_id, str) and asset_id:
-                            kf["assetId"] = asset_id
-                            kf["contentUrl"] = f"/api/v1/assets/{asset_id}/content"
+                        for kf in kfs:
+                            if not isinstance(kf, dict):
+                                continue
+                            tm = kf.get("timeMs")
+                            if not isinstance(tm, int):
+                                continue
+                            info = keyframes_artifacts.keyframes_by_time.get(int(tm))
+                            if not isinstance(info, dict):
+                                continue
+                            asset_id = info.get("assetId")
+                            if isinstance(asset_id, str) and asset_id:
+                                kf["assetId"] = asset_id
+                                kf["contentUrl"] = f"/api/v1/assets/{asset_id}/content"
 
                 # ---- Assemble Result ----
                 job.stage = "assemble_result"
