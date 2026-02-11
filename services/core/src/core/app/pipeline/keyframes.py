@@ -137,7 +137,7 @@ def extract_keyframes_at_times(
 		session.add(asset)
 
 		asset_refs.append({"assetId": asset_id, "kind": "screenshot"})
-		kf = {"assetId": asset_id, "idx": int(idx), "timeMs": int(t_ms), "caption": None}
+		kf = {"assetId": asset_id, "idx": int(idx), "timeMs": int(t_ms)}
 		by_time[int(t_ms)] = kf
 
 	session.commit()

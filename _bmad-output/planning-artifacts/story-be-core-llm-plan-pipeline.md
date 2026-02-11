@@ -44,7 +44,7 @@
           "text":"...",
           "startMs":12000,
           "endMs":18000,
-          "keyframe": {"timeMs":15000,"caption":"(optional)"}
+          "keyframe": {"timeMs":15000}
         }
       ]
     }
@@ -178,7 +178,7 @@
   - `highlightId/idx/text` 来自 highlight
   - `startMs/endMs`：若只有 `timeMs`，按 `timeMs±5000ms` 夹紧到 block 范围
   - `keyframe`：从 chapter.keyframes 中选择与 highlight 时间最接近的一个（若存在），写成：
-    - `{assetId, contentUrl: "/api/v1/assets/{assetId}/content", timeMs, caption?}`
+    - `{assetId, contentUrl: "/api/v1/assets/{assetId}/content", timeMs}`
 
 说明：该派生逻辑必须与 assemble_result 的派生逻辑保持一致（作为“legacy→contentBlocks”单一规则源），以便：
 

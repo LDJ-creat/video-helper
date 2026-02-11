@@ -19,6 +19,7 @@ import { useRouter } from "next/navigation";
 import { useSaveContentBlocks } from "@/lib/api/resultQueries";
 import { ContentBlock, Highlight } from "@/lib/contracts/resultTypes";
 
+
 const AUTOSAVE_DELAY_MS = 1200;
 
 // Custom extension to add attributes to nodes
@@ -119,43 +120,82 @@ function formatTime(ms: number): string {
 
 // React Node Views
 const HeadingBlock = ({ node, editor }: { node: any, editor: any }) => {
-    const time = formatTime(node.attrs.startMs || 0);
+    const hasTime = node.attrs.startMs !== null && node.attrs.startMs !== undefined;
 
     return (
-        <NodeViewWrapper className="flex items-start gap-3 group -ml-12 pl-1 transition-colors rounded-lg hover:bg-stone-50/50">
+        <NodeViewWrapper className="flex items-baseline gap-3 group -ml-12 pl-1 transition-colors rounded-lg hover:bg-stone-50/50 mt-8">
             <div
                 contentEditable={false}
-                className="flex-shrink-0 mt-1.5 px-2 py-0.5 w-[60px] text-center bg-stone-100 text-stone-600 font-mono text-xs rounded-full cursor-pointer hover:bg-blue-100 hover:text-blue-700 transition-colors select-none"
-                onClick={() => editor.commands.navigateToTime(node.attrs.startMs)}
-                title="点击跳转视频"
-            >
-                {time}
-            </div>
-            <NodeViewContent className="flex-1 font-semibold text-stone-800 text-lg leading-snug" />
-        </NodeViewWrapper>
-    );
-};
-
-const ParagraphBlock = ({ node, editor }: { node: any, editor: any }) => {
-    const hasTime = node.attrs.timeMs !== null && node.attrs.timeMs !== undefined;
-
-    return (
-        <NodeViewWrapper className="flex items-start gap-3 group -ml-12 pl-1 transition-colors rounded-lg hover:bg-stone-50/50">
-            <div
-                contentEditable={false}
-                className={`flex-shrink-0 mt-1 w-[60px] flex justify-center items-center h-6 ${hasTime ? 'cursor-pointer' : 'pointer-events-none'}`}
-                onClick={hasTime ? () => editor.commands.navigateToTime(node.attrs.timeMs) : undefined}
+                className={`flex-shrink-0 w-[60px] flex justify-center items-center h-7 ${hasTime ? 'cursor-pointer' : 'pointer-events-none'}`}
+                onClick={hasTime ? () => editor.commands.navigateToTime(node.attrs.startMs) : undefined}
             >
                 {hasTime && (
-                    <div className="p-1 rounded-full text-stone-300 hover:text-blue-600 hover:bg-blue-50 transition-all opacity-0 group-hover:opacity-100" title="点击跳转视频">
+                    <div className="p-1.5 rounded-full text-stone-300 hover:text-blue-600 hover:bg-blue-50 transition-all opacity-0 group-hover:opacity-100" title="点击跳转视频">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                             <polygon points="5 3 19 12 5 21 5 3"></polygon>
                         </svg>
                     </div>
                 )}
             </div>
-            <NodeViewContent className="flex-1 text-stone-600 leading-relaxed" />
+            <NodeViewContent className="flex-1 font-bold text-stone-800" />
         </NodeViewWrapper>
+    );
+};
+
+const ParagraphBlock = ({ node, editor }: { node: any, editor: any }) => {
+    const hasTime = node.attrs.timeMs !== null && node.attrs.timeMs !== undefined;
+    const keyframeUrl = node.attrs.keyframeUrl;
+    const [isZoomed, setIsZoomed] = useState(false);
+
+    return (
+        <>
+            <NodeViewWrapper className="flex items-start gap-3 group -ml-12 pl-1 transition-colors rounded-lg hover:bg-stone-50/50">
+                <div
+                    contentEditable={false}
+                    className={`flex-shrink-0 mt-1 w-[60px] flex justify-center items-center h-6 ${hasTime ? 'cursor-pointer' : 'pointer-events-none'}`}
+                    onClick={hasTime ? () => editor.commands.navigateToTime(node.attrs.timeMs) : undefined}
+                >
+                    {hasTime && (
+                        <div className="p-1 rounded-full text-stone-300 hover:text-blue-600 hover:bg-blue-50 transition-all opacity-0 group-hover:opacity-100" title="点击跳转视频">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                            </svg>
+                        </div>
+                    )}
+                </div>
+                <div className="flex-1">
+                    {keyframeUrl && (
+                        <div contentEditable={false} className="mb-2 select-none">
+                            <img
+                                src={keyframeUrl}
+                                alt="关键帧截图"
+                                className="rounded-lg border border-stone-200 shadow-sm w-full h-auto object-contain bg-stone-50 cursor-zoom-in hover:opacity-90 transition-opacity"
+                                loading="lazy"
+                                draggable={false}
+                                onClick={() => setIsZoomed(true)}
+                            />
+                        </div>
+                    )}
+                    <NodeViewContent className="text-stone-600 leading-relaxed" />
+                </div>
+            </NodeViewWrapper>
+
+            {/* Image zoom modal */}
+            {isZoomed && keyframeUrl && (
+                <div
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-8"
+                    onClick={() => setIsZoomed(false)}
+                    onKeyDown={(e) => e.key === 'Escape' && setIsZoomed(false)}
+                >
+                    <img
+                        src={keyframeUrl}
+                        alt="关键帧截图（放大）"
+                        className="max-w-full max-h-full object-contain rounded-lg shadow-2xl cursor-zoom-out"
+                        onClick={(e) => { e.stopPropagation(); setIsZoomed(false); }}
+                    />
+                </div>
+            )}
+        </>
     );
 };
 

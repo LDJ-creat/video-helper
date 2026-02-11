@@ -29,7 +29,6 @@ export type Keyframe = {
     assetId: string;
     contentUrl: string;
     timeMs: number;
-    caption?: string;
 };
 
 // 重点类型

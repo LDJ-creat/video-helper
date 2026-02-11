@@ -25,6 +25,7 @@ export default function ResultPage() {
 
     // State
     const [isFloatingVisible, setIsFloatingVisible] = useState(false);
+    const [isDismissed, setIsDismissed] = useState(false); // Track if user dismissed the floating player
 
     // Callback ref for player container - sets up observer when element is attached
     const playerContainerCallbackRef = useCallback((element: HTMLDivElement | null) => {
@@ -34,9 +35,10 @@ export default function ResultPage() {
         if (!element) return;
 
         const observer = new IntersectionObserver(
-            ([entry]) => {
+            (entries) => {
+                const entry = entries[0];
                 // Show floating player when the main player is NOT intersecting (scrolled out of view)
-                if (!entry.isIntersecting && entry.boundingClientRect.top < 0) {
+                if (!entry.isIntersecting && entry.boundingClientRect.top < 0 && !isDismissed) {
                     setIsFloatingVisible(true);
                 } else if (entry.isIntersecting) {
                     setIsFloatingVisible(false);
@@ -52,7 +54,7 @@ export default function ResultPage() {
 
         // Cleanup when component unmounts or element changes
         return () => observer.disconnect();
-    }, []);
+    }, [isDismissed]); // Re-run when isDismissed changes
 
     // Get video element reference
     useEffect(() => {
@@ -76,6 +78,7 @@ export default function ResultPage() {
     // Handle close floating player
     const handleCloseFloating = () => {
         setIsFloatingVisible(false);
+        setIsDismissed(true); // Mark as dismissed for the session
     };
 
     // Mindmap Navigation

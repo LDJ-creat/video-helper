@@ -253,8 +253,7 @@ data: {"eventId":"13","tsMs":1738030000456,"jobId":"...","projectId":"...","stag
 					"keyframe": {
 						"assetId": "a01...",
 						"contentUrl": "/api/v1/assets/a01.../content",
-						"timeMs": 15000,
-						"caption": "..."
+						"timeMs": 15000
 					}
 				}
 			]
@@ -263,17 +262,31 @@ data: {"eventId":"13","tsMs":1738030000456,"jobId":"...","projectId":"...","stag
 	"mindmap": {
 		"nodes": [
 			{
+				"id": "n0",
+				"type": "root",
+				"label": "视频主题",
+				"level": 0,
+				"data": {}
+			},
+			{
 				"id": "n1",
+				"type": "topic",
 				"label": "Intro",
+				"level": 1,
 				"data": {"targetBlockId": "b01..."}
 			},
 			{
 				"id": "n2",
+				"type": "detail",
 				"label": "Key Point",
-				"data": {"targetHighlightId": "h01..."}
+				"level": 2,
+				"data": {"targetBlockId": "b01...", "targetHighlightId": "h01..."}
 			}
 		],
-		"edges": [{"id": "e1", "from": "n1", "to": "n2","label":"..."}]
+		"edges": [
+			{"id": "e1", "source": "n0", "target": "n1", "label": null},
+			{"id": "e2", "source": "n1", "target": "n2", "label": "..."}
+		]
 	},
 	"assetRefs": [
 		{
@@ -351,8 +364,8 @@ data: {"eventId":"13","tsMs":1738030000456,"jobId":"...","projectId":"...","stag
 ```json
 {
 	"mindmap": {
-		"nodes": [{"id": "n1", "label": "Intro"}],
-		"edges": [{"id": "e1", "from": "n1", "to": "n2"}]
+		"nodes": [{"id": "n1", "type": "topic", "label": "Intro", "level": 1, "data": {}}],
+		"edges": [{"id": "e1", "source": "n1", "target": "n2"}]
 	}
 }
 ```
@@ -361,8 +374,8 @@ data: {"eventId":"13","tsMs":1738030000456,"jobId":"...","projectId":"...","stag
 
 ```json
 {
-	"nodes": [{"id": "n1", "label": "Intro"}],
-	"edges": [{"id": "e1", "from": "n1", "to": "n2"}]
+	"nodes": [{"id": "n1", "type": "topic", "label": "Intro", "level": 1, "data": {}}],
+	"edges": [{"id": "e1", "source": "n1", "target": "n2"}]
 }
 ```
 
@@ -370,10 +383,12 @@ data: {"eventId":"13","tsMs":1738030000456,"jobId":"...","projectId":"...","stag
 
 - `nodes`/`edges` 必须是 array
 - `nodes[*].id` 必须是非空字符串，且全局唯一
-- `edges[*]` 必须包含 `id/from/to`，并且 `from/to` 必须引用已存在的 node id
+- `nodes[*].type` 必须是 `root` | `topic` | `detail`
+- `nodes[*].level` 必须是 0、1 或 2
+- `edges[*]` 必须包含 `id/source/target`，并且 `source/target` 必须引用已存在的 node id
 - 字段白名单（出现额外字段会 400）：
-	- node：`id` `type` `label` `chapterId` `position` `data`
-	- edge：`id` `from` `to` `label`
+	- node：`id` `type` `label` `level` `position` `data`
+	- edge：`id` `source` `target` `label`
 
 响应（200）：
 
