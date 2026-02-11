@@ -23,8 +23,23 @@ _PROVIDERS: tuple[LLMCatalogProvider, ...] = (
 		display_name="OpenRouter",
 		base_url="https://openrouter.ai/api/v1",
 		models=(
-			LLMCatalogModel(model_id="openrouter:anthropic/claude-3.5-sonnet", display_name="Claude 3.5 Sonnet"),
-			LLMCatalogModel(model_id="openrouter:openai/gpt-4o-mini", display_name="GPT-4o mini"),
+			# Claude 系列 (最新旗舰)
+			LLMCatalogModel(model_id="anthropic/claude-opus-4.5", display_name="Claude Opus 4.5"),
+			LLMCatalogModel(model_id="anthropic/claude-sonnet-4.5", display_name="Claude Sonnet 4.5"),
+			LLMCatalogModel(model_id="anthropic/claude-3.7-sonnet", display_name="Claude 3.7 Sonnet"),
+			# OpenAI 系列 (最新)
+			LLMCatalogModel(model_id="openai/gpt-5", display_name="GPT-5"),
+			LLMCatalogModel(model_id="openai/gpt-4.1", display_name="GPT-4.1"),
+			LLMCatalogModel(model_id="openai/gpt-4o", display_name="GPT-4o"),
+			# Google Gemini 系列
+			LLMCatalogModel(model_id="google/gemini-2.5-pro", display_name="Gemini 2.5 Pro"),
+			LLMCatalogModel(model_id="google/gemini-2.5-flash", display_name="Gemini 2.5 Flash"),
+			# DeepSeek 系列
+			LLMCatalogModel(model_id="deepseek/deepseek-r1", display_name="DeepSeek R1"),
+			LLMCatalogModel(model_id="deepseek/deepseek-chat", display_name="DeepSeek Chat"),
+			# xAI Grok 系列
+			LLMCatalogModel(model_id="x-ai/grok-4", display_name="Grok 4"),
+			LLMCatalogModel(model_id="x-ai/grok-3", display_name="Grok 3"),
 		),
 	),
 	LLMCatalogProvider(
@@ -32,24 +47,38 @@ _PROVIDERS: tuple[LLMCatalogProvider, ...] = (
 		display_name="OpenAI",
 		base_url="https://api.openai.com/v1",
 		models=(
-			LLMCatalogModel(model_id="openai:gpt-4o-mini", display_name="GPT-4o mini"),
-			LLMCatalogModel(model_id="openai:gpt-4o", display_name="GPT-4o"),
+			# GPT-5 系列 (最新旗舰)
+			LLMCatalogModel(model_id="gpt-5", display_name="GPT-5"),
+			LLMCatalogModel(model_id="gpt-5-mini", display_name="GPT-5 Mini"),
+			# GPT-4.1 系列
+			LLMCatalogModel(model_id="gpt-4.1", display_name="GPT-4.1"),
+			LLMCatalogModel(model_id="gpt-4.1-mini", display_name="GPT-4.1 Mini"),
+			# GPT-4o 系列 (多模态)
+			LLMCatalogModel(model_id="gpt-4o", display_name="GPT-4o"),
+			LLMCatalogModel(model_id="gpt-4o-mini", display_name="GPT-4o Mini"),
 		),
 	),
 	LLMCatalogProvider(
 		provider_id="qwen",
-		display_name="Qwen",
-		base_url="https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+		display_name="阿里通义千问 (OpenAI-compatible)",
+		base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
 		models=(
+			LLMCatalogModel(model_id="qwen-max", display_name="Qwen Max"),
 			LLMCatalogModel(model_id="qwen-plus", display_name="Qwen Plus"),
+			LLMCatalogModel(model_id="qwen-flash", display_name="Qwen Flash"),
+			LLMCatalogModel(model_id="qwen-turbo", display_name="Qwen Turbo"),
 		),
 	),
 	LLMCatalogProvider(
 		provider_id="nvidia",
-		display_name="NVIDIA (OpenAI-compatible)",
-		base_url="https://integrate.api.nvidia.com/v1/chat/completions",
+		display_name="NVIDIA NIM (OpenAI-compatible)",
+		base_url="https://integrate.api.nvidia.com/v1",
 		models=(
+			LLMCatalogModel(model_id="z-ai/glm-4.7", display_name="GLM-4.7"),
 			LLMCatalogModel(model_id="minimaxai/minimax-m2.1", display_name="Minimax M2.1"),
+			LLMCatalogModel(model_id="kimi-k2", display_name="Kimi K2"),
+			LLMCatalogModel(model_id="meta/llama-3.1-405b-instruct", display_name="Llama 3.1 405B"),
+			LLMCatalogModel(model_id="mistralai/mistral-large", display_name="Mistral Large"),
 		),
 	),
 	LLMCatalogProvider(
@@ -57,33 +86,8 @@ _PROVIDERS: tuple[LLMCatalogProvider, ...] = (
 		display_name="Groq (OpenAI-compatible)",
 		base_url="https://api.groq.com/openai/v1",
 		models=(
-			LLMCatalogModel(model_id="groq:llama-3.1-70b-versatile", display_name="Llama 3.1 70B Versatile"),
-			LLMCatalogModel(model_id="groq:llama3-70b-8192", display_name="Llama 3 70B 8192"),
-			LLMCatalogModel(model_id="groq:mixtral-8x7b-32768", display_name="Mixtral 8x7B 32768"),
-		),
-	),
-	LLMCatalogProvider(
-		provider_id="together",
-		display_name="Together (OpenAI-compatible)",
-		base_url="https://api.together.xyz/v1",
-		models=(
-			LLMCatalogModel(
-				model_id="together:meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
-				display_name="Llama 3.1 70B Instruct Turbo",
-			),
-			LLMCatalogModel(
-				model_id="together:mistralai/Mixtral-8x7B-Instruct-v0.1",
-				display_name="Mixtral 8x7B Instruct v0.1",
-			),
-		),
-	),
-	LLMCatalogProvider(
-		provider_id="mistral",
-		display_name="Mistral (OpenAI-compatible)",
-		base_url="https://api.mistral.ai/v1",
-		models=(
-			LLMCatalogModel(model_id="mistral:mistral-large-latest", display_name="Mistral Large (latest)"),
-			LLMCatalogModel(model_id="mistral:mistral-small-latest", display_name="Mistral Small (latest)"),
+			LLMCatalogModel(model_id="llama-3.1-8b-instant", display_name="Llama 3.1 8B Instant"),
+			LLMCatalogModel(model_id="llama-3.3-70b-versatile", display_name="Llama 3.3 70B Versatile"),
 		),
 	),
 	LLMCatalogProvider(
@@ -91,26 +95,70 @@ _PROVIDERS: tuple[LLMCatalogProvider, ...] = (
 		display_name="DeepSeek (OpenAI-compatible)",
 		base_url="https://api.deepseek.com/v1",
 		models=(
-			LLMCatalogModel(model_id="deepseek:deepseek-chat", display_name="DeepSeek Chat"),
-			LLMCatalogModel(model_id="deepseek:deepseek-reasoner", display_name="DeepSeek Reasoner"),
+			LLMCatalogModel(model_id="deepseek-chat", display_name="DeepSeek Chat"),
+			LLMCatalogModel(model_id="deepseek-reasoner", display_name="DeepSeek Reasoner"),
 		),
 	),
 	LLMCatalogProvider(
 		provider_id="xai",
-		display_name="xAI (OpenAI-compatible)",
+		display_name="xAI Grok (OpenAI-compatible)",
 		base_url="https://api.x.ai/v1",
 		models=(
-			LLMCatalogModel(model_id="xai:grok-2-latest", display_name="Grok 2 (latest)"),
-			LLMCatalogModel(model_id="xai:grok-2-mini-latest", display_name="Grok 2 mini (latest)"),
+			# Grok 4.1 系列 (最新)
+			LLMCatalogModel(model_id="grok-4-1-fast-reasoning", display_name="Grok 4.1 Fast Reasoning"),
+			LLMCatalogModel(model_id="grok-4-1-fast-non-reasoning", display_name="Grok 4.1 Fast Non-Reasoning"),
+			# Grok 4 系列
+			LLMCatalogModel(model_id="grok-4", display_name="Grok 4"),
+			LLMCatalogModel(model_id="grok-4-fast", display_name="Grok 4 Fast"),
+			# Grok 3 系列
+			LLMCatalogModel(model_id="grok-3", display_name="Grok 3"),
+			LLMCatalogModel(model_id="grok-3-mini", display_name="Grok 3 Mini"),
 		),
 	),
 	LLMCatalogProvider(
-		provider_id="perplexity",
-		display_name="Perplexity (OpenAI-compatible)",
-		base_url="https://api.perplexity.ai/chat/completions",
+		provider_id="doubao",
+		display_name="火山引擎豆包 (OpenAI-compatible)",
+		base_url="https://ark.cn-beijing.volces.com/api/v3",
 		models=(
-			LLMCatalogModel(model_id="perplexity:sonar-pro", display_name="Sonar Pro"),
-			LLMCatalogModel(model_id="perplexity:sonar", display_name="Sonar"),
+			LLMCatalogModel(model_id="doubao-seed-1-6-251015", display_name="豆包 Seed 1.6 (2024-10)"),
+			LLMCatalogModel(model_id="doubao-pro-32k", display_name="豆包 Pro 32K"),
+			LLMCatalogModel(model_id="doubao-lite-32k", display_name="豆包 Lite 32K"),
+		),
+	),
+	LLMCatalogProvider(
+		provider_id="zhipu",
+		display_name="智谱AI (OpenAI-compatible)",
+		base_url="https://open.bigmodel.cn/api/paas/v4",
+		models=(
+			LLMCatalogModel(model_id="GLM-4.7", display_name="GLM-4.7"),
+			LLMCatalogModel(model_id="GLM-4.6", display_name="GLM-4.6"),
+			LLMCatalogModel(model_id="GLM-4.5", display_name="GLM-4.5"),
+			LLMCatalogModel(model_id="GLM-4.5-Air", display_name="GLM-4.5 Air"),
+			LLMCatalogModel(model_id="GLM-4-Flash", display_name="GLM-4 Flash"),
+		),
+	),
+	LLMCatalogProvider(
+		provider_id="minimax",
+		display_name="MiniMax (OpenAI-compatible)",
+		base_url="https://api.minimaxi.com/v1",
+		models=(
+			LLMCatalogModel(model_id="MiniMax-M2.1", display_name="MiniMax M2.1"),
+			LLMCatalogModel(model_id="MiniMax-M2", display_name="MiniMax M2"),
+			LLMCatalogModel(model_id="abab6.5s-chat", display_name="abab6.5s (超长上下文)"),
+			LLMCatalogModel(model_id="abab6.5t-chat", display_name="abab6.5t (中文优化)"),
+		),
+	),
+	LLMCatalogProvider(
+		provider_id="google",
+		display_name="Google Gemini",
+		base_url="https://generativelanguage.googleapis.com/v1beta",
+		models=(
+			# Gemini 3 系列 (最新旗舰)
+			LLMCatalogModel(model_id="gemini-3-pro-preview", display_name="Gemini 3 Pro Preview"),
+			LLMCatalogModel(model_id="gemini-3-flash-preview", display_name="Gemini 3 Flash Preview"),
+			# Gemini 2.5 系列
+			LLMCatalogModel(model_id="gemini-2.5-pro-latest", display_name="Gemini 2.5 Pro"),
+			LLMCatalogModel(model_id="gemini-2.5-flash-latest", display_name="Gemini 2.5 Flash"),
 		),
 	),
 )
