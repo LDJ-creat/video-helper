@@ -9,6 +9,7 @@ export type CreateJobUrlRequest = {
     sourceType: Exclude<SourceType, "upload">;
     sourceUrl: string;
     title?: string;
+    outputLanguage?: string;
 };
 
 export type CreateJobResponse = {

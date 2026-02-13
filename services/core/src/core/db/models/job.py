@@ -25,6 +25,10 @@ class Job(Base):
     transcript: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     chapters: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
+    # User preference for final output language (rendered by LLM plan stage).
+    # Examples: "zh-Hans", "en", "auto".
+    output_language: Mapped[str | None] = mapped_column(String, nullable=True)
+
 
     # Optional artifact refs (DATA_DIR-relative) for real pipeline.
     audio_ref: Mapped[str | None] = mapped_column(String, nullable=True)

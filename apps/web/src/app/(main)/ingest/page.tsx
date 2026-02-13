@@ -61,6 +61,7 @@ function UrlForm() {
     const [sourceType, setSourceType] = useState<Exclude<SourceType, "upload">>("youtube");
     const [sourceUrl, setSourceUrl] = useState("");
     const [title, setTitle] = useState("");
+    const [outputLanguage, setOutputLanguage] = useState("zh-Hans");
     const mutation = useCreateJobFromUrl();
 
     const isValidUrl = (url: string) => {
@@ -82,6 +83,7 @@ function UrlForm() {
             sourceType,
             sourceUrl: sourceUrl.trim(),
             title: title.trim() || undefined,
+            outputLanguage: outputLanguage.trim() || undefined,
         });
     };
 
@@ -152,6 +154,25 @@ function UrlForm() {
                 />
             </div>
 
+            <div className="space-y-2">
+                <label htmlFor="outputLanguage" className="block text-sm font-medium text-stone-700">
+                    输出语言
+                </label>
+                <select
+                    id="outputLanguage"
+                    value={outputLanguage}
+                    onChange={(e) => setOutputLanguage(e.target.value)}
+                    className="block w-full rounded-lg border border-stone-200 bg-white px-4 py-3 text-stone-900 focus:border-stone-500 focus:outline-none focus:ring-2 focus:ring-stone-200"
+                >
+                    <option value="zh-Hans">简体中文</option>
+                    <option value="en">English</option>
+                    <option value="auto">自动</option>
+                </select>
+                <p className="text-sm text-stone-500">
+                    控制最终结果（标题/要点/思维导图）的语言
+                </p>
+            </div>
+
             {errorMessage && (
                 <div className="rounded-lg bg-red-50 p-4 text-sm text-red-600">
                     {errorMessage}
@@ -172,6 +193,7 @@ function UrlForm() {
 function UploadForm() {
     const [file, setFile] = useState<File | null>(null);
     const [title, setTitle] = useState("");
+    const [outputLanguage, setOutputLanguage] = useState("zh-Hans");
     const mutation = useCreateJobFromUpload();
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -193,6 +215,7 @@ function UploadForm() {
         mutation.mutate({
             file,
             title: title.trim() || undefined,
+            outputLanguage: outputLanguage.trim() || undefined,
         });
     };
 
@@ -234,6 +257,25 @@ function UploadForm() {
                     placeholder="为项目设置自定义标题"
                     className="block w-full rounded-lg border border-stone-200 bg-white px-4 py-3 text-stone-900 placeholder-stone-400 focus:border-stone-500 focus:outline-none focus:ring-2 focus:ring-stone-200"
                 />
+            </div>
+
+            <div className="space-y-2">
+                <label htmlFor="upload-outputLanguage" className="block text-sm font-medium text-stone-700">
+                    输出语言
+                </label>
+                <select
+                    id="upload-outputLanguage"
+                    value={outputLanguage}
+                    onChange={(e) => setOutputLanguage(e.target.value)}
+                    className="block w-full rounded-lg border border-stone-200 bg-white px-4 py-3 text-stone-900 focus:border-stone-500 focus:outline-none focus:ring-2 focus:ring-stone-200"
+                >
+                    <option value="zh-Hans">简体中文</option>
+                    <option value="en">English</option>
+                    <option value="auto">自动</option>
+                </select>
+                <p className="text-sm text-stone-500">
+                    控制最终结果（标题/要点/思维导图）的语言
+                </p>
             </div>
 
             {errorMessage && (

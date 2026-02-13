@@ -63,7 +63,9 @@ def build_ytdlp_command(*, url: str, output_template: Path) -> list[str]:
 	# Use --paths to force output placement; keep -o as a filename template
 	# to avoid Windows path parsing edge cases.
 	out_name = output_template.name
-	fmt = _env_str("YTDLP_FORMAT") or "bestaudio/best"
+	# Default to video+audio for closed-loop (keyframes extraction requires video).
+	# Still fully overridable via YTDLP_FORMAT env (e.g., bestaudio/best).
+	fmt = _env_str("YTDLP_FORMAT") or "bestvideo+bestaudio/best"
 	# Prefer conservative, repeatable network behavior. Keep overridable via env.
 	# Note: yt-dlp accepts integers for retries.
 	retries = _env_str("YTDLP_RETRIES") or "5"

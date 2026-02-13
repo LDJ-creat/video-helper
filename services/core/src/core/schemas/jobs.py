@@ -25,6 +25,7 @@ class CreateJobRequest(BaseModel):
     sourceType: str
     sourceUrl: str
     title: str | None = None
+    outputLanguage: str | None = None
 
 
 class JobCreatedDTO(BaseModel):

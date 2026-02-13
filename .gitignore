@@ -29,3 +29,5 @@ tests/*
 www.bilibili.com_cookies.txt
 *.json
 *.sqlite3
+*.log
+build_log.txt

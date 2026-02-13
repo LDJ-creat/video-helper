@@ -663,6 +663,7 @@ def generate_plan(
     *,
     transcript: dict,
     summaries: list[dict] | None = None,
+    output_language: str | None = None,
     provider: AnalyzeProvider | None = None,
     llm_transport: object | None = None,
 ) -> dict:
@@ -699,6 +700,15 @@ def generate_plan(
     max_chars = _env_int("LLM_PLAN_MAX_CHARS", 12_000)
     excerpt = _sample_segments(seg_dicts, max_segments=max_segments, max_chars=max_chars)
 
+    lang = (output_language or "").strip()
+    lang_hint = ""
+    if lang and lang.lower() != "auto":
+        lang_hint = (
+            " Output language requirement: Write ALL user-visible strings in the language specified by `outputLanguage` ("
+            + lang
+            + "). This includes block titles, highlight text, and mindmap node labels."
+        )
+
     system = (
         "You are a video learning assistant. Goal: help users learn/review WITHOUT rewatching the whole video. "
         "Return ONLY one JSON object (no markdown). "
@@ -719,6 +729,7 @@ def generate_plan(
         "edge fields: {id:str, source:str, target:str, label?:str}. source/target MUST reference node ids. label is OPTIONAL. "
         "Topology: root->topics->details (DAG). root has no incoming edges. "
         "Constraints: contentBlocks idx contiguous from 0; no overlapping blocks; per-block highlights idx contiguous from 0; highlight ranges within block."
+        + lang_hint
     )
 
     user_payload: dict = {
@@ -726,6 +737,8 @@ def generate_plan(
         "schemaVersion": "2026-02-06",
         "transcript": {"segments": excerpt},
     }
+    if lang:
+        user_payload["outputLanguage"] = lang
     if isinstance(summaries, list) and summaries:
         user_payload["summaries"] = summaries
 

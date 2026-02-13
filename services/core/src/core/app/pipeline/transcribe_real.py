@@ -49,6 +49,11 @@ def _env_int(name: str, default: int) -> int:
 		return default
 
 
+def _env_str(name: str) -> str | None:
+	raw = (os.environ.get(name) or "").strip()
+	return raw or None
+
+
 def _maybe_set_project_title(*, project: Project) -> None:
 	"""Best-effort: set project.title to the video's title when missing.
 

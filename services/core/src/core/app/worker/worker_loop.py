@@ -341,7 +341,7 @@ class PipelineJobProcessor:
                 GLOBAL_JOB_EVENT_BUS.emit_state(job_id=job.job_id, project_id=job.project_id, stage=job.stage, message="status=running")
                 GLOBAL_JOB_EVENT_BUS.emit_progress(job_id=job.job_id, project_id=job.project_id, stage=job.stage, progress=job.progress, message="progress=0.6")
 
-                plan = generate_plan(transcript=job.transcript or {})
+                plan = generate_plan(transcript=job.transcript or {}, output_language=getattr(job, "output_language", None))
                 content_blocks = plan.get("contentBlocks") if isinstance(plan, dict) else None
                 mindmap = plan.get("mindmap") if isinstance(plan, dict) else None
                 if not isinstance(content_blocks, list) or not isinstance(mindmap, dict):

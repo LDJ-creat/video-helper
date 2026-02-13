@@ -90,7 +90,10 @@ def transcribe_with_faster_whisper(
 		raise AsrError("model_missing", "failed to load faster-whisper model", details={"type": type(e).__name__})
 
 	try:
-		segments_iter, info = model.transcribe(str(audio_path), vad_filter=vad_filter)
+		segments_iter, info = model.transcribe(
+			str(audio_path),
+			vad_filter=vad_filter,
+		)
 	except MemoryError:
 		raise AsrError("resource_exhausted", "out of memory during ASR")
 	except Exception as e:

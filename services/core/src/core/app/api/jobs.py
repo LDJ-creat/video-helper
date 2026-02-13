@@ -71,6 +71,16 @@ def _normalize_title(value: str | None) -> str | None:
 	return text or None
 
 
+def _normalize_output_language(value: str | None) -> str | None:
+	text = (value or "").strip()
+	if not text:
+		return None
+	# Keep it small and safe to store/log.
+	if len(text) > 32:
+		return text[:32]
+	return text
+
+
 def _max_upload_bytes() -> int:
 	import os
 
@@ -344,6 +354,7 @@ async def create_job(request: Request, session: Session = Depends(get_db_session
 		job_id = str(uuid.uuid4())
 
 		title = _normalize_title(req.title)
+		output_language = _normalize_output_language(req.outputLanguage)
 		if title is None:
 			timeout_s = float(max(1, _env_int("YTDLP_TITLE_TIMEOUT_S", 8)))
 			# Avoid blocking the event loop with subprocess.
@@ -384,6 +395,7 @@ async def create_job(request: Request, session: Session = Depends(get_db_session
 			progress=None,
 			error=None,
 			attempt=0,
+			output_language=output_language,
 			created_at_ms=now_ms,
 			updated_at_ms=now_ms,
 		)
@@ -504,6 +516,7 @@ async def create_job(request: Request, session: Session = Depends(get_db_session
 			progress=None,
 			error=None,
 			attempt=0,
+			output_language=_normalize_output_language(str(form.get("outputLanguage") or "")),
 			created_at_ms=now_ms,
 			updated_at_ms=now_ms,
 		)
