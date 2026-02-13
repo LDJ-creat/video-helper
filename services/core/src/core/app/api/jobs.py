@@ -230,7 +230,7 @@ async def _llm_preflight_or_error(request: Request, session: Session) -> JSONRes
 			)
 
 	# Keep job creation fast even if operator sets a large timeout for full requests.
-	env_timeout_s = float(max(1, _env_int("LLM_TIMEOUT_S", 60)))
+	env_timeout_s = float(max(1, _env_int("LLM_TIMEOUT_S", 180)))
 	# Some providers have slow first-byte latency; allow override for smoke/ops.
 	preflight_cap_s = float(max(1, _env_int("LLM_PREFLIGHT_TIMEOUT_S", 30)))
 	timeout_s = min(preflight_cap_s, env_timeout_s)

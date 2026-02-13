@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from core.app.pipeline.analyze_provider import AnalyzeError, AnalyzeProvider, llm_provider_for_jobs
 from core.contracts.error_codes import ErrorCode
@@ -748,6 +748,10 @@ def generate_plan(
 
     try:
         return validate_plan(res)
+    except ValidationError as e:
+        details: dict[str, object] = {"reason": "invalid_llm_output_validation", "task": "plan", "error": str(e)}
+        details["errors"] = e.errors()
+        raise AnalyzeError(code=ErrorCode.JOB_STAGE_FAILED, message="Invalid LLM output (schema)", details=details)
     except ValueError as e:
         details: dict[str, object] = {"reason": "invalid_llm_output", "task": "plan", "error": str(e)}
         details["outputKeys"] = sorted([str(k) for k in res.keys()])

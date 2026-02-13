@@ -61,7 +61,7 @@ _PROVIDERS: tuple[LLMCatalogProvider, ...] = (
 	LLMCatalogProvider(
 		provider_id="qwen",
 		display_name="阿里通义千问 (OpenAI-compatible)",
-		base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+		base_url="https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
 		models=(
 			LLMCatalogModel(model_id="qwen-max", display_name="Qwen Max"),
 			LLMCatalogModel(model_id="qwen-plus", display_name="Qwen Plus"),
@@ -72,7 +72,7 @@ _PROVIDERS: tuple[LLMCatalogProvider, ...] = (
 	LLMCatalogProvider(
 		provider_id="nvidia",
 		display_name="NVIDIA NIM (OpenAI-compatible)",
-		base_url="https://integrate.api.nvidia.com/v1",
+		base_url="https://integrate.api.nvidia.com/v1/chat/completions",
 		models=(
 			LLMCatalogModel(model_id="z-ai/glm-4.7", display_name="GLM-4.7"),
 			LLMCatalogModel(model_id="minimaxai/minimax-m2.1", display_name="Minimax M2.1"),

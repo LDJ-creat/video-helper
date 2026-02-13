@@ -12,7 +12,7 @@ export interface SseClientOptions {
     onOpen?: SseOpenHandler;
     onError?: SseErrorHandler;
     onClose?: SseCloseHandler;
-    heartbeatTimeoutMs?: number; // Default: 30000 (30s)
+    heartbeatTimeoutMs?: number; // Default: 60000 (60s)
 }
 
 /**
@@ -24,6 +24,8 @@ export interface SseClientOptions {
 export class SseClient {
     private eventSource: EventSource | null = null;
     private heartbeatTimer: NodeJS.Timeout | null = null;
+    private errorCount = 0;
+    private lastErrorAtMs = 0;
     private readonly options: SseClientOptions & {
         heartbeatTimeoutMs: number;
         onError: SseErrorHandler;
@@ -35,7 +37,7 @@ export class SseClient {
     constructor(options: SseClientOptions) {
         this.options = {
             ...options,
-            heartbeatTimeoutMs: options.heartbeatTimeoutMs ?? 30000,
+            heartbeatTimeoutMs: options.heartbeatTimeoutMs ?? 60000,
             onOpen: options.onOpen ?? (() => { }),
             onError: options.onError ?? (() => { }),
             onClose: options.onClose ?? (() => { }),
@@ -64,12 +66,25 @@ export class SseClient {
 
         eventSource.onerror = (e) => {
             console.error("[SseClient] Connection error:", e);
-            this.options.onError?.(new Error("SSE connection error"));
-            this.close();
+            // IMPORTANT:
+            // Do NOT close on transient errors. Native EventSource will auto-reconnect.
+            // Closing here causes rapid reconnect storms and /events request spam.
+            const now = Date.now();
+            if (now - this.lastErrorAtMs > 30_000) {
+                this.errorCount = 0;
+            }
+            this.lastErrorAtMs = now;
+            this.errorCount += 1;
+
+            // Only surface a fatal error after repeated failures.
+            if (this.errorCount >= 3 && !this.isConnected) {
+                this.options.onError?.(new Error("SSE connection unstable"));
+            }
         };
 
         eventSource.onopen = () => {
             console.log("[SseClient] Connected");
+            this.errorCount = 0;
             this.resetHeartbeatTimer();
             this.options.onOpen?.();
         };
@@ -101,6 +116,7 @@ export class SseClient {
 
         this.heartbeatTimer = setTimeout(() => {
             console.warn("[SseClient] Heartbeat timeout - closing connection");
+            // Heartbeat timeout is treated as fatal: close so caller can fall back to polling.
             this.options.onError?.(new Error("Heartbeat timeout"));
             this.close();
         }, this.options.heartbeatTimeoutMs);

@@ -29,7 +29,7 @@ export function useJobQuery(jobId: string) {
  */
 export function useJobLogsQuery(jobId: string, cursor?: string) {
     return useQuery({
-        queryKey: [...queryKeys.logs(jobId), cursor],
+        queryKey: cursor ? [...queryKeys.logs(jobId), cursor] : queryKeys.logs(jobId),
         queryFn: () => fetchJobLogs(jobId, cursor),
         // Tail view: poll for new logs; history view (cursor set) stays static.
         refetchInterval: cursor ? false : 2000,

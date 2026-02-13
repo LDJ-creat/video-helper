@@ -1,11 +1,12 @@
 "use client";
 
-import { useJobLogsQuery } from "@/lib/api/jobQueries";
+import { useJobLogsQueryWithOptions } from "@/lib/api/jobQueries";
 import type { LogEntry } from "@/lib/contracts/types";
 import { useEffect, useRef, useState } from "react";
 
 interface JobLogsProps {
     jobId: string;
+    pollingEnabled?: boolean;
 }
 
 const LOG_LEVEL_COLORS: Record<LogEntry["level"], string> = {
@@ -15,9 +16,9 @@ const LOG_LEVEL_COLORS: Record<LogEntry["level"], string> = {
     DEBUG: "text-blue-600",
 };
 
-export function JobLogs({ jobId }: JobLogsProps) {
+export function JobLogs({ jobId, pollingEnabled = true }: JobLogsProps) {
     const [cursor, setCursor] = useState<string | undefined>(undefined);
-    const { data, isLoading, error } = useJobLogsQuery(jobId, cursor);
+    const { data, isLoading, error } = useJobLogsQueryWithOptions(jobId, cursor, { pollingEnabled });
     const logsEndRef = useRef<HTMLDivElement>(null);
     const [autoScroll, setAutoScroll] = useState(true);
 

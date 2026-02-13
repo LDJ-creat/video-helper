@@ -39,9 +39,15 @@ export function useJobSse(options: UseJobSseOptions): UseJobSseReturn {
   const queryClient = useQueryClient();
   const sseClientRef = useRef<SseClient | null>(null);
   const fallbackToPollingRef = useRef(false);
+  const onEventRef = useRef<typeof onEvent>(onEvent);
   const [isConnected, setIsConnected] = useState(false);
   const [connectionMode, setConnectionMode] = useState<"sse" | "polling" | "disconnected">("disconnected");
   const [lastEvent, setLastEvent] = useState<JobEvent | null>(null);
+
+  // Keep latest onEvent without forcing reconnection.
+  useEffect(() => {
+    onEventRef.current = onEvent;
+  }, [onEvent]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -57,7 +63,7 @@ export function useJobSse(options: UseJobSseOptions): UseJobSseReturn {
       url,
       onEvent: (event) => {
         setLastEvent(event);
-        onEvent?.(event);
+        onEventRef.current?.(event);
 
         // Update React Query cache based on event type
         if (event.type === "progress" || event.type === "state") {
@@ -117,7 +123,7 @@ export function useJobSse(options: UseJobSseOptions): UseJobSseReturn {
       client.close();
       sseClientRef.current = null;
     };
-  }, [jobId, enabled, queryClient, onEvent]);
+  }, [jobId, enabled, queryClient]);
 
   return {
     isConnected,

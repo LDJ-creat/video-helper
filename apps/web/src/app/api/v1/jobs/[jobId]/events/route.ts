@@ -30,15 +30,22 @@ export async function GET(
   const headers = new Headers();
   headers.set("Accept", "text/event-stream");
   headers.set("Cache-Control", "no-cache");
+  headers.set("Accept-Encoding", "identity");
 
   const lastEventId = request.headers.get("last-event-id") || request.headers.get("Last-Event-ID");
   if (lastEventId) headers.set("Last-Event-ID", lastEventId);
 
   // NOTE: keepalive / streaming; disable any caching
+  const abortController = new AbortController();
+  request.signal.addEventListener("abort", () => abortController.abort(), {
+    once: true,
+  });
+
   const upstream = await fetch(backendUrl.toString(), {
     method: "GET",
     headers,
     cache: "no-store",
+    signal: abortController.signal,
   });
 
   if (!upstream.body) {
@@ -51,8 +58,12 @@ export async function GET(
   outHeaders.set("Connection", "keep-alive");
   outHeaders.set("X-Accel-Buffering", "no");
 
-  return new Response(upstream.body, {
-    status: upstream.status,
-    headers: outHeaders,
-  });
+  const { readable, writable } = new TransformStream();
+  upstream.body
+    .pipeTo(writable)
+    .catch(() => {
+      // Client disconnected or upstream closed; best-effort.
+    });
+
+  return new Response(readable, { status: upstream.status, headers: outHeaders });
 }

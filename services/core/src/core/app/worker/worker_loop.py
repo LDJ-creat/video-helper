@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import logging
 import os
 import time
 import uuid
@@ -9,6 +11,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from core.app.sse.event_bus import GLOBAL_JOB_EVENT_BUS
 from core.app.logs.job_logs import append_job_log
@@ -29,6 +32,10 @@ from core.db.repositories.job_queue import (
 from core.db.models.job import Job
 from core.db.models.asset import Asset
 from core.db.models.project import Project
+from core.db.models.result import Result
+
+
+logger = logging.getLogger(__name__)
 
 
 def _now_ms() -> int:
@@ -38,11 +45,34 @@ def _now_ms() -> int:
 def _log(*, job_id: str, project_id: str, stage: str, level: str, message: str) -> None:
     ts = _now_ms()
     append_job_log(job_id=job_id, ts_ms=ts, level=level, message=message, stage=stage)  # type: ignore[arg-type]
+    # Also mirror to process logs for operator visibility.
+    try:
+        line = f"job_id={job_id} project_id={project_id} stage={stage} {message}"
+        if level.lower() == "error":
+            logger.error(line)
+        elif level.lower() in {"warn", "warning"}:
+            logger.warning(line)
+        elif level.lower() == "debug":
+            logger.debug(line)
+        else:
+            logger.info(line)
+    except Exception:
+        pass
     # Best-effort: also push to SSE stream
     try:
         GLOBAL_JOB_EVENT_BUS.emit_log(job_id=job_id, project_id=project_id, stage=stage, message=message)
     except Exception:
         return
+
+
+def _compact_json(value: object, *, max_len: int = 2000) -> str:
+    try:
+        s = json.dumps(value, ensure_ascii=False, separators=(",", ":"), default=str)
+    except Exception:
+        s = str(value)
+    if len(s) > max_len:
+        return s[:max_len] + "...(truncated)"
+    return s
 
 
 def _env_int(name: str, default: int) -> int:
@@ -201,6 +231,8 @@ class PipelineJobProcessor:
             if job is None or project is None:
                 return
 
+            result_id: str | None = None
+
             # If canceled mid-flight, respect it.
             if job.status == "canceled":
                 job.lease_expires_at_ms = None
@@ -315,6 +347,41 @@ class PipelineJobProcessor:
                 if not isinstance(content_blocks, list) or not isinstance(mindmap, dict):
                     raise ValueError("plan output invalid")
 
+                # Recoverability anchor: persist a renderable Result snapshot right after plan.
+                # This allows users to inspect LLM output even if later stages fail (e.g., ffmpeg keyframes).
+                try:
+                    snapshot_asset_refs: list[dict] = []
+                    video_asset_id = _ensure_source_video_asset(session=session, project=project)
+                    if video_asset_id:
+                        snapshot_asset_refs.append({"assetId": video_asset_id, "kind": "video"})
+
+                    result_id = assemble_result(
+                        session,
+                        project_id=project.project_id,
+                        content_blocks=content_blocks,
+                        mindmap=mindmap,
+                        asset_refs=snapshot_asset_refs,
+                        schema_version=plan.get("schemaVersion") if isinstance(plan.get("schemaVersion"), str) else "2026-02-06",
+                        pipeline_version=os.environ.get("PIPELINE_VERSION") or "0",
+                    )
+                    _log(
+                        job_id=job.job_id,
+                        project_id=job.project_id,
+                        stage=job.stage,
+                        level="info",
+                        message=f"result snapshot persisted result_id={result_id}",
+                    )
+                except Exception as e:
+                    # Non-fatal for the pipeline: if snapshot persistence fails, continue;
+                    # final assemble_result will still attempt to persist.
+                    _log(
+                        job_id=job.job_id,
+                        project_id=job.project_id,
+                        stage=job.stage,
+                        level="warning",
+                        message=f"result snapshot persist failed: {e}",
+                    )
+
                 job.progress = max(job.progress or 0.0, 0.9)
                 job.updated_at_ms = _now_ms()
                 session.add(job)
@@ -409,15 +476,39 @@ class PipelineJobProcessor:
                 if video_asset_id:
                     asset_refs.insert(0, {"assetId": video_asset_id, "kind": "video"})
 
-                assemble_result(
-                    session,
-                    project_id=project.project_id,
-                    content_blocks=content_blocks,
-                    mindmap=mindmap,
-                    asset_refs=asset_refs,
-                    schema_version=plan.get("schemaVersion") if isinstance(plan.get("schemaVersion"), str) else "2026-02-06",
-                    pipeline_version=os.environ.get("PIPELINE_VERSION") or "0",
-                )
+                # Finalize: update the existing snapshot Result (if present), else create a new one.
+                if result_id:
+                    row = session.get(Result, result_id)
+                    if row is None:
+                        result_id = None
+
+                if result_id:
+                    row = session.get(Result, result_id)
+                    if row is None:
+                        raise AssembleResultError("result_not_found", "Result does not exist")
+
+                    now_ms = _now_ms()
+                    row.content_blocks = content_blocks
+                    row.mindmap = mindmap
+                    row.asset_refs = asset_refs or []
+                    row.updated_at_ms = now_ms
+                    flag_modified(row, "content_blocks")
+                    flag_modified(row, "mindmap")
+                    flag_modified(row, "asset_refs")
+                    project.latest_result_id = result_id
+                    project.updated_at_ms = now_ms
+                    session.add(project)
+                    session.commit()
+                else:
+                    assemble_result(
+                        session,
+                        project_id=project.project_id,
+                        content_blocks=content_blocks,
+                        mindmap=mindmap,
+                        asset_refs=asset_refs,
+                        schema_version=plan.get("schemaVersion") if isinstance(plan.get("schemaVersion"), str) else "2026-02-06",
+                        pipeline_version=os.environ.get("PIPELINE_VERSION") or "0",
+                    )
 
                 _log(job_id=job.job_id, project_id=job.project_id, stage=job.stage, level="info", message="assemble_result finished")
 
@@ -443,7 +534,16 @@ class PipelineJobProcessor:
                     message="status=failed",
                 )
 
-                _log(job_id=job.job_id, project_id=job.project_id, stage=job.stage, level="error", message=f"job failed: {e}")
+                _log(
+                    job_id=job.job_id,
+                    project_id=job.project_id,
+                    stage=job.stage,
+                    level="error",
+                    message=(
+                        f"job failed code={error.get('code')} message={error.get('message')} "
+                        f"details={_compact_json(error.get('details'))}"
+                    ),
+                )
                 return
             except Exception as e:
                 if job.stage == "speech_to_text":
@@ -466,7 +566,16 @@ class PipelineJobProcessor:
                     message="status=failed",
                 )
 
-                _log(job_id=job.job_id, project_id=job.project_id, stage=job.stage, level="error", message="job failed")
+                _log(
+                    job_id=job.job_id,
+                    project_id=job.project_id,
+                    stage=job.stage,
+                    level="error",
+                    message=(
+                        f"job failed code={error.get('code')} message={error.get('message')} "
+                        f"details={_compact_json(error.get('details'))}"
+                    ),
+                )
                 return
 
         # Mark succeeded after pipeline steps.
@@ -503,7 +612,16 @@ class WorkerService:
 
     async def start(self) -> None:
         if not self._config.enabled:
+            logger.warning("Worker disabled (WORKER_ENABLE=0) - jobs will remain queued")
             return
+
+        logger.info(
+            "Worker starting: worker_id=%s max_concurrent_jobs=%s poll_interval_ms=%s lease_ms=%s",
+            self._worker_id,
+            self._config.max_concurrent_jobs,
+            self._config.poll_interval_ms,
+            self._config.lease_ms,
+        )
 
         # Restart recovery: requeue running jobs (best-effort).
         SessionLocal = get_sessionmaker()

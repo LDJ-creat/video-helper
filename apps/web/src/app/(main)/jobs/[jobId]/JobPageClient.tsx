@@ -1,17 +1,19 @@
 "use client";
 
-import { useJobQuery } from "@/lib/api/jobQueries";
+import { useJobQueryWithOptions } from "@/lib/api/jobQueries";
 import { useJobSse } from "@/lib/sse/useJobSse";
 import { JobProgress } from "@/components/JobProgress";
 import { JobError } from "@/components/JobError";
 import { JobLogs } from "@/components/JobLogs";
 
 export function JobPageClient({ jobId }: { jobId: string }) {
-    const { data: job, isLoading, error } = useJobQuery(jobId);
     const { connectionMode, isConnected } = useJobSse({
         jobId,
         enabled: true,
     });
+
+    const pollingEnabled = connectionMode !== "sse";
+    const { data: job, isLoading, error } = useJobQueryWithOptions(jobId, { pollingEnabled });
 
     if (isLoading) {
         return (
@@ -74,7 +76,7 @@ export function JobPageClient({ jobId }: { jobId: string }) {
                 )}
 
                 <div className="bg-white rounded-lg shadow p-6">
-                    <JobLogs jobId={jobId} />
+                    <JobLogs jobId={jobId} pollingEnabled={pollingEnabled} />
                 </div>
             </div>
         </div>

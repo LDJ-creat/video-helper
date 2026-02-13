@@ -175,7 +175,8 @@ class LLMAnalyzeProvider:
 				"promptLen": len(joined),
 			}
 
-		max_attempts = max(1, _env_int("LLM_MAX_ATTEMPTS", 1))
+		# Default retries: reduces flakiness on providers with slow first-byte latency.
+		max_attempts = max(1, _env_int("LLM_MAX_ATTEMPTS", 3))
 		attempt = 0
 		resp: httpx.Response | None = None
 		while attempt < max_attempts:
@@ -187,7 +188,13 @@ class LLMAnalyzeProvider:
 					# Exponential backoff (0.5s, 1s, 2s, 4s...) capped.
 					time.sleep(min(8.0, 0.5 * (2 ** (attempt - 1))))
 					continue
-				details = {"reason": "timeout", "task": task_name, "attempt": attempt, "maxAttempts": max_attempts}
+				details = {
+					"reason": "timeout",
+					"task": task_name,
+					"attempt": attempt,
+					"maxAttempts": max_attempts,
+					"timeoutS": self._timeout_s,
+				}
 				if debug_enabled:
 					details["debug"] = debug_meta
 				raise AnalyzeError(code=ErrorCode.JOB_STAGE_FAILED, message="LLM request timed out", details=details)
@@ -312,7 +319,8 @@ def llm_provider_from_env(*, transport: httpx.BaseTransport | None = None) -> LL
 	api_base = _env_str("LLM_API_BASE")
 	api_key = _env_str("LLM_API_KEY")
 	model = _normalize_model_id(_env_str("LLM_MODEL") or "minimaxai/minimax-m2.1")
-	timeout_s = float(_env_int("LLM_TIMEOUT_S", 60))
+	# Default to a higher timeout to tolerate slow first-byte latency.
+	timeout_s = float(_env_int("LLM_TIMEOUT_S", 180))
 
 	if not api_base or not api_key:
 		raise AnalyzeError(
@@ -381,7 +389,7 @@ def _try_llm_provider_from_sqlite(*, transport: httpx.BaseTransport | None = Non
 				details={"reason": "invalid_credentials"},
 			)
 
-	timeout_s = float(_env_int("LLM_TIMEOUT_S", 60))
+	timeout_s = float(_env_int("LLM_TIMEOUT_S", 180))
 	return llm_provider_from_runtime(
 		api_base=provider.base_url,
 		api_key=api_key,

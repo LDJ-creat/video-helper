@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Generator
 from pathlib import Path
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -80,11 +80,29 @@ def get_engine() -> Engine:
 		kwargs = {"future": True}
 		if use_null_pool:
 			kwargs["poolclass"] = NullPool
+		
+		# Increase SQLite timeout to reduce "database is locked" errors
+		kwargs["connect_args"] = {"timeout": 20}
 
 		_ENGINE = create_engine(
 			f"sqlite+pysqlite:///{db_path.as_posix()}",
 			**kwargs,
 		)
+
+		# Enable WAL mode for better concurrency
+		@event.listens_for(_ENGINE, "connect")
+		def set_sqlite_pragma(dbapi_connection, connection_record):
+			cursor = dbapi_connection.cursor()
+			cursor.execute("PRAGMA busy_timeout = 20000")
+			
+			# Check if already in WAL mode to avoid unnecessary exclusive lock
+			mode = cursor.execute("PRAGMA journal_mode").fetchone()[0]
+			if mode.upper() != "WAL":
+				cursor.execute("PRAGMA journal_mode=WAL")
+				
+			cursor.execute("PRAGMA synchronous=NORMAL")
+			cursor.close()
+
 	return _ENGINE
 
 
