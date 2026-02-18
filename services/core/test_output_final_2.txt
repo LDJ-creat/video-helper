@@ -1,0 +1,14 @@
+﻿============================= test session starts =============================
+platform win32 -- Python 3.12.4, pytest-9.0.2, pluggy-1.6.0 -- D:\video-helper\services\core\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: D:\video-helper\services\core
+configfile: pyproject.toml
+plugins: anyio-4.12.1
+collecting ... collected 4 items
+
+tests/test_ai_features_real.py::test_chat_completions_streaming PASSED   [ 25%]
+tests/test_ai_features_real.py::test_quiz_generation PASSED              [ 50%]
+tests/test_ai_features_real.py::test_quiz_save PASSED                    [ 75%]
+tests/test_ai_features_real.py::test_fetch_chat_history PASSED           [100%]
+
+============================= 4 passed in 36.85s ==============================

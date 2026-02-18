@@ -13,6 +13,10 @@ import { NoteEditor, NoteEditorRef } from "@/components/features/NoteEditor";
 import { endpoints } from "@/lib/api/endpoints";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/api/queryKeys";
+import { AIChat } from "@/components/features/AIChat";
+import { ExercisesCanvas } from "@/components/features/ExercisesCanvas";
+import { fetchQuizSessions } from "@/lib/api/ai";
+import { MessageSquare, Layout, BrainCircuit } from "lucide-react";
 
 function JobProgress({ jobId, projectId }: { jobId: string; projectId: string }) {
     const router = useRouter();
@@ -87,6 +91,8 @@ export default function ResultPage() {
     const projectId = params?.projectId as string;
     const jobId = searchParams?.get("jobId");
 
+    const queryClient = useQueryClient();
+
     // Data fetching
     const { data: result, isLoading, error } = useLatestResult(projectId);
 
@@ -99,6 +105,7 @@ export default function ResultPage() {
     // State
     const [isFloatingVisible, setIsFloatingVisible] = useState(false);
     const [isDismissed, setIsDismissed] = useState(false); // Track if user dismissed the floating player
+    const [activeTab, setActiveTab] = useState<"mindmap" | "chat" | "exercises">("mindmap");
 
     // Callback ref for player container - sets up observer when element is attached
     const playerContainerCallbackRef = useCallback((element: HTMLDivElement | null) => {
@@ -175,20 +182,66 @@ export default function ResultPage() {
             <ResultLayout>
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 min-h-screen pb-20">
-                    {/* Left Pane: Mindmap - Sticky on Desktop */}
+                    {/* Left Pane: Tabs (Mindmap | Chat | Exercises) */}
                     <div className="lg:sticky lg:top-6 lg:h-[calc(100vh-3rem)] bg-white rounded-xl border border-stone-200 overflow-hidden flex flex-col shadow-sm">
-                        <div className="p-4 border-b border-stone-200 bg-stone-50/50">
-                            <h3 className="font-semibold text-stone-700">思维导图</h3>
+
+                        {/* Tab Header */}
+                        <div className="flex border-b border-stone-200 bg-stone-50/50">
+                            <button
+                                onClick={() => setActiveTab("mindmap")}
+                                className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 border-b-2 transition-colors ${activeTab === "mindmap"
+                                    ? "border-orange-500 text-orange-700 bg-white"
+                                    : "border-transparent text-stone-600 hover:text-stone-900 hover:bg-stone-100"
+                                    }`}
+                            >
+                                <BrainCircuit size={16} />
+                                思维导图
+                            </button>
+                            <button
+                                onClick={() => setActiveTab("chat")}
+                                className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 border-b-2 transition-colors ${activeTab === "chat"
+                                    ? "border-orange-500 text-orange-700 bg-white"
+                                    : "border-transparent text-stone-600 hover:text-stone-900 hover:bg-stone-100"
+                                    }`}
+                            >
+                                <MessageSquare size={16} />
+                                AI 助手
+                            </button>
+                            <button
+                                onClick={() => {
+                                    // Prefetch so backend logs show the request immediately when user opens the tab.
+                                    if (projectId) {
+                                        queryClient.prefetchQuery({
+                                            queryKey: queryKeys.quizSessions(projectId),
+                                            queryFn: () => fetchQuizSessions(projectId),
+                                        });
+                                    }
+                                    setActiveTab("exercises");
+                                }}
+                                className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 border-b-2 transition-colors ${activeTab === "exercises"
+                                    ? "border-orange-500 text-orange-700 bg-white"
+                                    : "border-transparent text-stone-600 hover:text-stone-900 hover:bg-stone-100"
+                                    }`}
+                            >
+                                <Layout size={16} />
+                                练习画布
+                            </button>
                         </div>
-                        <div className="flex-1 relative">
-                            <MindmapEditor
-                                projectId={projectId}
-                                resultId={result.resultId}
-                                initialMindmap={result.mindmap}
-                                onNodeNavigation={handleMindmapNavigation}
-                                onSaveSuccess={() => console.log("Mindmap saved successfully")}
-                                onSaveError={(error) => console.error("Failed to save mindmap:", error instanceof Error ? error.message : error)}
-                            />
+
+                        {/* Tab Content */}
+                        <div className="flex-1 relative overflow-hidden">
+                            {activeTab === "mindmap" && (
+                                <MindmapEditor
+                                    projectId={projectId}
+                                    resultId={result.resultId}
+                                    initialMindmap={result.mindmap}
+                                    onNodeNavigation={handleMindmapNavigation}
+                                    onSaveSuccess={() => console.log("Mindmap saved successfully")}
+                                    onSaveError={(error) => console.error("Failed to save mindmap:", error instanceof Error ? error.message : error)}
+                                />
+                            )}
+                            {activeTab === "chat" && <AIChat />}
+                            {activeTab === "exercises" && <ExercisesCanvas projectId={projectId} />}
                         </div>
                     </div>
 

@@ -1,0 +1,67 @@
+﻿============================= test session starts =============================
+platform win32 -- Python 3.12.4, pytest-9.0.2, pluggy-1.6.0 -- D:\video-helper\services\core\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: D:\video-helper\services\core
+configfile: pyproject.toml
+plugins: anyio-4.12.1
+collecting ... collected 4 items
+
+tests/test_ai_features_real.py::test_chat_completions_streaming FAILED   [ 25%]
+tests/test_ai_features_real.py::test_quiz_generation FAILED              [ 50%]
+tests/test_ai_features_real.py::test_quiz_save SKIPPED (Skipping save
+test because generation failed)                                          [ 75%]
+tests/test_ai_features_real.py::test_fetch_chat_history PASSED           [100%]
+
+================================== FAILURES ===================================
+_______________________ test_chat_completions_streaming _______________________
+
+setup_project = <core.db.models.project.Project object at 0x00000235B4F2B560>
+
+    def test_chat_completions_streaming(setup_project):
+        # System Prompt for Chat requires some context.
+        # In real app, context comes from analysis.
+        # Here we just want to verify connectivity and streaming.
+    
+>       response = client.post(
+            "/api/v1/chat/completions",
+            json={
+                "project_id": "test-project-1",
+                "message": "Hello, what is this video about?",
+                # "session_id": "optional-new-session"
+            },
+            stream=True
+        )
+E       TypeError: TestClient.post() got an unexpected keyword argument 'stream'
+
+tests\test_ai_features_real.py:70: TypeError
+____________________________ test_quiz_generation _____________________________
+
+setup_project = <core.db.models.project.Project object at 0x00000235B4F2B560>
+
+    def test_quiz_generation(setup_project):
+        # Real LLM call to generate quiz
+        response = client.post(
+            "/api/v1/quiz/generate",
+            json={
+                "project_id": "test-project-1",
+                "topic_focus": "General"
+            }
+        )
+    
+        if response.status_code != 200:
+            print(f"Quiz Error: {response.text}")
+    
+>       assert response.status_code == 200
+E       assert 500 == 200
+E        +  where 500 = <Response [500 Internal Server Error]>.status_code
+
+tests\test_ai_features_real.py:107: AssertionError
+---------------------------- Captured stdout call -----------------------------
+Quiz Error: {"error":{"code":"JOB_STAGE_FAILED","message":"Quiz generation failed: LLM not configured"}}
+------------------------------ Captured log call ------------------------------
+ERROR    core.app.pipeline.analyze_provider:analyze_provider.py:420 LLM not configured
+=========================== short test summary info ===========================
+FAILED tests/test_ai_features_real.py::test_chat_completions_streaming - TypeError: TestClient.post() got an unexpected keyword argument 'stream'
+FAILED tests/test_ai_features_real.py::test_quiz_generation - assert 500 == 200
+ +  where 500 = <Response [500 Internal Server Error]>.status_code
+=================== 2 failed, 1 passed, 1 skipped in 2.34s ====================

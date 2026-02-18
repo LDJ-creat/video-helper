@@ -1,0 +1,91 @@
+﻿============================= test session starts =============================
+platform win32 -- Python 3.12.4, pytest-9.0.2, pluggy-1.6.0 -- D:\video-helper\services\core\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: D:\video-helper\services\core
+configfile: pyproject.toml
+plugins: anyio-4.12.1
+collecting ... collected 4 items
+
+tests/test_ai_features_real.py::test_chat_completions_streaming PASSED   [ 25%]
+tests/test_ai_features_real.py::test_quiz_generation FAILED              [ 50%]
+tests/test_ai_features_real.py::test_quiz_save SKIPPED (Skipping save
+test because generation failed)                                          [ 75%]
+tests/test_ai_features_real.py::test_fetch_chat_history FAILED           [100%]
+
+================================== FAILURES ===================================
+____________________________ test_quiz_generation _____________________________
+
+setup_project = <core.db.models.project.Project object at 0x0000024C9C795790>
+
+    def test_quiz_generation(setup_project):
+        # Real LLM call to generate quiz
+        response = client.post(
+            "/api/v1/quiz/generate",
+            json={
+                "project_id": "test-project-1",
+                "topic_focus": "General"
+            }
+        )
+    
+        if response.status_code != 200:
+            print(f"Quiz Error: {response.text}")
+    
+        assert response.status_code == 200
+        data = response.json()
+    
+        assert "session_id" in data
+        assert "items" in data
+        assert len(data["items"]) > 0
+    
+        first_item = data["items"][0]
+        assert "question" in first_item
+        assert "options" in first_item
+>       assert "correctAnswer" in first_item
+E       AssertionError: assert 'correctAnswer' in {'question_hash': '667074e2972de368fa245193715b9c05', 'question': 'What is the primary purpose of a video project in an educational context?', 'options': ['To replace traditional textbooks entirely', 'To provide visual and auditory reinforcement of key concepts', 'To reduce instructor workload without pedagogical benefit', 'To serve exclusively as entertainment for students'], 'correct_answer': 'To provide visual and auditory reinforcement of key concepts', 'explanation': 'Educational video projects are designed to enhance learning by engaging multiple senses, supporting diverse learning styles, and clarifying complex ideas through demonstration, narration, and imagery.'}
+
+tests\test_ai_features_real.py:120: AssertionError
+___________________________ test_fetch_chat_history ___________________________
+
+setup_project = <core.db.models.project.Project object at 0x0000024C9C795790>
+db_session = <sqlalchemy.orm.session.Session object at 0x0000024C9F140C50>
+
+    def test_fetch_chat_history(setup_project, db_session):
+        # Insert a dummy session and message
+        session = ChatSession(
+            id="test-session-1",
+            project_id="test-project-1",
+            title="Test Session",
+            created_at_ms=1000,
+            updated_at_ms=1000
+        )
+        db_session.add(session)
+    
+        msg = ChatMessage(
+            id="msg-1",
+            session_id="test-session-1",
+            role="user",
+            content="Hello history",
+            created_at_ms=1001
+        )
+        db_session.add(msg)
+        db_session.commit()
+    
+        # Test List Sessions
+        resp = client.get("/api/v1/chat/sessions?projectId=test-project-1")
+        assert resp.status_code == 200
+        sessions = resp.json()
+        assert len(sessions) >= 1
+>       assert sessions[0]["id"] == "test-session-1"
+E       AssertionError: assert 'a85c387b-187d-46ae-b134-e10eb2f5238a' == 'test-session-1'
+E         
+E         - test-session-1
+E         + a85c387b-187d-46ae-b134-e10eb2f5238a
+
+tests\test_ai_features_real.py:191: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_ai_features_real.py::test_quiz_generation - AssertionError: assert 'correctAnswer' in {'question_hash': '667074e2972de368fa245193715b9c05', 'question': 'What is the primary purpose of a video project in an educational context?', 'options': ['To replace traditional textbooks entirely', 'To provide visual and auditory reinforcement of key concepts', 'To reduce instructor workload without pedagogical benefit', 'To serve exclusively as entertainment for students'], 'correct_answer': 'To provide visual and auditory reinforcement of key concepts', 'explanation': 'Educational video projects are designed to enhance learning by engaging multiple senses, supporting diverse learning styles, and clarifying complex ideas through demonstration, narration, and imagery.'}
+FAILED tests/test_ai_features_real.py::test_fetch_chat_history - AssertionError: assert 'a85c387b-187d-46ae-b134-e10eb2f5238a' == 'test-session-1'
+  
+  - test-session-1
+  + a85c387b-187d-46ae-b134-e10eb2f5238a
+=================== 2 failed, 1 passed, 1 skipped in 24.42s ===================

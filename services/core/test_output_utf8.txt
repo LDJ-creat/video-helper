@@ -1,0 +1,35 @@
+﻿============================= test session starts =============================
+platform win32 -- Python 3.12.4, pytest-7.4.4, pluggy-1.0.0 -- D:\conda\python.exe
+cachedir: .pytest_cache
+rootdir: D:\video-helper\services\core
+plugins: anyio-4.2.0
+collecting ... collected 0 items / 1 error
+
+=================================== ERRORS ====================================
+_______________ ERROR collecting tests/test_ai_features_real.py _______________
+ImportError while importing test module 'D:\video-helper\services\core\tests\test_ai_features_real.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+D:\conda\Lib\site-packages\_pytest\python.py:617: in _importtestmodule
+    mod = import_path(self.path, mode=importmode, root=self.config.rootpath)
+D:\conda\Lib\site-packages\_pytest\pathlib.py:567: in import_path
+    importlib.import_module(module_name)
+D:\conda\Lib\importlib\__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+<frozen importlib._bootstrap>:1331: in _find_and_load_unlocked
+    ???
+<frozen importlib._bootstrap>:935: in _load_unlocked
+    ???
+D:\conda\Lib\site-packages\_pytest\assertion\rewrite.py:186: in exec_module
+    exec(co, module.__dict__)
+tests\test_ai_features_real.py:4: in <module>
+    from fastapi.testclient import TestClient
+E   ModuleNotFoundError: No module named 'fastapi'
+=========================== short test summary info ===========================
+ERROR tests/test_ai_features_real.py
+!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+============================== 1 error in 0.17s ===============================

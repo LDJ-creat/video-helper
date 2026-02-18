@@ -30,5 +30,13 @@ export const endpoints = {
     llmActive: () => `${API_V1}/settings/llm/active`,
     llmProviderSecret: (providerId: string) => `${API_V1}/settings/llm/providers/${providerId}/secret`,
     llmTest: () => `${API_V1}/settings/llm/active/test`,
+    // AI Features
+    chat: () => `${API_V1}/chat/completions`,
+    chatSessions: (projectId: string) => `${API_V1}/chat/sessions?projectId=${projectId}`,
+    chatSessionMessages: (sessionId: string) => `${API_V1}/chat/sessions/${sessionId}/messages`,
+    quizGenerate: () => `${API_V1}/quiz/generate`,
+    quizSave: () => `${API_V1}/quiz/save`,
+    quizSessions: (projectId: string) => `${API_V1}/quiz/sessions?projectId=${projectId}`,
+    quizSession: (sessionId: string) => `${API_V1}/quiz/sessions/${sessionId}`,
 };
 

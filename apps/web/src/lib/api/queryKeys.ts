@@ -13,4 +13,10 @@ export const queryKeys = {
   // LLM Settings query keys
   llmCatalog: ["llm", "catalog"] as const,
   llmActive: ["llm", "active"] as const,
+  // AI Feature keys
+  chatSessions: (projectId: string) => ["chat", "sessions", projectId] as const,
+  chatMessages: (sessionId: string) => ["chat", "messages", sessionId] as const,
+  // Quiz Feature keys
+  quizSessions: (projectId: string) => ["quiz", "sessions", projectId] as const,
+  quizDetail: (sessionId: string) => ["quiz", "detail", sessionId] as const,
 };
