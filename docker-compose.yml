@@ -2,22 +2,34 @@ version: "3.9"
 
 services:
   core:
-    # TODO: 后续补充 Dockerfile 后启用 build
-    image: python:3.12-slim
-    working_dir: /app
+    build:
+      context: ./services/core
+      dockerfile: Dockerfile
+    image: video-helper-core:latest
+    container_name: video-helper-core
+    restart: unless-stopped
     volumes:
-      - ./services/core:/app
       - ./data:/app/data
-    env_file:
-      - ./.env
-    command: ["bash", "-lc", "python --version"]
+      # 挂载 .env 文件，方便运行时配置更改
+      - ./services/core/.env:/app/.env
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+    #UV 运行命令
+    command: [ "uv", "run", "python", "main.py" ]
 
   web:
-    # TODO: 后续补充 Dockerfile 后启用 build
-    image: node:20-slim
-    working_dir: /app
-    volumes:
-      - ./apps/web:/app
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    image: video-helper-web:latest
+    container_name: video-helper-web
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
     environment:
-      - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
-    command: ["bash", "-lc", "node --version"]
+      - NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+      - NODE_ENV=production
+    depends_on:
+      - core
