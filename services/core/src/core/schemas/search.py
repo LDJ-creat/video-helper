@@ -5,8 +5,7 @@ from pydantic import BaseModel
 
 class SearchItemDTO(BaseModel):
 	projectId: str
-	blockId: str | None = None
-	highlightId: str | None = None
+	title: str | None = None
 
 
 class SearchResponseDTO(BaseModel):

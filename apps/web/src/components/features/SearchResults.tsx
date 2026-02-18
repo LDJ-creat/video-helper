@@ -58,7 +58,7 @@ export function SearchResults({
                 {data?.pages.map((page, pageIndex) => (
                     <Fragment key={pageIndex}>
                         {page.items.map((result) => (
-                            <SearchResultItem key={result.resultId} result={result} />
+                            <SearchResultItem key={result.projectId} result={result} />
                         ))}
                     </Fragment>
                 ))}

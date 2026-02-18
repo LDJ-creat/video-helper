@@ -3,7 +3,7 @@
 // 搜索结果项（严格按照 api.md 契约）
 export type SearchResult = {
     projectId: string;          // 必填，用于跳转到 Project
-    chapterId: string | null;   // 可选，当命中章节时返回
+    title: string | null;       // 可选，项目标题（可能为空）
 };
 
 // 搜索响应（cursor 分页）

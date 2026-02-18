@@ -39,7 +39,7 @@ def search_projects_page(
 	"""Search projects by title and latest result text.
 
 	MVP behavior:
-	- Search scope: project.title + latest result chapters/highlights/note JSON text.
+	- Search scope: project.project_id + project.title + latest result JSON text.
 	- Stable order: (projects.updated_at_ms desc, projects.project_id desc)
 	- Cursor encodes last (updated_at_ms, project_id)
 	"""
@@ -57,13 +57,14 @@ def search_projects_page(
 		.order_by(desc(Project.updated_at_ms), desc(Project.project_id))
 	)
 
-	# Coarse SQL filter; we refine in Python when mapping chapterId.
+	# Coarse SQL filter; we refine in Python when mapping block/highlight anchors.
 	stmt = stmt.where(
 		or_(
+			func.lower(func.coalesce(Project.project_id, "")).like(like),
 			func.lower(func.coalesce(Project.title, "")).like(like),
-			func.lower(func.coalesce(cast(Result.chapters, String), "")).like(like),
-			func.lower(func.coalesce(cast(Result.highlights, String), "")).like(like),
-			func.lower(func.coalesce(cast(Result.note, String), "")).like(like),
+			func.lower(func.coalesce(cast(Result.content_blocks, String), "")).like(like),
+			func.lower(func.coalesce(cast(Result.note_json, String), "")).like(like),
+			func.lower(func.coalesce(cast(Result.mindmap, String), "")).like(like),
 		)
 	)
 

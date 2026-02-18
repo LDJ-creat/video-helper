@@ -8,11 +8,8 @@ interface SearchResultItemProps {
 }
 
 export function SearchResultItem({ result }: SearchResultItemProps) {
-    // 构造跳转链接（根据 api.md 契约）
-    // User Requirement: Skip detail page, go directly to results
-    const href = result.chapterId
-        ? `/projects/${result.projectId}/results?chapterId=${result.chapterId}`
-        : `/projects/${result.projectId}/results`;
+    // Skip detail page, go directly to results
+    const href = `/projects/${result.projectId}/results`;
 
     return (
         <Link
@@ -22,18 +19,13 @@ export function SearchResultItem({ result }: SearchResultItemProps) {
             <div className="flex flex-col gap-1">
                 <div className="flex items-center gap-2">
                     <span className="rounded-md bg-stone-100 px-2 py-0.5 text-xs font-medium text-stone-600 uppercase">
-                        {result.chapterId ? "章节" : "项目"}
+                        项目
                     </span>
                     <h3 className="text-base font-semibold text-stone-900">
-                        项目 ID: {result.projectId}
+                        {result.title || "无标题项目"}
                     </h3>
                 </div>
-
-                {result.chapterId && (
-                    <p className="text-sm text-stone-500">
-                        章节 ID: {result.chapterId}
-                    </p>
-                )}
+                <p className="text-sm text-stone-500 font-mono">{result.projectId}</p>
             </div>
         </Link>
     );
