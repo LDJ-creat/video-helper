@@ -27,7 +27,7 @@ class MediaSourcePlan:
 	download_dir_abs: Path | None
 
 
-_URL_SOURCE_TYPES: set[str] = {"youtube", "bilibili"}
+_URL_SOURCE_TYPES: set[str] = {"youtube", "bilibili", "url"}
 
 
 def plan_media_source(project: Project) -> MediaSourcePlan:

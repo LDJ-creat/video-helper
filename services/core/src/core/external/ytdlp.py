@@ -309,3 +309,62 @@ def fetch_video_title(*, url: str, timeout_s: float = 15.0) -> str | None:
 		return line[:300]
 
 	return None
+
+
+def probe_url_support(*, url: str, timeout_s: float = 8.0) -> tuple[bool | None, dict]:
+	"""Probe whether yt-dlp recognizes a URL (without downloading).
+
+	Returns:
+	- (True, {"extractor": str}) when yt-dlp successfully matches an extractor
+	- (False, {"reason": "unsupported_url"}) when yt-dlp reports the URL is unsupported
+	- (None, {"reason": ...}) when the probe is inconclusive (timeout/blocked/etc)
+
+	Never raises YtDlpError.
+	"""
+
+	runner = _resolve_ytdlp_runner()
+	if not runner:
+		return None, {"reason": "dependency_missing"}
+
+	cmd = runner + [
+		"--ignore-config",
+		"--no-playlist",
+		"--skip-download",
+		"--no-warnings",
+		"--no-progress",
+		"--print",
+		"%(extractor)s",
+		url,
+	]
+	cmd = _apply_optional_network_args(cmd)
+
+	try:
+		completed = subprocess.run(
+			cmd,
+			stdout=subprocess.PIPE,
+			stderr=subprocess.STDOUT,
+			text=True,
+			timeout=float(timeout_s),
+			check=False,
+			creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+		)
+	except subprocess.TimeoutExpired:
+		return None, {"reason": "timeout"}
+	except Exception:
+		return None, {"reason": "probe_failed"}
+
+	out = (completed.stdout or "").strip()
+	if completed.returncode == 0:
+		for raw in out.splitlines():
+			line = (raw or "").strip()
+			if line:
+				return True, {"extractor": line[:80]}
+		return True, {"extractor": None}
+
+	low = out.lower()
+	# yt-dlp typically emits one of these for unsupported URLs.
+	if "unsupported url" in low or "no suitable extractor" in low:
+		return False, {"reason": "unsupported_url", "source": _redact_url(url)}
+
+	# Anything else could be blocked / requires cookies / transient.
+	return None, {"reason": "inconclusive", "source": _redact_url(url)}

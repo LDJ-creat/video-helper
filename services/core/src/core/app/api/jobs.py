@@ -29,14 +29,15 @@ from core.schemas.jobs import CreateJobRequest, JobCreatedDTO, JobDTO
 from core.schemas.logs import JobLogsPageDTO, LogItemDTO
 from core.app.logs.job_logs import read_job_logs_page
 from core.storage.layout import allocate_upload_path
-from core.external.ytdlp import fetch_video_title
+from core.external.ytdlp import fetch_video_title, probe_url_support
 
 
 router = APIRouter(tags=["jobs"])
 
 
-_ALLOWED_URL_SOURCE_TYPES: set[str] = {"youtube", "bilibili"}
+_KNOWN_URL_SOURCE_TYPES: set[str] = {"youtube", "bilibili"}
 _UPLOAD_SOURCE_TYPE = "upload"
+_GENERIC_URL_SOURCE_TYPE = "url"
 
 
 def _canonical_source_url(source_type: str, source_url: str) -> str:
@@ -97,7 +98,21 @@ def _max_upload_bytes() -> int:
 
 
 def _is_supported_source_type(value: str) -> bool:
-	return value in _ALLOWED_URL_SOURCE_TYPES or value == _UPLOAD_SOURCE_TYPE
+	return value in _KNOWN_URL_SOURCE_TYPES or value in {_UPLOAD_SOURCE_TYPE, _GENERIC_URL_SOURCE_TYPE}
+
+
+def _infer_source_type_from_url(source_url: str) -> str:
+	try:
+		parsed = urlparse(source_url)
+	except Exception:
+		return _GENERIC_URL_SOURCE_TYPE
+
+	host = (parsed.netloc or "").lower()
+	if host.endswith("youtube.com") or host == "youtu.be" or host.endswith("youtu.be"):
+		return "youtube"
+	if host.endswith("bilibili.com") or host == "b23.tv" or host.endswith("b23.tv"):
+		return "bilibili"
+	return _GENERIC_URL_SOURCE_TYPE
 
 
 def _is_valid_source_url(source_type: str, source_url: str) -> bool:
@@ -112,6 +127,10 @@ def _is_valid_source_url(source_type: str, source_url: str) -> bool:
 	host = (parsed.netloc or "").lower()
 	if not host:
 		return False
+
+	# Generic URL source: accept any http(s) URL and let yt-dlp decide.
+	if source_type == _GENERIC_URL_SOURCE_TYPE:
+		return True
 
 	if source_type == "youtube":
 		return host.endswith("youtube.com") or host == "youtu.be" or host.endswith("youtu.be")
@@ -308,8 +327,20 @@ async def create_job(request: Request, session: Session = Depends(get_db_session
 				),
 			)
 
-		source_type = (req.sourceType or "").strip().lower()
-		if not _is_supported_source_type(source_type) or source_type == _UPLOAD_SOURCE_TYPE:
+		source_type_raw = (req.sourceType or "").strip().lower()
+		source_type_from_client = bool(source_type_raw)
+		source_type = source_type_raw or _infer_source_type_from_url(req.sourceUrl)
+		if source_type == _UPLOAD_SOURCE_TYPE:
+			return JSONResponse(
+				status_code=400,
+				content=build_error_envelope(
+					code=ErrorCode.UNSUPPORTED_SOURCE_TYPE,
+					message="Unsupported sourceType",
+					details={"sourceType": req.sourceType},
+					request_id=getattr(request.state, "request_id", None),
+				),
+			)
+		if source_type_from_client and not _is_supported_source_type(source_type):
 			return JSONResponse(
 				status_code=400,
 				content=build_error_envelope(
@@ -330,6 +361,21 @@ async def create_job(request: Request, session: Session = Depends(get_db_session
 					request_id=getattr(request.state, "request_id", None),
 				),
 			)
+
+		# New UX: when client omits sourceType, we best-effort validate if yt-dlp supports the URL.
+		# If probe is inconclusive (blocked/timeout), we still accept and let the worker handle it.
+		if not source_type_from_client:
+			supported, details = probe_url_support(url=req.sourceUrl, timeout_s=float(max(1, _env_int("YTDLP_PROBE_TIMEOUT_S", 6))))
+			if supported is False:
+				return JSONResponse(
+					status_code=400,
+					content=build_error_envelope(
+						code=ErrorCode.INVALID_SOURCE_URL,
+						message="Unsupported video URL",
+						details={"reason": "unsupported_by_ytdlp", **(details or {})},
+						request_id=getattr(request.state, "request_id", None),
+					),
+				)
 
 		preflight = await _llm_preflight_or_error(request, session)
 		if preflight is not None:
