@@ -1,0 +1,106 @@
+{
+    "HomePage": {
+        "title": "video-helper",
+        "description": "App Router scaffold is ready. Start with /projects."
+    },
+    "Navigation": {
+        "menu": "Menu",
+        "home": "Home",
+        "projects": "My Projects",
+        "ingest": "Create Analysis",
+        "settings": "Settings",
+        "search": "Search"
+    },
+    "Sidebar": {
+        "brand": "Video Helper",
+        "collapse": "Collapse Sidebar"
+    },
+    "Settings": {
+        "title": "Settings",
+        "modelConfig": "Model Configuration",
+        "modelConfigDesc": "Select and configure AI model providers. Once the API Key is configured, you can use the corresponding model for video analysis."
+    },
+    "Projects": {
+        "title": "My Projects",
+        "subtitle": "Manage and view all your analysis projects",
+        "searchPlaceholder": "Search Project ID or Chapter...",
+        "searchResults": "Search Results",
+        "noProjects": "No Projects",
+        "createFirst": "Create your first analysis task",
+        "deleteConfirm": "Are you sure you want to delete project \"{title}\"? This action cannot be undone.",
+        "deleteFailed": "Delete failed",
+        "loading": "Loading...",
+        "loadMore": "Load more projects",
+        "viewResults": "View Results",
+        "updated": "Updated:",
+        "untitled": "Untitled Project",
+        "sourceTypes": {
+            "youtube": "YouTube",
+            "bilibili": "Bilibili",
+            "link": "Link",
+            "upload": "Upload"
+        }
+    },
+    "Ingest": {
+        "title": "Create Video Analysis",
+        "subtitle": "Create new analysis task by pasting link or uploading file",
+        "tabUrl": "Paste Link",
+        "tabUpload": "Upload File",
+        "urlForm": {
+            "labelUrl": "Video Link",
+            "placeholderUrl": "https://www.youtube.com/watch?v=...",
+            "invalidUrl": "Please enter a valid URL",
+            "labelTitle": "Title (Optional)",
+            "placeholderTitle": "Set a custom title for the project",
+            "labelLang": "Output Language",
+            "langDesc": "Controls the language of the final result (title/key points/mind map)",
+            "options": {
+                "zhHans": "Simplified Chinese",
+                "en": "English",
+                "auto": "Auto"
+            },
+            "submit": "Create Analysis Task",
+            "submitting": "Creating..."
+        },
+        "uploadForm": {
+            "labelFile": "Select Video File",
+            "selectFileError": "Please select a video file",
+            "submit": "Create Analysis Task",
+            "submitting": "Uploading..."
+        },
+        "error": "An unknown error occurred"
+    },
+    "Search": {
+        "title": "Search",
+        "placeholder": "Search Query",
+        "startPrompt": "Enter keywords to start searching"
+    },
+    "Results": {
+        "loading": "Loading...",
+        "loadFailed": "Load Failed",
+        "noResult": "No Result",
+        "tabs": {
+            "mindmap": "Mind Map",
+            "chat": "AI Chat",
+            "exercises": "Exercises"
+        },
+        "progress": {
+            "preparing": "Preparing...",
+            "processing": "Processing: {stage}...",
+            "failed": "Task Failed",
+            "backToProjects": "Back to Projects"
+        },
+        "notFound": "Analysis result not found"
+    },
+    "Job": {
+        "title": "Job Details",
+        "connection": "Connection",
+        "type": "Type",
+        "notFound": "Job not found"
+    },
+    "Landing": {
+        "title": "Video Analysis Assistant",
+        "description": "Upload video or paste link to generate chapters, mind maps, and notes automatically.",
+        "footer": "© 2026 Video Helper. Designed for Focus."
+    }
+}

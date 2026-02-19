@@ -1,7 +1,9 @@
 "use client";
 
+import LanguageSwitcher from "@/components/LanguageSwitcher";
+import { useTranslations } from "next-intl";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname } from "@/i18n/navigation";
 import { useState } from "react";
 import {
     PlusCircle,
@@ -13,6 +15,8 @@ import {
 } from "lucide-react";
 
 export function Sidebar() {
+    const t = useTranslations("Navigation");
+    const tSidebar = useTranslations("Sidebar");
     const pathname = usePathname();
     const [isCollapsed, setIsCollapsed] = useState(false);
 
@@ -20,12 +24,12 @@ export function Sidebar() {
 
     const navItems = [
         {
-            name: "创建分析",
+            name: t("ingest"),
             href: "/ingest",
             icon: PlusCircle,
         },
         {
-            name: "我的项目",
+            name: t("projects"),
             href: "/projects",
             icon: FolderOpen,
         },
@@ -33,7 +37,7 @@ export function Sidebar() {
 
     const bottomItems = [
         {
-            name: "设置",
+            name: t("settings"),
             href: "/settings",
             icon: Settings,
         },
@@ -55,7 +59,7 @@ export function Sidebar() {
                     </div>
                     {!isCollapsed && (
                         <span className="font-bold text-lg tracking-tight text-stone-900 whitespace-nowrap opacity-100 transition-opacity duration-300">
-                            Video Helper
+                            {tSidebar("brand")}
                         </span>
                     )}
                 </Link>
@@ -70,8 +74,8 @@ export function Sidebar() {
                             key={item.href}
                             href={item.href}
                             className={`flex items-center gap-3 rounded-lg px-3 py-3 transition-colors ${active
-                                    ? "bg-stone-200 text-stone-900"
-                                    : "text-stone-500 hover:bg-stone-100 hover:text-stone-900"
+                                ? "bg-stone-200 text-stone-900"
+                                : "text-stone-500 hover:bg-stone-100 hover:text-stone-900"
                                 }`}
                             title={isCollapsed ? item.name : undefined}
                         >
@@ -95,8 +99,8 @@ export function Sidebar() {
                             key={item.href}
                             href={item.href}
                             className={`flex items-center gap-3 rounded-lg px-3 py-3 transition-colors ${active
-                                    ? "bg-stone-200 text-stone-900"
-                                    : "text-stone-500 hover:bg-stone-100 hover:text-stone-900"
+                                ? "bg-stone-200 text-stone-900"
+                                : "text-stone-500 hover:bg-stone-100 hover:text-stone-900"
                                 }`}
                             title={isCollapsed ? item.name : undefined}
                         >
@@ -110,15 +114,20 @@ export function Sidebar() {
                     );
                 })}
 
+                <div className={`flex items-center gap-3 rounded-lg px-3 py-3 ${isCollapsed ? 'justify-center' : ''}`}>
+                    <LanguageSwitcher />
+                </div>
+
                 {/* Collapse Toggle */}
                 <button
                     onClick={toggleSidebar}
                     className="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-stone-400 hover:bg-stone-100 hover:text-stone-600 transition-colors"
+                    title={isCollapsed ? tSidebar("collapse") : undefined}
                 >
                     {isCollapsed ? <ChevronRight size={24} /> : <ChevronLeft size={24} />}
                     {!isCollapsed && (
                         <span className="font-medium whitespace-nowrap overflow-hidden">
-                            收起侧边栏
+                            {tSidebar("collapse")}
                         </span>
                     )}
                 </button>

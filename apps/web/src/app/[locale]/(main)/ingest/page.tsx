@@ -2,23 +2,24 @@
 
 import { HealthBanner } from "@/components/HealthBanner";
 import { useCreateJobFromUrl, useCreateJobFromUpload } from "@/lib/api/jobCreationQueries";
-import type { SourceType } from "@/lib/contracts/jobCreation";
 import { useState } from "react";
 import type { ApiErrorEnvelope } from "@/lib/api/apiClient";
+import { useTranslations } from "next-intl";
 
 type TabType = "url" | "upload";
 
 export default function IngestPage() {
+    const t = useTranslations("Ingest");
     const [activeTab, setActiveTab] = useState<TabType>("url");
 
     return (
         <div className="mx-auto max-w-3xl space-y-8 p-6 sm:p-10">
             <div className="space-y-2">
                 <h1 className="text-3xl font-bold tracking-tight text-stone-900">
-                    创建视频分析
+                    {t("title")}
                 </h1>
                 <p className="text-lg text-stone-600">
-                    通过粘贴链接或上传文件来创建新的分析任务
+                    {t("subtitle")}
                 </p>
             </div>
 
@@ -35,7 +36,7 @@ export default function IngestPage() {
                             : "text-stone-500 hover:bg-stone-100 hover:text-stone-700"
                             }`}
                     >
-                        粘贴链接
+                        {t("tabUrl")}
                     </button>
                     <button
                         onClick={() => setActiveTab("upload")}
@@ -44,7 +45,7 @@ export default function IngestPage() {
                             : "text-stone-500 hover:bg-stone-100 hover:text-stone-700"
                             }`}
                     >
-                        上传文件
+                        {t("tabUpload")}
                     </button>
                 </div>
 
@@ -58,7 +59,7 @@ export default function IngestPage() {
 }
 
 function UrlForm() {
-    const [sourceType, setSourceType] = useState<Exclude<SourceType, "upload">>("youtube");
+    const t = useTranslations("Ingest.urlForm");
     const [sourceUrl, setSourceUrl] = useState("");
     const [title, setTitle] = useState("");
     const [outputLanguage, setOutputLanguage] = useState("zh-Hans");
@@ -80,7 +81,6 @@ function UrlForm() {
         if (!canSubmit) return;
 
         mutation.mutate({
-            sourceType,
             sourceUrl: sourceUrl.trim(),
             title: title.trim() || undefined,
             outputLanguage: outputLanguage.trim() || undefined,
@@ -94,69 +94,41 @@ function UrlForm() {
     return (
         <form onSubmit={handleSubmit} className="space-y-6">
             <div className="space-y-2">
-                <label className="block text-sm font-medium text-stone-700">
-                    视频来源
-                </label>
-                <div className="flex gap-6">
-                    <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-transparent p-2 transition-colors hover:bg-stone-50">
-                        <input
-                            type="radio"
-                            value="youtube"
-                            checked={sourceType === "youtube"}
-                            onChange={(e) => setSourceType(e.target.value as "youtube")}
-                            className="h-4 w-4 border-stone-300 text-stone-900 focus:ring-stone-500"
-                        />
-                        <span className="text-sm font-medium text-stone-700">YouTube</span>
-                    </label>
-                    <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-transparent p-2 transition-colors hover:bg-stone-50">
-                        <input
-                            type="radio"
-                            value="bilibili"
-                            checked={sourceType === "bilibili"}
-                            onChange={(e) => setSourceType(e.target.value as "bilibili")}
-                            className="h-4 w-4 border-stone-300 text-stone-900 focus:ring-stone-500"
-                        />
-                        <span className="text-sm font-medium text-stone-700">Bilibili</span>
-                    </label>
-                </div>
-            </div>
-
-            <div className="space-y-2">
                 <label htmlFor="url" className="block text-sm font-medium text-stone-700">
-                    视频链接 <span className="text-red-500">*</span>
+                    {t("labelUrl")} <span className="text-red-500">*</span>
                 </label>
                 <input
                     type="text"
                     id="url"
                     value={sourceUrl}
                     onChange={(e) => setSourceUrl(e.target.value)}
-                    placeholder="https://..."
+                    placeholder={t("placeholderUrl") || "https://..."}
                     className="block w-full rounded-lg border border-stone-200 bg-white px-4 py-3 text-stone-900 placeholder-stone-400 focus:border-stone-500 focus:outline-none focus:ring-2 focus:ring-stone-200"
                 />
                 {sourceUrl && !isValidUrl(sourceUrl) && (
                     <p className="text-sm text-red-500">
-                        请输入有效的 URL
+                        {t("invalidUrl")}
                     </p>
                 )}
             </div>
 
             <div className="space-y-2">
                 <label htmlFor="title" className="block text-sm font-medium text-stone-700">
-                    标题（可选）
+                    {t("labelTitle")}
                 </label>
                 <input
                     type="text"
                     id="title"
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
-                    placeholder="为项目设置自定义标题"
+                    placeholder={t("placeholderTitle")}
                     className="block w-full rounded-lg border border-stone-200 bg-white px-4 py-3 text-stone-900 placeholder-stone-400 focus:border-stone-500 focus:outline-none focus:ring-2 focus:ring-stone-200"
                 />
             </div>
 
             <div className="space-y-2">
                 <label htmlFor="outputLanguage" className="block text-sm font-medium text-stone-700">
-                    输出语言
+                    {t("labelLang")}
                 </label>
                 <select
                     id="outputLanguage"
@@ -164,12 +136,12 @@ function UrlForm() {
                     onChange={(e) => setOutputLanguage(e.target.value)}
                     className="block w-full rounded-lg border border-stone-200 bg-white px-4 py-3 text-stone-900 focus:border-stone-500 focus:outline-none focus:ring-2 focus:ring-stone-200"
                 >
-                    <option value="zh-Hans">简体中文</option>
-                    <option value="en">English</option>
-                    <option value="auto">自动</option>
+                    <option value="zh-Hans">{t("options.zhHans")}</option>
+                    <option value="en">{t("options.en")}</option>
+                    <option value="auto">{t("options.auto")}</option>
                 </select>
                 <p className="text-sm text-stone-500">
-                    控制最终结果（标题/要点/思维导图）的语言
+                    {t("langDesc")}
                 </p>
             </div>
 
@@ -184,13 +156,19 @@ function UrlForm() {
                 disabled={!canSubmit || mutation.isPending}
                 className="w-full rounded-lg bg-stone-800 px-4 py-3 text-base font-medium text-white transition-all hover:bg-stone-900 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-stone-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
             >
-                {mutation.isPending ? "创建中..." : "创建分析任务"}
+                {mutation.isPending ? t("submitting") : t("submit")}
             </button>
         </form>
     );
 }
 
 function UploadForm() {
+    const t = useTranslations("Ingest.uploadForm");
+    const tUrl = useTranslations("Ingest.urlForm"); // Reuse generic translations if needed
+
+    // Explicitly reusing options from urlForm
+    const tOptions = useTranslations("Ingest.urlForm.options");
+
     const [file, setFile] = useState<File | null>(null);
     const [title, setTitle] = useState("");
     const [outputLanguage, setOutputLanguage] = useState("zh-Hans");
@@ -201,7 +179,7 @@ function UploadForm() {
         if (selectedFile) {
             // Check if it's a video file
             if (!selectedFile.type.startsWith("video/")) {
-                alert("请选择视频文件");
+                alert(t("selectFileError"));
                 return;
             }
             setFile(selectedFile);
@@ -227,7 +205,7 @@ function UploadForm() {
         <form onSubmit={handleSubmit} className="space-y-6">
             <div className="space-y-2">
                 <label htmlFor="file" className="block text-sm font-medium text-stone-700">
-                    选择视频文件 <span className="text-red-500">*</span>
+                    {t("labelFile")} <span className="text-red-500">*</span>
                 </label>
                 <div className="mt-2 rounded-lg border-2 border-dashed border-stone-200 bg-stone-50 px-6 py-10 transition-colors hover:bg-stone-100">
                     <input
@@ -247,21 +225,21 @@ function UploadForm() {
 
             <div className="space-y-2">
                 <label htmlFor="upload-title" className="block text-sm font-medium text-stone-700">
-                    标题（可选）
+                    {tUrl("labelTitle")}
                 </label>
                 <input
                     type="text"
                     id="upload-title"
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
-                    placeholder="为项目设置自定义标题"
+                    placeholder={tUrl("placeholderTitle")}
                     className="block w-full rounded-lg border border-stone-200 bg-white px-4 py-3 text-stone-900 placeholder-stone-400 focus:border-stone-500 focus:outline-none focus:ring-2 focus:ring-stone-200"
                 />
             </div>
 
             <div className="space-y-2">
                 <label htmlFor="upload-outputLanguage" className="block text-sm font-medium text-stone-700">
-                    输出语言
+                    {tUrl("labelLang")}
                 </label>
                 <select
                     id="upload-outputLanguage"
@@ -269,12 +247,12 @@ function UploadForm() {
                     onChange={(e) => setOutputLanguage(e.target.value)}
                     className="block w-full rounded-lg border border-stone-200 bg-white px-4 py-3 text-stone-900 focus:border-stone-500 focus:outline-none focus:ring-2 focus:ring-stone-200"
                 >
-                    <option value="zh-Hans">简体中文</option>
-                    <option value="en">English</option>
-                    <option value="auto">自动</option>
+                    <option value="zh-Hans">{tOptions("zhHans")}</option>
+                    <option value="en">{tOptions("en")}</option>
+                    <option value="auto">{tOptions("auto")}</option>
                 </select>
                 <p className="text-sm text-stone-500">
-                    控制最终结果（标题/要点/思维导图）的语言
+                    {tUrl("langDesc")}
                 </p>
             </div>
 
@@ -289,7 +267,7 @@ function UploadForm() {
                 disabled={!file || mutation.isPending}
                 className="w-full rounded-lg bg-stone-800 px-4 py-3 text-base font-medium text-white transition-all hover:bg-stone-900 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-stone-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
             >
-                {mutation.isPending ? "上传中..." : "创建分析任务"}
+                {mutation.isPending ? t("submitting") : t("submit")}
             </button>
         </form>
     );

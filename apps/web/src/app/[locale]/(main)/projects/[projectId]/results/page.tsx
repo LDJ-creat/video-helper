@@ -17,10 +17,12 @@ import { AIChat } from "@/components/features/AIChat";
 import { ExercisesCanvas } from "@/components/features/ExercisesCanvas";
 import { fetchQuizSessions } from "@/lib/api/ai";
 import { MessageSquare, Layout, BrainCircuit } from "lucide-react";
+import { useTranslations } from "next-intl";
 
 function JobProgress({ jobId, projectId }: { jobId: string; projectId: string }) {
     const router = useRouter();
     const queryClient = useQueryClient();
+    const t = useTranslations("Results.progress");
 
     const { connectionMode } = useJobSse({
         jobId,
@@ -43,7 +45,7 @@ function JobProgress({ jobId, projectId }: { jobId: string; projectId: string })
     }, [job?.status, projectId, queryClient]);
 
     const progressPercent = Math.round((job?.progress || 0) * 100);
-    const statusMessage = job?.stage ? `正在进行: ${job.stage}...` : "准备中...";
+    const statusMessage = job?.stage ? t("processing", { stage: job.stage }) : t("preparing");
     const latestLog = logs?.items?.[logs.items.length - 1]?.message;
 
     return (
@@ -68,7 +70,7 @@ function JobProgress({ jobId, projectId }: { jobId: string; projectId: string })
 
                 {job?.error && (
                     <div className="mt-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 max-w-full">
-                        <h3 className="font-bold mb-1">任务失败</h3>
+                        <h3 className="font-bold mb-1">{t("failed")}</h3>
                         <p className="text-sm font-mono break-all">
                             {JSON.stringify(job.error, null, 2)}
                         </p>
@@ -76,7 +78,7 @@ function JobProgress({ jobId, projectId }: { jobId: string; projectId: string })
                             onClick={() => router.push(`/projects`)}
                             className="mt-4 px-4 py-2 bg-white border border-red-300 rounded shadow-sm hover:bg-red-50 text-sm font-medium"
                         >
-                            返回项目列表
+                            {t("backToProjects")}
                         </button>
                     </div>
                 )}
@@ -90,6 +92,8 @@ export default function ResultPage() {
     const searchParams = useSearchParams();
     const projectId = params?.projectId as string;
     const jobId = searchParams?.get("jobId");
+
+    const t = useTranslations("Results");
 
     const queryClient = useQueryClient();
 
@@ -195,7 +199,7 @@ export default function ResultPage() {
                                     }`}
                             >
                                 <BrainCircuit size={16} />
-                                思维导图
+                                {t("tabs.mindmap")}
                             </button>
                             <button
                                 onClick={() => setActiveTab("chat")}
@@ -205,7 +209,7 @@ export default function ResultPage() {
                                     }`}
                             >
                                 <MessageSquare size={16} />
-                                AI 助手
+                                {t("tabs.chat")}
                             </button>
                             <button
                                 onClick={() => {
@@ -224,7 +228,7 @@ export default function ResultPage() {
                                     }`}
                             >
                                 <Layout size={16} />
-                                练习画布
+                                {t("tabs.exercises")}
                             </button>
                         </div>
 
@@ -296,7 +300,7 @@ export default function ResultPage() {
                 <div className="flex items-center justify-center min-h-[60vh]">
                     <div className="text-center">
                         <div className="inline-block w-12 h-12 border-4 border-stone-300 border-t-orange-600 rounded-full animate-spin mb-4" />
-                        <p className="text-stone-600">加载中...</p>
+                        <p className="text-stone-600">{t("loading")}</p>
                     </div>
                 </div>
             </ResultLayout>
@@ -309,9 +313,9 @@ export default function ResultPage() {
             <ResultLayout>
                 <div className="flex items-center justify-center min-h-[60vh]">
                     <div className="text-center max-w-md">
-                        <h2 className="text-xl font-semibold text-stone-900 mb-2">加载失败</h2>
+                        <h2 className="text-xl font-semibold text-stone-900 mb-2">{t("loadFailed")}</h2>
                         <p className="text-stone-600 mb-4">
-                            {error instanceof Error ? error.message : "未找到分析结果"}
+                            {error instanceof Error ? error.message : t("notFound")}
                         </p>
                     </div>
                 </div>
@@ -323,7 +327,7 @@ export default function ResultPage() {
     return (
         <ResultLayout>
             <div className="flex items-center justify-center min-h-[60vh]">
-                <p className="text-stone-600">暂无分析结果</p>
+                <p className="text-stone-600">{t("noResult")}</p>
             </div>
         </ResultLayout>
     );

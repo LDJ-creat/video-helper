@@ -1,5 +1,5 @@
 // Project 实体类型（对齐 api.md 契约）
-export type SourceType = "youtube" | "bilibili" | "local_file" | "upload";
+export type SourceType = "youtube" | "bilibili" | "url" | "local_file" | "upload";
 
 export type Project = {
   projectId: string;           // UUID

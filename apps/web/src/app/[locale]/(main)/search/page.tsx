@@ -4,8 +4,10 @@ import { useState } from "react";
 import { SearchInput } from "@/components/features/SearchInput";
 import { SearchResults } from "@/components/features/SearchResults";
 import { useSearch } from "@/lib/api/searchQueries";
+import { useTranslations } from "next-intl";
 
 export default function SearchPage() {
+    const t = useTranslations("Search");
     const [query, setQuery] = useState("");
 
     const {
@@ -20,10 +22,10 @@ export default function SearchPage() {
 
     return (
         <main className="p-6 max-w-4xl mx-auto">
-            <h1 className="text-2xl font-bold mb-6">搜索</h1>
+            <h1 className="text-2xl font-bold mb-6">{t("title")}</h1>
 
             <div className="mb-6">
-                <SearchInput onSearch={setQuery} />
+                <SearchInput onSearch={setQuery} placeholder={t("placeholder")} />
             </div>
 
             {query && (
@@ -40,7 +42,7 @@ export default function SearchPage() {
 
             {!query && (
                 <div className="text-center text-gray-500 py-12">
-                    输入关键词开始搜索
+                    {t("startPrompt")}
                 </div>
             )}
         </main>

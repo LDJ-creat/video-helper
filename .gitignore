@@ -28,6 +28,8 @@ test_*.py
 tests/*
 www.bilibili.com_cookies.txt
 *.json
+!en.json
+!zh.json
 *.sqlite3
 *.log
 build_log.txt

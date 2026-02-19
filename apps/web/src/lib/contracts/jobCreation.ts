@@ -3,10 +3,9 @@
  * Reference: api.md POST /api/v1/jobs specification
  */
 
-export type SourceType = "youtube" | "bilibili" | "upload";
+export type SourceType = "youtube" | "bilibili" | "url" | "upload";
 
 export type CreateJobUrlRequest = {
-    sourceType: Exclude<SourceType, "upload">;
     sourceUrl: string;
     title?: string;
     outputLanguage?: string;
