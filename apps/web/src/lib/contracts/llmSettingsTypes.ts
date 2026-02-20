@@ -4,6 +4,7 @@
 export type Model = {
     modelId: string;
     displayName: string;
+    isCustom?: boolean;
 };
 
 // Provider 信息（来自 catalog）
@@ -13,6 +14,7 @@ export type Provider = {
     hasKey: boolean;
     secretUpdatedAtMs?: number;
     models: Model[];
+    isCustom?: boolean;
 };
 
 // Catalog 响应
@@ -49,4 +51,19 @@ export type TestResponse = {
 // 通用成功响应
 export type OkResponse = {
     ok: boolean;
+};
+
+// ─── 自定义 model / provider 请求 ────────────────────────────────────────────
+
+export type AddCustomModelRequest = {
+    modelId: string;
+    displayName: string;
+};
+
+export type AddCustomProviderRequest = {
+    providerId: string;
+    displayName: string;
+    baseUrl: string;
+    modelId: string;
+    modelDisplayName: string;
 };

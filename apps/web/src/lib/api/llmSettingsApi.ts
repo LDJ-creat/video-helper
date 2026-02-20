@@ -7,6 +7,8 @@ import type {
     SecretRequest,
     TestResponse,
     OkResponse,
+    AddCustomModelRequest,
+    AddCustomProviderRequest,
 } from "../contracts/llmSettingsTypes";
 
 // Fetch provider catalog
@@ -53,5 +55,45 @@ export async function deleteProviderSecret(providerId: string): Promise<OkRespon
 export async function testActiveLlmSettings(): Promise<TestResponse> {
     return apiFetch<TestResponse>(endpoints.llmTest(), {
         method: "POST",
+    });
+}
+
+// ─── Custom models ────────────────────────────────────────────────────────────
+
+export async function addCustomModel(
+    providerId: string,
+    request: AddCustomModelRequest,
+): Promise<OkResponse> {
+    return apiFetch<OkResponse>(endpoints.llmProviderModels(providerId), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(request),
+    });
+}
+
+export async function deleteCustomModel(
+    providerId: string,
+    modelId: string,
+): Promise<OkResponse> {
+    return apiFetch<OkResponse>(endpoints.llmProviderModel(providerId, modelId), {
+        method: "DELETE",
+    });
+}
+
+// ─── Custom providers ─────────────────────────────────────────────────────────
+
+export async function addCustomProvider(
+    request: AddCustomProviderRequest,
+): Promise<OkResponse> {
+    return apiFetch<OkResponse>(endpoints.llmCustomProviders(), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(request),
+    });
+}
+
+export async function deleteCustomProvider(providerId: string): Promise<OkResponse> {
+    return apiFetch<OkResponse>(endpoints.llmCustomProvider(providerId), {
+        method: "DELETE",
     });
 }

@@ -2,7 +2,8 @@
 
 import { HealthBanner } from "@/components/HealthBanner";
 import { useCreateJobFromUrl, useCreateJobFromUpload } from "@/lib/api/jobCreationQueries";
-import { useState } from "react";
+import { useCookiesStatus, useUploadCookies } from "@/lib/api/cookiesQueries";
+import { useState, useRef } from "react";
 import type { ApiErrorEnvelope } from "@/lib/api/apiClient";
 import { useTranslations } from "next-intl";
 
@@ -57,6 +58,120 @@ export default function IngestPage() {
         </div>
     );
 }
+
+// ─── Cookies Upload Section ─────────────────────────────────────────────────
+
+function CookiesUploadSection() {
+    const t = useTranslations("Ingest.cookies");
+    const [expanded, setExpanded] = useState(false);
+    const [successMsg, setSuccessMsg] = useState<string | null>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const { data: status } = useCookiesStatus();
+    const mutation = useUploadCookies();
+
+    const hasFile = status?.hasFile ?? false;
+
+    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        setSuccessMsg(null);
+        mutation.mutate(file, {
+            onSuccess: () => {
+                setSuccessMsg(t("uploadSuccess"));
+                if (fileInputRef.current) fileInputRef.current.value = "";
+            },
+        });
+    };
+
+    const errorMsg = mutation.error ? t("uploadError") : null;
+
+    return (
+        <div className="rounded-xl border border-stone-200 bg-stone-50/60 overflow-hidden">
+            {/* Collapsible header */}
+            <button
+                type="button"
+                onClick={() => setExpanded((v) => !v)}
+                className="flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-stone-100"
+            >
+                <span className="flex items-center gap-2 text-sm font-medium text-stone-700">
+                    <span aria-hidden>🍪</span>
+                    {t("sectionTitle")}
+                </span>
+                <div className="flex items-center gap-2">
+                    <span
+                        className={`rounded-full px-2 py-0.5 text-xs font-medium ${hasFile
+                            ? "bg-green-100 text-green-700"
+                            : "bg-stone-200 text-stone-500"
+                            }`}
+                    >
+                        {hasFile ? t("statusConfigured") : t("statusNotConfigured")}
+                    </span>
+                    <svg
+                        className={`h-4 w-4 text-stone-400 transition-transform ${expanded ? "rotate-180" : ""}`}
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                    >
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                    </svg>
+                </div>
+            </button>
+
+            {/* Expanded body */}
+            {expanded && (
+                <div className="border-t border-stone-200 px-4 pb-4 pt-3 space-y-4">
+                    {/* Description */}
+                    <p className="text-sm text-stone-600 leading-relaxed">
+                        {t("description")}
+                    </p>
+
+                    {/* Guide */}
+                    <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2.5 text-sm text-amber-800 leading-relaxed">
+                        <span className="font-medium">💡 </span>
+                        {t("guide")}
+                    </div>
+
+                    {/* Current file info */}
+                    {hasFile && status?.fileName && (
+                        <p className="text-xs text-stone-500">
+                            {t("currentFile", { fileName: status.fileName })}
+                        </p>
+                    )}
+
+                    {/* File upload */}
+                    <div>
+                        <label className="block text-sm font-medium text-stone-700 mb-1.5">
+                            {t("labelFile")}
+                        </label>
+                        <input
+                            ref={fileInputRef}
+                            type="file"
+                            accept=".txt"
+                            onChange={handleFileChange}
+                            disabled={mutation.isPending}
+                            className="block w-full text-sm text-stone-500 file:mr-3 file:rounded-lg file:border-0 file:bg-stone-800 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white hover:file:bg-stone-700 disabled:opacity-50"
+                        />
+                    </div>
+
+                    {/* Feedback */}
+                    {mutation.isPending && (
+                        <p className="text-sm text-stone-500">{t("uploading")}</p>
+                    )}
+                    {successMsg && (
+                        <p className="text-sm text-green-600">{successMsg}</p>
+                    )}
+                    {errorMsg && (
+                        <p className="text-sm text-red-500">{errorMsg}</p>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+}
+
+// ─── URL Form ───────────────────────────────────────────────────────────────
 
 function UrlForm() {
     const t = useTranslations("Ingest.urlForm");
@@ -144,6 +259,9 @@ function UrlForm() {
                     {t("langDesc")}
                 </p>
             </div>
+
+            {/* Cookies upload section */}
+            <CookiesUploadSection />
 
             {errorMessage && (
                 <div className="rounded-lg bg-red-50 p-4 text-sm text-red-600">

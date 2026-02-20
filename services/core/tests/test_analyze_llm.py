@@ -29,7 +29,6 @@ def test_llm_provider_builds_request_and_parses_json() -> None:
 	transport = httpx.MockTransport(handler)
 
 	_set_env(
-		ANALYZE_PROVIDER="llm",
 		LLM_API_BASE="https://example.invalid",
 		LLM_API_KEY="sk-test-SECRET",
 		LLM_MODEL="minimax-2.1",
@@ -50,7 +49,6 @@ def test_llm_provider_maps_rate_limit_without_leaking_key() -> None:
 
 	transport = httpx.MockTransport(handler)
 	_set_env(
-		ANALYZE_PROVIDER="llm",
 		LLM_API_BASE="https://example.invalid",
 		LLM_API_KEY="sk-test-SECRET",
 		LLM_MODEL="minimax-2.1",
@@ -69,7 +67,7 @@ def test_llm_provider_maps_rate_limit_without_leaking_key() -> None:
 
 def test_llm_provider_missing_credentials_maps_reason() -> None:
 	os.environ.pop("LLM_API_KEY", None)
-	_set_env(ANALYZE_PROVIDER="llm", LLM_API_BASE="https://example.invalid")
+	_set_env(LLM_API_BASE="https://example.invalid")
 	with pytest.raises(AnalyzeError) as ei:
 		llm_provider_from_env()
 	assert ei.value.details.get("reason") == "missing_credentials"

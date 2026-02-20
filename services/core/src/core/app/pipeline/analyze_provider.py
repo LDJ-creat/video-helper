@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import hashlib
 import json
 import os
@@ -21,6 +22,15 @@ logger = logging.getLogger(__name__)
 
 class AnalyzeProvider(Protocol):
 	def generate_json(self, task_name: str, input_dict: dict) -> dict: ...
+
+
+@dataclass(frozen=True)
+class LLMRuntimeConfig:
+	provider_id: str | None
+	api_base: str
+	api_key: str
+	model: str
+	timeout_s: float
 
 
 class AnalyzeError(Exception):
@@ -263,6 +273,204 @@ class LLMAnalyzeProvider:
 		return parsed
 
 
+def _is_anthropic_base_url(api_base: str | None) -> bool:
+	if not api_base:
+		return False
+	try:
+		p = urlparse(api_base)
+		host = (p.netloc or "").lower()
+		return host.endswith("anthropic.com")
+	except Exception:
+		return False
+
+
+class AnthropicAnalyzeProvider:
+	"""Anthropic Messages API client (POST /v1/messages).
+
+	Input: OpenAI-style messages: [{role, content}].
+	Output: JSON object parsed from the assistant text.
+	"""
+
+	def __init__(
+		self,
+		*,
+		api_base: str,
+		api_key: str,
+		model: str,
+		timeout_s: float,
+		transport: httpx.BaseTransport | None = None,
+	):
+		self._api_base = api_base.rstrip("/")
+		self._api_key = api_key
+		self._model = model
+		self._timeout_s = max(1.0, float(timeout_s))
+		self._transport = transport
+
+		version = (_env_str("ANTHROPIC_VERSION") or "2023-06-01").strip()
+		self._anthropic_version = version or "2023-06-01"
+
+		self._client = httpx.Client(
+			timeout=self._timeout_s,
+			transport=self._transport,
+			headers={
+				"x-api-key": self._api_key,
+				"anthropic-version": self._anthropic_version,
+				"Content-Type": "application/json",
+				"Accept": "application/json",
+			},
+		)
+
+	def _endpoint_url(self) -> str:
+		lower = self._api_base.lower()
+		if lower.endswith("/v1/messages"):
+			return self._api_base
+		if lower.endswith("/v1"):
+			return self._api_base + "/messages"
+		return self._api_base + "/v1/messages"
+
+	def generate_json(self, task_name: str, input_dict: dict) -> dict:
+		messages = input_dict.get("messages")
+		if not isinstance(messages, list) or not messages:
+			raise AnalyzeError(code=ErrorCode.JOB_STAGE_FAILED, message="Invalid LLM input", details={"reason": "invalid_input", "task": task_name})
+
+		# Convert OpenAI-style messages into Anthropic Messages API format.
+		system_parts: list[str] = []
+		anthropic_messages: list[dict[str, Any]] = []
+		for m in messages:
+			if not isinstance(m, dict):
+				continue
+			role = str(m.get("role") or "").strip().lower()
+			content = m.get("content")
+			if not isinstance(content, str):
+				content = "" if content is None else str(content)
+			if role == "system":
+				system_parts.append(content)
+				continue
+			if role not in {"user", "assistant"}:
+				# Best-effort: coerce unknown roles into user text.
+				role = "user"
+				content = f"[{m.get('role')}]: {content}"
+			anthropic_messages.append({"role": role, "content": [{"type": "text", "text": content}]})
+
+		payload: dict[str, Any] = {
+			"model": self._model,
+			"messages": anthropic_messages or [{"role": "user", "content": [{"type": "text", "text": "{}"}]}],
+			"temperature": 0.2,
+			"max_tokens": max(64, _env_int("LLM_MAX_TOKENS", 4096)),
+		}
+		if system_parts:
+			payload["system"] = "\n\n".join([p for p in system_parts if p.strip()])
+
+		debug_enabled = _env_bool("LLM_DEBUG", False)
+		debug_meta: dict[str, Any] = {}
+		if debug_enabled:
+			joined = "\n".join(
+				f"{m.get('role','')}: {m.get('content','')}" for m in messages if isinstance(m, dict)
+			)
+			debug_meta = {
+				"task": task_name,
+				"model": self._model,
+				"endpoint": self._endpoint_url(),
+				"promptHash": _hash_text(joined),
+				"promptLen": len(joined),
+				"anthropicVersion": self._anthropic_version,
+			}
+
+		max_attempts = max(1, _env_int("LLM_MAX_ATTEMPTS", 3))
+		attempt = 0
+		resp: httpx.Response | None = None
+		while attempt < max_attempts:
+			attempt += 1
+			try:
+				resp = self._client.post(self._endpoint_url(), json=payload)
+			except httpx.TimeoutException:
+				if attempt < max_attempts:
+					time.sleep(min(8.0, 0.5 * (2 ** (attempt - 1))))
+					continue
+				details = {
+					"reason": "timeout",
+					"task": task_name,
+					"attempt": attempt,
+					"maxAttempts": max_attempts,
+					"timeoutS": self._timeout_s,
+				}
+				if debug_enabled:
+					details["debug"] = debug_meta
+				raise AnalyzeError(code=ErrorCode.JOB_STAGE_FAILED, message="LLM request timed out", details=details)
+			except httpx.RequestError as e:
+				if attempt < max_attempts:
+					time.sleep(min(8.0, 0.5 * (2 ** (attempt - 1))))
+					continue
+				details = {
+					"reason": "upstream_error",
+					"task": task_name,
+					"errorType": type(e).__name__,
+					"attempt": attempt,
+					"maxAttempts": max_attempts,
+				}
+				if debug_enabled:
+					details["debug"] = debug_meta
+				raise AnalyzeError(code=ErrorCode.JOB_STAGE_FAILED, message="LLM request failed", details=details)
+
+			status = int(resp.status_code)
+			if status >= 500 and attempt < max_attempts:
+				time.sleep(min(8.0, 0.5 * (2 ** (attempt - 1))))
+				continue
+			break
+
+		assert resp is not None
+		status = int(resp.status_code)
+		if status in {401, 403}:
+			details = {"reason": "missing_credentials", "task": task_name}
+			if debug_enabled:
+				details["debug"] = debug_meta
+			raise AnalyzeError(code=ErrorCode.JOB_STAGE_FAILED, message="LLM unauthorized", details=details)
+		if status == 429:
+			details = {"reason": "rate_limited", "task": task_name}
+			if debug_enabled:
+				details["debug"] = debug_meta
+			raise AnalyzeError(code=ErrorCode.JOB_STAGE_FAILED, message="LLM rate limited", details=details)
+		if status >= 400:
+			details = {"reason": "upstream_error", "task": task_name, "httpStatus": status}
+			if debug_enabled:
+				details["debug"] = debug_meta
+			raise AnalyzeError(code=ErrorCode.JOB_STAGE_FAILED, message="LLM returned error", details=details)
+
+		try:
+			body = resp.json()
+		except Exception:
+			details = {"reason": "invalid_llm_output", "task": task_name, "httpStatus": status, "bodyLen": len(resp.text or "")}
+			if debug_enabled:
+				details["debug"] = debug_meta
+			raise AnalyzeError(code=ErrorCode.JOB_STAGE_FAILED, message="LLM returned non-JSON response", details=details)
+
+		parsed = _parse_anthropic_style_json(body)
+		if not isinstance(parsed, dict):
+			raise AnalyzeError(
+				code=ErrorCode.JOB_STAGE_FAILED,
+				message="LLM output is not a JSON object",
+				details={"reason": "invalid_llm_output", "task": task_name},
+			)
+		return parsed
+
+
+def _parse_anthropic_style_json(body: Any) -> Any:
+	"""Extract a JSON object from Anthropic Messages API response."""
+	if isinstance(body, dict):
+		content = body.get("content")
+		if isinstance(content, list) and content:
+			parts: list[str] = []
+			for b in content:
+				if not isinstance(b, dict):
+					continue
+				if b.get("type") == "text" and isinstance(b.get("text"), str):
+					parts.append(b["text"])
+			text = "".join(parts).strip()
+			return _parse_content_as_json(text)
+	# Fall back to raw body (may already be a JSON object)
+	return body
+
+
 def _parse_openai_style_json(body: Any) -> Any:
 	"""Extract a JSON object from common OpenAI-compatible response shapes."""
 
@@ -315,7 +523,7 @@ def _parse_content_as_json(content: Any) -> Any:
 		)
 
 
-def llm_provider_from_env(*, transport: httpx.BaseTransport | None = None) -> LLMAnalyzeProvider:
+def llm_provider_from_env(*, transport: httpx.BaseTransport | None = None) -> AnalyzeProvider:
 	api_base = _env_str("LLM_API_BASE")
 	api_key = _env_str("LLM_API_KEY")
 	model = _normalize_model_id(_env_str("LLM_MODEL") or "minimaxai/minimax-m2.1")
@@ -332,14 +540,19 @@ def llm_provider_from_env(*, transport: httpx.BaseTransport | None = None) -> LL
 			},
 		)
 
+	api_kind = (_env_str("LLM_API_KIND") or "").strip().lower() or None
+	if api_kind == "anthropic" or _is_anthropic_base_url(api_base):
+		return AnthropicAnalyzeProvider(api_base=api_base, api_key=api_key, model=model, timeout_s=timeout_s, transport=transport)
 	return LLMAnalyzeProvider(api_base=api_base, api_key=api_key, model=model, timeout_s=timeout_s, transport=transport)
 
 
-def _try_llm_provider_from_sqlite(*, transport: httpx.BaseTransport | None = None) -> LLMAnalyzeProvider | None:
+def _try_llm_runtime_from_sqlite(*, transport: httpx.BaseTransport | None = None) -> LLMRuntimeConfig | None:
 	"""Build an LLM provider from SQLite (active selection + encrypted secret).
 
 	Returns None when there is no active selection.
+	Falls back to custom providers table when provider_id is not in the static catalog.
 	"""
+	from core.db.repositories.llm_settings import get_custom_provider, list_custom_models
 
 	SessionLocal = get_sessionmaker()
 	with SessionLocal() as session:
@@ -353,24 +566,49 @@ def _try_llm_provider_from_sqlite(*, transport: httpx.BaseTransport | None = Non
 
 		provider_id = (active.get("providerId") or "").strip().lower()
 		model_id = (active.get("modelId") or "").strip()
-		provider = find_provider(provider_id)
-		if provider is None:
-			raise AnalyzeError(
-				code=ErrorCode.JOB_STAGE_FAILED,
-				message="Invalid LLM settings",
-				details={"reason": "unknown_provider", "providerId": provider_id},
-			)
 
-		runtime_model = resolve_runtime_model_name(provider_id=provider.provider_id, model_id=model_id)
-		if not runtime_model:
-			raise AnalyzeError(
-				code=ErrorCode.JOB_STAGE_FAILED,
-				message="Invalid LLM settings",
-				details={"reason": "model_not_found", "providerId": provider.provider_id, "modelId": model_id},
-			)
+		# Try static catalog first.
+		static_provider = find_provider(provider_id)
+
+		if static_provider is not None:
+			# Static provider: check if the model exists in catalog OR as a custom model.
+			runtime_model = resolve_runtime_model_name(provider_id=static_provider.provider_id, model_id=model_id)
+			if runtime_model is None:
+				# Check if it's a custom model appended to this provider.
+				custom_models = list_custom_models(session, provider_id=provider_id)
+				if any(c["modelId"] == model_id for c in custom_models):
+					runtime_model = model_id  # Custom model IDs are used as-is.
+			if not runtime_model:
+				raise AnalyzeError(
+					code=ErrorCode.JOB_STAGE_FAILED,
+					message="Invalid LLM settings",
+					details={"reason": "model_not_found", "providerId": static_provider.provider_id, "modelId": model_id},
+				)
+			api_base = static_provider.base_url
+			resolved_provider_id = static_provider.provider_id
+		else:
+			# Check custom providers table.
+			custom_provider = get_custom_provider(session, provider_id=provider_id)
+			if custom_provider is None:
+				raise AnalyzeError(
+					code=ErrorCode.JOB_STAGE_FAILED,
+					message="Invalid LLM settings",
+					details={"reason": "unknown_provider", "providerId": provider_id},
+				)
+			api_base = custom_provider.get("baseUrl", "")
+			resolved_provider_id = provider_id
+			# For custom providers, runtime model = model_id as-is.
+			custom_models = list_custom_models(session, provider_id=provider_id)
+			if not any(c["modelId"] == model_id for c in custom_models):
+				raise AnalyzeError(
+					code=ErrorCode.JOB_STAGE_FAILED,
+					message="Invalid LLM settings",
+					details={"reason": "model_not_found", "providerId": provider_id, "modelId": model_id},
+				)
+			runtime_model = model_id
 
 		try:
-			ciphertext = get_llm_provider_secret_ciphertext(session, provider_id=provider.provider_id)
+			ciphertext = get_llm_provider_secret_ciphertext(session, provider_id=resolved_provider_id)
 		except OperationalError:
 			return None
 		if not ciphertext:
@@ -390,45 +628,55 @@ def _try_llm_provider_from_sqlite(*, transport: httpx.BaseTransport | None = Non
 			)
 
 	timeout_s = float(_env_int("LLM_TIMEOUT_S", 180))
-	return llm_provider_from_runtime(
-		api_base=provider.base_url,
+	return LLMRuntimeConfig(
+		provider_id=resolved_provider_id,
+		api_base=api_base,
 		api_key=api_key,
 		model=runtime_model,
-		timeout_s=int(timeout_s),
+		timeout_s=float(timeout_s),
+	)
+
+
+def llm_runtime_for_jobs(*, transport: httpx.BaseTransport | None = None) -> LLMRuntimeConfig | None:
+	"""Resolve LLM runtime config for background jobs."""
+	r = _try_llm_runtime_from_sqlite(transport=transport)
+	if r is not None:
+		return r
+
+	api_base = _env_str("LLM_API_BASE")
+	api_key = _env_str("LLM_API_KEY")
+	model = _normalize_model_id(_env_str("LLM_MODEL") or "minimaxai/minimax-m2.1")
+	timeout_s = float(_env_int("LLM_TIMEOUT_S", 180))
+	if not api_base or not api_key:
+		return None
+	return LLMRuntimeConfig(provider_id=None, api_base=api_base, api_key=api_key, model=model, timeout_s=timeout_s)
+
+
+def llm_provider_for_jobs(*, transport: httpx.BaseTransport | None = None) -> AnalyzeProvider | None:
+	"""Resolve an AnalyzeProvider for background jobs."""
+	rt = llm_runtime_for_jobs(transport=transport)
+	if rt is None:
+		logger.error("LLM not configured")
+		return None
+	return llm_provider_from_runtime(
+		provider_id=rt.provider_id,
+		api_base=rt.api_base,
+		api_key=rt.api_key,
+		model=rt.model,
+		timeout_s=int(rt.timeout_s),
 		transport=transport,
 	)
 
 
-def llm_provider_for_jobs(*, transport: httpx.BaseTransport | None = None) -> LLMAnalyzeProvider | None:
-	"""Resolve LLM runtime config for background jobs.
-
-	Precedence:
-	- If SQLite llm_active exists: use DB active + catalog + encrypted secret.
-	- Else: fall back to env-based config (requires ANALYZE_PROVIDER=llm).
-
-	Returns None when LLM is not enabled (env says rules and no DB active).
-	"""
-
-	provider = _try_llm_provider_from_sqlite(transport=transport)
-	if provider is not None:
-		return provider
-
-	try:
-		return llm_provider_from_env(transport=transport)
-	except AnalyzeError:
-		# Env-based LLM not properly configured -> treat as unavailable for jobs.
-		logger.error("LLM not configured")
-		return None
-
-
 def llm_provider_from_runtime(
 	*,
+	provider_id: str | None = None,
 	api_base: str | None,
 	api_key: str | None,
 	model: str | None,
 	timeout_s: int,
 	transport: httpx.BaseTransport | None = None,
-) -> LLMAnalyzeProvider:
+) -> AnalyzeProvider:
 	"""Build an LLM provider from already-resolved runtime config.
 
 	This is used by pipeline stages that support dynamic, non-sensitive settings.
@@ -470,6 +718,16 @@ def llm_provider_from_runtime(
 			code=ErrorCode.JOB_STAGE_FAILED,
 			message="LLM credentials missing",
 			details={"reason": "missing_credentials", "suggest": "Set LLM_API_KEY"},
+		)
+
+	api_kind = (_env_str("LLM_API_KIND") or "").strip().lower() or None
+	if (provider_id or "").strip().lower() == "anthropic" or api_kind == "anthropic" or _is_anthropic_base_url(api_base):
+		return AnthropicAnalyzeProvider(
+			api_base=api_base,
+			api_key=api_key,
+			model=model,
+			timeout_s=float(max(1, int(timeout_s))),
+			transport=transport,
 		)
 
 	return LLMAnalyzeProvider(

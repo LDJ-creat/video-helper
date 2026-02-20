@@ -183,7 +183,7 @@ async def _llm_preflight_or_error(request: Request, session: Session) -> JSONRes
 
 	Rules:
 	- If SQLite `llm_active` exists: LLM is considered selected -> preflight required.
-	- Else: preflight required only when env `ANALYZE_PROVIDER=llm`.
+	- Else: preflight uses env `LLM_API_BASE`/`LLM_API_KEY` when present.
 
 	On failure, returns an error envelope response and job creation is aborted.
 	"""

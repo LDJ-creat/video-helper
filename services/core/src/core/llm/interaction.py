@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import uuid
 from typing import AsyncGenerator, Any
+from urllib.parse import urlparse
 
 import httpx
 
-from core.app.pipeline.analyze_provider import llm_provider_for_jobs, LLMAnalyzeProvider, AnalyzeError, ErrorCode, _env_int
+from core.app.pipeline.analyze_provider import llm_provider_for_jobs, llm_runtime_for_jobs, AnalyzeError, ErrorCode, _env_int
 from core.schemas.ai import QuizDTO, QuizItemDTO, ChatMessageDTO
 
 logger = logging.getLogger(__name__)
@@ -74,7 +77,6 @@ def generate_quiz(context_text: str, project_id: str, topic_focus: str | None = 
             explanation=item.get("explanation", "")
         ))
         
-    import uuid
     return QuizDTO(sessionId=str(uuid.uuid4()), items=items)
 
 
@@ -85,12 +87,10 @@ async def stream_chat(
 ) -> AsyncGenerator[str, None]:
     """Stream chat response."""
     
-    # We need async client. Reuse config logic from provider.
-    # This is a bit duplicative but safest to ensure async support without refactoring provider.
-    provider = llm_provider_for_jobs()
-    if not provider:
-         yield json.dumps({"error": "LLM not configured"})
-         return
+    rt = llm_runtime_for_jobs()
+    if rt is None:
+        yield json.dumps({"error": "LLM not configured"})
+        return
 
     # Construct messages
     sys_msg = "You are a helpful assistant answering questions about a video. Use the provided context."
@@ -102,20 +102,84 @@ async def stream_chat(
     for msg in history:
         messages.append({"role": msg.role, "content": msg.content})
 
-    # Prepare request
-    # Access private fields of provider (naughty but effective for quick-dev)
-    # OR better: use public properties if available. They are not.
-    # So we use protected members.
-    api_base = provider._api_base
-    api_key = provider._api_key
-    model = provider._model
-    timeout = provider._timeout_s
-    
-    url = api_base
-    # Fix URL construction logic duplication
-    if url.lower().endswith("/v1"):
+    def _is_anthropic_base_url(api_base: str) -> bool:
+        try:
+            p = urlparse(api_base)
+            host = (p.netloc or "").lower()
+            return host.endswith("anthropic.com")
+        except Exception:
+            return False
+
+    api_base = rt.api_base
+    api_key = rt.api_key
+    model = rt.model
+    timeout = float(max(1, int(rt.timeout_s)))
+
+    if (rt.provider_id or "").strip().lower() == "anthropic" or _is_anthropic_base_url(api_base):
+        url = api_base.rstrip("/")
+        lower = url.lower()
+        if lower.endswith("/v1/messages"):
+            pass
+        elif lower.endswith("/v1"):
+            url += "/messages"
+        else:
+            url += "/v1/messages"
+
+        system_parts = [m["content"] for m in messages if isinstance(m, dict) and m.get("role") == "system" and isinstance(m.get("content"), str)]
+        user_assistant = [m for m in messages if isinstance(m, dict) and m.get("role") in {"user", "assistant"}]
+        anth_msgs = []
+        for m in user_assistant:
+            content = m.get("content")
+            if not isinstance(content, str):
+                content = "" if content is None else str(content)
+            anth_msgs.append({"role": m.get("role"), "content": content})
+
+        payload = {
+            "model": model,
+            "max_tokens": 1024,
+            "messages": anth_msgs or [{"role": "user", "content": "Hello"}],
+            "temperature": 0.5,
+        }
+        if system_parts:
+            payload["system"] = "\n\n".join([p for p in system_parts if p.strip()])
+
+        version = (os.environ.get("ANTHROPIC_VERSION") or "2023-06-01").strip() or "2023-06-01"
+        headers = {
+            "x-api-key": api_key,
+            "anthropic-version": version,
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+
+        logger.info(f"Connecting to Anthropic at {url} with model {model}")
+
+        try:
+            async with httpx.AsyncClient(timeout=timeout, trust_env=True) as client:
+                resp = await client.post(url, json=payload, headers=headers)
+                if resp.status_code != 200:
+                    yield json.dumps({"content": f"\n\n**Error**: LLM Provider returned {resp.status_code}."})
+                    return
+                body = resp.json()
+                content = body.get("content") if isinstance(body, dict) else None
+                parts: list[str] = []
+                if isinstance(content, list):
+                    for b in content:
+                        if isinstance(b, dict) and b.get("type") == "text" and isinstance(b.get("text"), str):
+                            parts.append(b["text"])
+                full = "".join(parts).strip()
+                if full:
+                    yield full
+        except Exception as e:
+            logger.exception(f"Unexpected error in stream_chat (anthropic): {e}")
+            yield json.dumps({"content": f"\n\n**System Error**: {str(e)}"})
+        return
+
+    # OpenAI-compatible streaming
+    url = api_base.rstrip("/")
+    lower = url.lower()
+    if lower.endswith("/v1"):
         url += "/chat/completions"
-    elif url.lower().endswith("/chat/completions"):
+    elif lower.endswith("/chat/completions") or lower.endswith("/v1/chat/completions") or lower.endswith("/responses") or lower.endswith("/v1/responses"):
         pass
     else:
         url += "/v1/chat/completions"
@@ -123,16 +187,16 @@ async def stream_chat(
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
-        "Accept": "text/event-stream", # Standard for OpenAI streaming
+        "Accept": "text/event-stream",
     }
-    
+
     payload = {
         "model": model,
         "messages": messages,
         "stream": True,
         "temperature": 0.5,
     }
-    
+
     logger.info(f"Connecting to LLM at {url} with model {model}")
 
     try:
@@ -167,5 +231,5 @@ async def stream_chat(
                 logger.error(f"Read timeout from {url}: {e}")
                 yield json.dumps({"content": "\n\n**Timeout**: LLM didn't respond in time."})
     except Exception as e:
-         logger.exception(f"Unexpected error in stream_chat: {e}")
-         yield json.dumps({"content": f"\n\n**System Error**: {str(e)}"})
+        logger.exception(f"Unexpected error in stream_chat: {e}")
+        yield json.dumps({"content": f"\n\n**System Error**: {str(e)}"})

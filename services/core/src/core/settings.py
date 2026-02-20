@@ -109,12 +109,8 @@ The legacy settings.json mechanism is deprecated and intentionally ignored.
 API keys are intentionally excluded.
 """
 
-	provider = (_env_str("ANALYZE_PROVIDER") or "").lower()
-	if provider not in {"llm", "rules", ""}:
-		# Keep unknown values visible to the operator via API, but treat as-is.
-		provider = provider
-	if provider == "":
-		provider = "rules"
+	# The legacy ANALYZE_PROVIDER switch is deprecated; analysis is always LLM-based.
+	provider = "llm"
 
 	base_url = _env_str("LLM_API_BASE")
 	model = _env_str("LLM_MODEL")

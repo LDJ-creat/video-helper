@@ -19,19 +19,30 @@ class LLMCatalogProvider:
 
 _PROVIDERS: tuple[LLMCatalogProvider, ...] = (
 	LLMCatalogProvider(
+		provider_id="anthropic",
+		display_name="Anthropic (官方 Claude API)",
+		base_url="https://api.anthropic.com",
+		models=(
+			LLMCatalogModel(model_id="claude-opus-4-6", display_name="Claude Opus 4.6"),
+			LLMCatalogModel(model_id="claude-sonnet-4-6", display_name="Claude Sonnet 4.6"),
+		),
+	),
+	LLMCatalogProvider(
 		provider_id="openrouter",
 		display_name="OpenRouter",
 		base_url="https://openrouter.ai/api/v1",
 		models=(
 			# Claude 系列 (最新旗舰)
-			LLMCatalogModel(model_id="anthropic/claude-opus-4.5", display_name="Claude Opus 4.5"),
-			LLMCatalogModel(model_id="anthropic/claude-sonnet-4.5", display_name="Claude Sonnet 4.5"),
+			LLMCatalogModel(model_id="anthropic/claude-opus-4.6", display_name="Claude Opus 4.5"),
+			LLMCatalogModel(model_id="anthropic/claude-sonnet-4.6", display_name="Claude Sonnet 4.5"),
 			LLMCatalogModel(model_id="anthropic/claude-3.7-sonnet", display_name="Claude 3.7 Sonnet"),
 			# OpenAI 系列 (最新)
 			LLMCatalogModel(model_id="openai/gpt-5", display_name="GPT-5"),
 			LLMCatalogModel(model_id="openai/gpt-4.1", display_name="GPT-4.1"),
 			LLMCatalogModel(model_id="openai/gpt-4o", display_name="GPT-4o"),
 			# Google Gemini 系列
+			LLMCatalogModel(model_id="google/gemini-3-flash-preview", display_name="Gemini 3 Flash Preview"),
+			LLMCatalogModel(model_id="google/gemini-3-pro-preview", display_name="Gemini 3 Pro Preview"),
 			LLMCatalogModel(model_id="google/gemini-2.5-pro", display_name="Gemini 2.5 Pro"),
 			LLMCatalogModel(model_id="google/gemini-2.5-flash", display_name="Gemini 2.5 Flash"),
 			# DeepSeek 系列

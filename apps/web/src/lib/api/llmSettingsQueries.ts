@@ -7,8 +7,16 @@ import {
     updateProviderSecret,
     deleteProviderSecret,
     testActiveLlmSettings,
+    addCustomModel,
+    deleteCustomModel,
+    addCustomProvider,
+    deleteCustomProvider,
 } from "./llmSettingsApi";
-import type { UpdateActiveRequest } from "../contracts/llmSettingsTypes";
+import type {
+    UpdateActiveRequest,
+    AddCustomModelRequest,
+    AddCustomProviderRequest,
+} from "../contracts/llmSettingsTypes";
 
 // Query hook for LLM catalog
 export function useLlmCatalog() {
@@ -33,7 +41,6 @@ export function useUpdateActiveLlmSettings() {
     return useMutation({
         mutationFn: (request: UpdateActiveRequest) => updateActiveLlmSettings(request),
         onSuccess: () => {
-            // Invalidate both active settings and catalog (hasKey status may change)
             queryClient.invalidateQueries({ queryKey: queryKeys.llmActive });
             queryClient.invalidateQueries({ queryKey: queryKeys.llmCatalog });
         },
@@ -48,7 +55,6 @@ export function useUpdateProviderSecret() {
         mutationFn: ({ providerId, apiKey }: { providerId: string; apiKey: string }) =>
             updateProviderSecret(providerId, apiKey),
         onSuccess: () => {
-            // Invalidate catalog to refresh hasKey status
             queryClient.invalidateQueries({ queryKey: queryKeys.llmCatalog });
         },
     });
@@ -61,7 +67,6 @@ export function useDeleteProviderSecret() {
     return useMutation({
         mutationFn: (providerId: string) => deleteProviderSecret(providerId),
         onSuccess: () => {
-            // Invalidate catalog to refresh hasKey status
             queryClient.invalidateQueries({ queryKey: queryKeys.llmCatalog });
         },
     });
@@ -71,5 +76,52 @@ export function useDeleteProviderSecret() {
 export function useTestActiveLlmSettings() {
     return useMutation({
         mutationFn: testActiveLlmSettings,
+    });
+}
+
+// ─── Custom models ────────────────────────────────────────────────────────────
+
+export function useAddCustomModel() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ providerId, request }: { providerId: string; request: AddCustomModelRequest }) =>
+            addCustomModel(providerId, request),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: queryKeys.llmCatalog });
+        },
+    });
+}
+
+export function useDeleteCustomModel() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ providerId, modelId }: { providerId: string; modelId: string }) =>
+            deleteCustomModel(providerId, modelId),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: queryKeys.llmCatalog });
+        },
+    });
+}
+
+// ─── Custom providers ─────────────────────────────────────────────────────────
+
+export function useAddCustomProvider() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (request: AddCustomProviderRequest) => addCustomProvider(request),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: queryKeys.llmCatalog });
+        },
+    });
+}
+
+export function useDeleteCustomProvider() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (providerId: string) => deleteCustomProvider(providerId),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: queryKeys.llmCatalog });
+            queryClient.invalidateQueries({ queryKey: queryKeys.llmActive });
+        },
     });
 }

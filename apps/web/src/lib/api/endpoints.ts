@@ -30,6 +30,13 @@ export const endpoints = {
     llmActive: () => `${API_V1}/settings/llm/active`,
     llmProviderSecret: (providerId: string) => `${API_V1}/settings/llm/providers/${providerId}/secret`,
     llmTest: () => `${API_V1}/settings/llm/active/test`,
+    // Custom model endpoints
+    llmProviderModels: (providerId: string) => `${API_V1}/settings/llm/providers/${providerId}/models`,
+    llmProviderModel: (providerId: string, modelId: string) =>
+        `${API_V1}/settings/llm/providers/${providerId}/models/${encodeURIComponent(modelId)}`,
+    // Custom provider endpoints
+    llmCustomProviders: () => `${API_V1}/settings/llm/custom-providers`,
+    llmCustomProvider: (providerId: string) => `${API_V1}/settings/llm/custom-providers/${providerId}`,
     // AI Features
     chat: () => `${API_V1}/chat/completions`,
     chatSessions: (projectId: string) => `${API_V1}/chat/sessions?projectId=${projectId}`,
@@ -38,5 +45,8 @@ export const endpoints = {
     quizSave: () => `${API_V1}/quiz/save`,
     quizSessions: (projectId: string) => `${API_V1}/quiz/sessions?projectId=${projectId}`,
     quizSession: (sessionId: string) => `${API_V1}/quiz/sessions/${sessionId}`,
+    // yt-dlp Cookies
+    ytdlpCookiesUpload: () => `${API_V1}/settings/ytdlp/cookies`,
+    ytdlpCookiesStatus: () => `${API_V1}/settings/ytdlp/cookies/status`,
 };
 
