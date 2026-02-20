@@ -68,6 +68,18 @@
             "submit": "Create Analysis Task",
             "submitting": "Uploading..."
         },
+        "cookies": {
+            "sectionTitle": "Browser Cookies Configuration (Optional)",
+            "statusConfigured": "Configured ✓",
+            "statusNotConfigured": "Not Configured",
+            "description": "Some platforms (e.g. Bilibili) may require browser cookies to download videos. If you encounter download failures or access-blocked errors, upload your cookies file here.",
+            "guide": "How to get it: Install the \"Get cookies.txt LOCALLY\" extension in Chrome, open the target website, then click the extension icon to export the .txt file.",
+            "labelFile": "Upload Cookies File (.txt)",
+            "uploading": "Uploading...",
+            "uploadSuccess": "Cookies file uploaded and applied successfully",
+            "uploadError": "Upload failed, please try again",
+            "currentFile": "Currently configured: {fileName}"
+        },
         "error": "An unknown error occurred"
     },
     "Search": {

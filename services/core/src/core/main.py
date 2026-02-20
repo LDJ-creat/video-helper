@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import os
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 
@@ -18,20 +21,38 @@ from core.app.sse.jobs_sse import router as jobs_sse_router
 
 from core.app.middleware.cors import wire_cors
 
-from core.db.session import init_db
+from core.db.session import init_db, get_data_dir
 
 from core.app.worker.worker_loop import WorkerConfig, WorkerService
+
+logger = logging.getLogger(__name__)
+
+_COOKIES_FILE_NAME = "ytdlp_cookies.txt"
+
+
+def _auto_load_cookies() -> None:
+    """If a cookies file was previously uploaded, restore YTDLP_COOKIES_FILE
+    in this process at startup so yt-dlp picks it up without a manual .env edit."""
+    # Only override if not already set via .env / system environment.
+    if os.environ.get("YTDLP_COOKIES_FILE"):
+        return
+    cookies_path = Path(get_data_dir()) / "cookies" / _COOKIES_FILE_NAME
+    if cookies_path.exists():
+        os.environ["YTDLP_COOKIES_FILE"] = str(cookies_path)
+        logger.info("Auto-loaded ytdlp cookies file from: %s", cookies_path)
 
 
 def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         init_db()
+        _auto_load_cookies()
 
         worker = WorkerService(config=WorkerConfig.from_env())
         await worker.start()
         yield
         await worker.stop()
+
 
     app = FastAPI(title="video-helper core", lifespan=lifespan)
     wire_cors(app)

@@ -68,6 +68,18 @@
             "submit": "创建分析任务",
             "submitting": "上传中..."
         },
+        "cookies": {
+            "sectionTitle": "浏览器 Cookies 配置（可选）",
+            "statusConfigured": "已配置 ✓",
+            "statusNotConfigured": "未配置",
+            "description": "某些平台（如 Bilibili）可能需要浏览器 Cookies 才能正常下载视频。若遇到下载失败或被拒绝访问的情况，可在此上传 Cookies 文件。",
+            "guide": "获取方式：在 Chrome 中安装 \"Get cookies.txt LOCALLY\" 插件，打开目标网站后点击插件图标即可导出 .txt 文件。",
+            "labelFile": "上传 Cookies 文件（.txt）",
+            "uploading": "上传中...",
+            "uploadSuccess": "Cookies 文件已成功上传并生效",
+            "uploadError": "上传失败，请重试",
+            "currentFile": "当前已配置：{fileName}"
+        },
         "error": "发生未知错误"
     },
     "Search": {
