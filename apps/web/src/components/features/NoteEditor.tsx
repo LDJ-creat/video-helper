@@ -1,6 +1,7 @@
 "use client";
 
 import { useEditor, EditorContent, JSONContent, ReactNodeViewRenderer, NodeViewWrapper, NodeViewContent } from "@tiptap/react";
+
 import StarterKit from "@tiptap/starter-kit";
 import { Heading } from '@tiptap/extension-heading';
 import { Paragraph } from '@tiptap/extension-paragraph';
@@ -66,6 +67,23 @@ export interface NoteEditorRef {
     scrollToHighlight: (highlightId: string) => void;
 }
 
+// Enter key override: insert hardBreak inside paragraph instead of splitting
+const EnterInParagraph = Extension.create({
+    name: 'enterInParagraph',
+    addKeyboardShortcuts() {
+        return {
+            Enter: ({ editor }) => {
+                const { selection, doc } = editor.state;
+                const { $from } = selection;
+                if ($from.parent.type.name === 'paragraph') {
+                    return editor.commands.setHardBreak();
+                }
+                return false;
+            },
+        };
+    },
+});
+
 // Navigation Extension
 const NavigationExtension = Extension.create({
     name: 'navigation',
@@ -107,7 +125,29 @@ const HeadingBlock = ({ node, editor }: { node: any, editor: any }) => {
     );
 };
 
-const ParagraphBlock = ({ node, updateAttributes, editor }: { node: any, updateAttributes: any, editor: any }) => {
+const ParagraphBlock = ({ node, updateAttributes, editor, getPos }: { node: any, updateAttributes: any, editor: any, getPos: any }) => {
+    // Calculate highlight index within current block (top-level nodes only)
+    const highlightIndex = (() => {
+        if (!editor || typeof getPos !== 'function') return null;
+        try {
+            const pos = getPos();
+            const doc = editor.state.doc;
+            let idx = 0;
+            let found = false;
+            let offset = 0;
+            doc.content.forEach((n: any) => {
+                if (found) return;
+                if (n.type.name === 'heading') {
+                    idx = 0;
+                } else if (n.type.name === 'paragraph') {
+                    idx += 1;
+                    if (offset === pos) found = true;
+                }
+                offset += n.nodeSize;
+            });
+            return found ? idx : null;
+        } catch { return null; }
+    })();
     const hasTime = node.attrs.timeMs !== null && node.attrs.timeMs !== undefined;
     const keyframes = (node.attrs.keyframes || []) as Keyframe[];
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -157,12 +197,12 @@ const ParagraphBlock = ({ node, updateAttributes, editor }: { node: any, updateA
                     className={`flex-shrink-0 mt-1 w-[60px] flex flex-col items-center gap-1`}
                 >
                     <div
-                        className={`flex justify-center items-center h-6 ${hasTime ? 'cursor-pointer' : ''}`}
+                        className={`flex justify-center items-center h-6 w-full ${hasTime ? 'cursor-pointer' : ''}`}
                         onClick={hasTime ? () => editor.commands.navigateToTime(node.attrs.timeMs) : undefined}
                     >
                         {hasTime && (
                             <div className="p-1 rounded-full text-stone-300 hover:text-blue-600 hover:bg-blue-50 transition-all opacity-0 group-hover:opacity-100" title="点击跳转视频">
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
                             </div>
                         )}
                     </div>
@@ -203,7 +243,12 @@ const ParagraphBlock = ({ node, updateAttributes, editor }: { node: any, updateA
                             ))}
                         </div>
                     )}
-                    <NodeViewContent className="text-stone-700 leading-relaxed outline-none" />
+                    <div className="flex items-baseline gap-2">
+                        {highlightIndex !== null && (
+                            <span contentEditable={false} className="flex-shrink-0 text-xs font-semibold text-stone-400 select-none leading-relaxed mt-0.5">{highlightIndex}.</span>
+                        )}
+                        <NodeViewContent className="flex-1 text-stone-700 leading-relaxed outline-none" />
+                    </div>
                 </div>
             </NodeViewWrapper>
 
@@ -290,10 +335,20 @@ function tiptapToBlocks(json: JSONContent): ContentBlock[] {
         } else if (node.type === 'paragraph' && currentBlock) {
             const keyframes = (node.attrs?.keyframes || []) as Keyframe[];
 
+            // Support hardBreak nodes inside paragraph
+            const textParts: string[] = [];
+            (node.content || []).forEach((c: JSONContent) => {
+                if (c.type === 'hardBreak') {
+                    textParts.push('\n');
+                } else {
+                    textParts.push(c.text || '');
+                }
+            });
+
             const highlight: Highlight = {
                 highlightId: node.attrs?.highlightId || `hl_${Date.now()}_${Math.random()}`,
                 idx: currentBlock.highlights.length,
-                text: node.content?.map(c => c.text).join('') || '',
+                text: textParts.join(''),
                 startMs: node.attrs?.timeMs || currentBlock.startMs,
                 endMs: currentBlock.endMs,
                 keyframes: keyframes
@@ -384,6 +439,7 @@ export const NoteEditor = forwardRef<NoteEditorRef, NoteEditorProps>(({
             BlockAttributes,
             NavigationExtension,
             UploadExtension,
+            EnterInParagraph,
             Underline, TiptapHighlight, Link, TaskList, TaskItem, Typography, Placeholder, TextAlign
         ],
         content: blocksToTiptap(contentBlocks),
