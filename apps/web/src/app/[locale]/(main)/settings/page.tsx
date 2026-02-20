@@ -1,7 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { SettingsForm } from "@/components/features/SettingsForm";
+import { SettingsForm } from "@/components/features/settings/SettingsForm";
 
 export default function SettingsPage() {
     const t = useTranslations("Settings");

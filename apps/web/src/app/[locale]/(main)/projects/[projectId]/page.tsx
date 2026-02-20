@@ -4,9 +4,9 @@ import { useProjectDetail } from "@/lib/api/projectQueries";
 import { useLatestResult } from "@/lib/api/resultQueries";
 import { use } from "react";
 import { useRef, useState, useCallback } from "react";
-import { MindmapEditor } from "@/components/features/MindmapEditor";
-import { NoteEditor, NoteEditorRef } from "@/components/features/NoteEditor";
-import { VideoPlayer, VideoPlayerRef } from "@/components/features/VideoPlayer";
+import { MindmapEditor } from "@/components/features/editor/MindmapEditor";
+import { NoteEditor, NoteEditorRef } from "@/components/features/editor/NoteEditor";
+import { VideoPlayer, VideoPlayerRef } from "@/components/features/player/VideoPlayer";
 import { AssetRef } from "@/lib/contracts/resultTypes";
 
 export default function ProjectDetailPage({

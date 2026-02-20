@@ -3,8 +3,8 @@
 import { useProjects, useDeleteProject } from "@/lib/api/projectQueries";
 import Link from "next/link";
 import { useState } from "react";
-import { SearchInput } from "@/components/features/SearchInput";
-import { SearchResults } from "@/components/features/SearchResults";
+import { SearchInput } from "@/components/features/search/SearchInput";
+import { SearchResults } from "@/components/features/search/SearchResults";
 import { useSearch } from "@/lib/api/searchQueries";
 import { useTranslations } from "next-intl";
 
