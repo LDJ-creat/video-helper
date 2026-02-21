@@ -10,6 +10,7 @@ interface JobProgressProps {
 const STATUS_COLORS: Record<JobStatus, string> = {
     queued: "bg-gray-200 text-gray-700",
     running: "bg-blue-500 text-white",
+    blocked: "bg-gray-200 text-gray-700",
     succeeded: "bg-green-500 text-white",
     failed: "bg-red-500 text-white",
     canceled: "bg-gray-500 text-white",
@@ -18,6 +19,7 @@ const STATUS_COLORS: Record<JobStatus, string> = {
 const STATUS_TEXT: Record<JobStatus, string> = {
     queued: "队列中",
     running: "运行中",
+    blocked: "等待外部服务完成分析",
     succeeded: "成功",
     failed: "失败",
     canceled: "已取消",

@@ -17,7 +17,7 @@ from core.app.sse.event_bus import GLOBAL_JOB_EVENT_BUS
 from core.app.logs.job_logs import append_job_log
 from core.app.pipeline.analyze_provider import AnalyzeError
 from core.app.pipeline.keyframes import extract_keyframes_at_times, map_keyframes_error
-from core.app.pipeline.llm_plan import generate_plan
+from core.app.pipeline.llm_plan import generate_plan, validate_plan
 from core.app.pipeline.transcribe_real import map_transcribe_error, run_real_transcribe
 from core.contracts.error_codes import ErrorCode
 from core.db.session import get_sessionmaker
@@ -341,7 +341,45 @@ class PipelineJobProcessor:
                 GLOBAL_JOB_EVENT_BUS.emit_state(job_id=job.job_id, project_id=job.project_id, stage=job.stage, message="status=running")
                 GLOBAL_JOB_EVENT_BUS.emit_progress(job_id=job.job_id, project_id=job.project_id, stage=job.stage, progress=job.progress, message="progress=0.6")
 
-                plan = generate_plan(transcript=job.transcript or {}, output_language=getattr(job, "output_language", None))
+                llm_mode = (getattr(job, "llm_mode", None) or "backend").strip().lower()
+                if llm_mode == "external":
+                    external = getattr(job, "external_plan", None)
+                    if not isinstance(external, dict):
+                        # Release the worker slot and wait for an external plan submission.
+                        now_ms = _now_ms()
+                        job.status = "blocked"
+                        job.stage = "plan"
+                        job.progress = max(job.progress or 0.0, 0.6)
+                        job.claimed_by = None
+                        job.claim_token = None
+                        job.lease_expires_at_ms = None
+                        job.updated_at_ms = now_ms
+                        session.add(job)
+                        session.commit()
+
+                        _log(
+                            job_id=job.job_id,
+                            project_id=job.project_id,
+                            stage=job.stage,
+                            level="info",
+                            message="external plan required; job moved to blocked",
+                        )
+                        GLOBAL_JOB_EVENT_BUS.emit_state(
+                            job_id=job.job_id,
+                            project_id=job.project_id,
+                            stage=job.stage,
+                            message="status=blocked",
+                        )
+                        return
+
+                    plan = validate_plan(external)
+                    # Persist normalized plan for consistency.
+                    job.external_plan = plan
+                    job.updated_at_ms = _now_ms()
+                    session.add(job)
+                    session.commit()
+                else:
+                    plan = generate_plan(transcript=job.transcript or {}, output_language=getattr(job, "output_language", None))
                 content_blocks = plan.get("contentBlocks") if isinstance(plan, dict) else None
                 mindmap = plan.get("mindmap") if isinstance(plan, dict) else None
                 if not isinstance(content_blocks, list) or not isinstance(mindmap, dict):
@@ -412,15 +450,20 @@ class PipelineJobProcessor:
                     for h in hls:
                         if not isinstance(h, dict):
                             continue
-                        kfs = h.get("keyframes")
-                        if not isinstance(kfs, list):
-                            continue
-                        for kf in kfs:
-                            if not isinstance(kf, dict):
-                                continue
-                            tm = kf.get("timeMs")
+                        kf_single = h.get("keyframe")
+                        if isinstance(kf_single, dict):
+                            tm = kf_single.get("timeMs")
                             if isinstance(tm, int):
                                 times_ms.append(int(tm))
+
+                        kfs = h.get("keyframes")
+                        if isinstance(kfs, list):
+                            for kf in kfs:
+                                if not isinstance(kf, dict):
+                                    continue
+                                tm = kf.get("timeMs")
+                                if isinstance(tm, int):
+                                    times_ms.append(int(tm))
 
                 keyframes_artifacts = extract_keyframes_at_times(
                     session=session,

@@ -432,7 +432,11 @@ def update_highlight_keyframes(
 			valid_keyframes.append(new_kf)
 
 		hl["keyframes"] = valid_keyframes
-		hl.pop("keyframe", None) # Cleanup legacy
+		# Keep legacy single keyframe in sync for older clients/tests.
+		if valid_keyframes:
+			hl["keyframe"] = valid_keyframes[0]
+		else:
+			hl.pop("keyframe", None)
 		flag_modified(result, "content_blocks")
 
 	updated_at_ms = _now_ms()
@@ -446,6 +450,121 @@ def update_highlight_keyframes(
 			content=build_error_envelope(
 				code=ErrorCode.INTERNAL_ERROR,
 				message="Failed to update highlight keyframes",
+				details={"projectId": projectId, "highlightId": highlightId},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
+	resp = UpdatedAtResponseDTO(updatedAtMs=updated_at_ms)
+	return JSONResponse(status_code=200, content=resp.model_dump(), headers={"ETag": _etag_for_updated_at(updated_at_ms)})
+
+
+@router.put("/projects/{projectId}/results/latest/highlights/{highlightId}/keyframe", response_model=UpdatedAtResponseDTO)
+def update_highlight_keyframe(
+	projectId: str,
+	highlightId: str,
+	request: Request,
+	payload: dict = Body(...),
+	session: Session = Depends(get_db_session),
+):
+	"""Legacy-compatible: update a single highlight keyframe."""
+	result, err = _get_latest_result_or_error(project_id=projectId, request=request, session=session)
+	if err is not None:
+		return err
+
+	content_blocks = result.content_blocks or []
+	found = _find_highlight(content_blocks, highlightId)
+	if found is None:
+		return JSONResponse(
+			status_code=404,
+			content=build_error_envelope(
+				code=ErrorCode.CHAPTER_NOT_FOUND,
+				message="Highlight does not exist",
+				details={"highlightId": highlightId},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
+	_, hl = found
+
+	asset_id = payload.get("assetId")
+	if asset_id is None:
+		# Clear keyframe
+		hl.pop("keyframe", None)
+		hl["keyframes"] = []
+		flag_modified(result, "content_blocks")
+
+		updated_at_ms = _now_ms()
+		result.updated_at_ms = updated_at_ms
+		try:
+			session.commit()
+		except Exception:
+			session.rollback()
+			return JSONResponse(
+				status_code=500,
+				content=build_error_envelope(
+					code=ErrorCode.INTERNAL_ERROR,
+					message="Failed to clear highlight keyframe",
+					details={"projectId": projectId, "highlightId": highlightId},
+					request_id=getattr(request.state, "request_id", None),
+				),
+			)
+
+		resp = UpdatedAtResponseDTO(updatedAtMs=updated_at_ms)
+		return JSONResponse(status_code=200, content=resp.model_dump(), headers={"ETag": _etag_for_updated_at(updated_at_ms)})
+
+	if not _is_non_empty_str(asset_id):
+		return _validation_error(request=request, message="assetId must be a non-empty string")
+	asset_id = str(asset_id)
+	asset = get_asset_by_id(session, asset_id)
+	if asset is None:
+		return JSONResponse(
+			status_code=404,
+			content=build_error_envelope(
+				code=ErrorCode.ASSET_NOT_FOUND,
+				message="Asset does not exist",
+				details={"assetId": asset_id},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+	if asset.project_id != projectId:
+		return JSONResponse(
+			status_code=400,
+			content=build_error_envelope(
+				code=ErrorCode.ASSET_NOT_IN_PROJECT,
+				message="Asset does not belong to project",
+				details={"assetId": asset_id, "projectId": projectId},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
+	time_ms = payload.get("timeMs")
+	caption = payload.get("caption")
+
+	kf_out: dict = {"assetId": asset_id, "contentUrl": f"/api/v1/assets/{asset_id}/content"}
+	if isinstance(time_ms, int):
+		kf_out["timeMs"] = int(time_ms)
+		# Keep Asset metadata in sync for downstream display/debugging.
+		asset.time_ms = int(time_ms)
+		session.add(asset)
+	if _is_non_empty_str(caption):
+		kf_out["caption"] = str(caption).strip()
+
+	hl["keyframe"] = kf_out
+	hl["keyframes"] = [kf_out]
+	flag_modified(result, "content_blocks")
+
+	updated_at_ms = _now_ms()
+	result.updated_at_ms = updated_at_ms
+	try:
+		session.commit()
+	except Exception:
+		session.rollback()
+		return JSONResponse(
+			status_code=500,
+			content=build_error_envelope(
+				code=ErrorCode.INTERNAL_ERROR,
+				message="Failed to update highlight keyframe",
 				details={"projectId": projectId, "highlightId": highlightId},
 				request_id=getattr(request.state, "request_id", None),
 			),

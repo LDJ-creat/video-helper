@@ -29,6 +29,14 @@ class Job(Base):
     # Examples: "zh-Hans", "en", "auto".
     output_language: Mapped[str | None] = mapped_column(String, nullable=True)
 
+    # LLM execution mode for the pipeline.
+    # - "backend": backend calls configured LLM provider (default)
+    # - "external": backend waits for an externally provided plan (AI editor)
+    llm_mode: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    # External plan payload (validated/normalized) provided by AI editor.
+    external_plan: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
 
     # Optional artifact refs (DATA_DIR-relative) for real pipeline.
     audio_ref: Mapped[str | None] = mapped_column(String, nullable=True)

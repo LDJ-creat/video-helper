@@ -1,5 +1,5 @@
 // Job status and stage types (aligned with API contract)
-export type JobStatus = "queued" | "running" | "succeeded" | "failed" | "canceled";
+export type JobStatus = "queued" | "running" | "blocked" | "succeeded" | "failed" | "canceled";
 
 export type JobStage =
   | "ingest"

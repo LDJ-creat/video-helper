@@ -180,6 +180,10 @@ def _ensure_sqlite_schema_compat() -> None:
 			conn.execute(text("ALTER TABLE jobs ADD COLUMN transcript_meta TEXT"))
 		if "output_language" not in job_cols:
 			conn.execute(text("ALTER TABLE jobs ADD COLUMN output_language TEXT"))
+		if "llm_mode" not in job_cols:
+			conn.execute(text("ALTER TABLE jobs ADD COLUMN llm_mode TEXT"))
+		if "external_plan" not in job_cols:
+			conn.execute(text("ALTER TABLE jobs ADD COLUMN external_plan TEXT"))
 
 		# results.updated_at_ms was added for editing APIs (note/mindmap/keyframes).
 		try:

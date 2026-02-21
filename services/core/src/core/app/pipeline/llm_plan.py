@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from core.app.pipeline.analyze_provider import AnalyzeError, AnalyzeProvider, llm_provider_for_jobs
 from core.contracts.error_codes import ErrorCode
@@ -22,7 +22,10 @@ class PlanHighlight(BaseModel):
     text: str
     startMs: int
     endMs: int
-    keyframes: list[PlanKeyframe] = []
+    # Legacy-compatible: many parts of the app/tests still use a single `keyframe`.
+    keyframe: PlanKeyframe | None = None
+    # Forward-compatible: allow a list as well; we normalize to keep `keyframe` in sync.
+    keyframes: list[PlanKeyframe] = Field(default_factory=list)
 
 
 class PlanContentBlock(BaseModel):
@@ -31,7 +34,7 @@ class PlanContentBlock(BaseModel):
     title: str = ""
     startMs: int
     endMs: int
-    highlights: list[PlanHighlight] = []
+    highlights: list[PlanHighlight] = Field(default_factory=list)
 
 
 class PlanMindmapNode(BaseModel):
@@ -39,7 +42,7 @@ class PlanMindmapNode(BaseModel):
     type: str = "topic"  # root | topic | detail
     label: str = ""
     level: int = 1  # 0=root, 1=topic, 2=detail
-    data: dict = {}
+    data: dict = Field(default_factory=dict)
 
 
 class PlanMindmapEdge(BaseModel):
@@ -50,8 +53,8 @@ class PlanMindmapEdge(BaseModel):
 
 
 class PlanMindmap(BaseModel):
-    nodes: list[PlanMindmapNode] = []
-    edges: list[PlanMindmapEdge] = []
+    nodes: list[PlanMindmapNode] = Field(default_factory=list)
+    edges: list[PlanMindmapEdge] = Field(default_factory=list)
 
 
 class PlanOutput(BaseModel):
@@ -165,41 +168,49 @@ def _normalize_plan_payload(plan: dict) -> dict:
             hs = _as_int(h.get("startMs"))
             he = _as_int(h.get("endMs"))
 
-            # Normalize keyframes
-            kfs = h.get("keyframes")
-            if kfs is None:
-                kfs = []
-                kf_single = h.get("keyframe")
-                if isinstance(kf_single, dict):
-                    kfs.append(kf_single)
-            
-            if not isinstance(kfs, list):
-                kfs = []
+            # Normalize keyframe(s): keep legacy `keyframe` and optional `keyframes`.
+            candidates: list[dict] = []
 
-            # If no timeMs but explicit top-level timeMs, assign to first keyframe (legacy compat)
-            if not kfs and "timeMs" in h:
+            kf_single = h.get("keyframe")
+            if isinstance(kf_single, dict):
+                candidates.append(kf_single)
+
+            kfs = h.get("keyframes")
+            if isinstance(kfs, list):
+                candidates.extend([kf for kf in kfs if isinstance(kf, dict)])
+
+            # If no explicit keyframe object but highlight provides a point time, synthesize a keyframe.
+            if not candidates and "timeMs" in h:
                 tm = _as_int(h.get("timeMs"))
                 if tm is not None:
-                    kfs.append({"timeMs": int(tm)})
+                    candidates.append({"timeMs": int(tm)})
 
-            valid_kfs = []
-            for kf in kfs:
-                if isinstance(kf, dict) and "timeMs" in kf:
-                    tm = _as_int(kf.get("timeMs"))
-                    if tm is not None:
-                        upper = max(b_start, int(b_end) - 1)
-                        kf["timeMs"] = max(b_start, min(int(tm), upper))
-                        valid_kfs.append(kf)
-            h["keyframes"] = valid_kfs
-            # Remove legacy
-            h.pop("keyframe", None)
+            valid_kfs: list[dict] = []
+            for kf in candidates:
+                tm = _as_int(kf.get("timeMs"))
+                if tm is None:
+                    continue
+                upper = max(b_start, int(b_end) - 1)
+                tm2 = max(b_start, min(int(tm), upper))
+                kf2: dict = {"timeMs": int(tm2)}
+                for opt in ("assetId", "contentUrl", "caption"):
+                    if opt in kf and (kf.get(opt) is None or isinstance(kf.get(opt), (str, int))):
+                        kf2[opt] = kf.get(opt)
+                valid_kfs.append(kf2)
+
+            if valid_kfs:
+                h["keyframe"] = valid_kfs[0]
+                h["keyframes"] = valid_kfs
+            else:
+                h.pop("keyframe", None)
+                h["keyframes"] = []
 
             # If still missing a highlight range, synthesize it around first keyframe time.
             if hs is None or he is None:
                 tm = None
-                kfs = h.get("keyframes", [])
-                if kfs and isinstance(kfs[0], dict):
-                    tm = _as_int(kfs[0].get("timeMs"))
+                kf = h.get("keyframe")
+                if isinstance(kf, dict):
+                    tm = _as_int(kf.get("timeMs"))
                 
                 if tm is None:
                     tm = _as_int(h.get("timeMs"))
@@ -300,6 +311,10 @@ def _normalize_plan_payload(plan: dict) -> dict:
     if isinstance(mindmap, dict):
         nodes = mindmap.get("nodes")
         if isinstance(nodes, list):
+            had_explicit_type = any(
+                isinstance(n, dict) and isinstance(n.get("type"), str) and n.get("type")
+                for n in nodes
+            )
             for n in nodes:
                 if not isinstance(n, dict):
                     continue
@@ -347,6 +362,50 @@ def _normalize_plan_payload(plan: dict) -> dict:
                 # Ensure label is a string.
                 if not isinstance(n.get("label"), str):
                     n["label"] = str(n.get("label", ""))
+
+            # Near-miss normalization: when the model didn't provide explicit types at all,
+            # we auto-insert a root node to make the graph renderable.
+            # If the caller DID provide explicit types but forgot/removed root, keep it strict
+            # and let validate_plan fail (tests rely on this).
+            has_root = any(isinstance(n, dict) and n.get("type") == "root" for n in nodes)
+            if nodes and (not has_root) and (not had_explicit_type):
+                existing_ids = {n.get("id") for n in nodes if isinstance(n, dict) and isinstance(n.get("id"), str)}
+                root_id = "n0"
+                if root_id in existing_ids:
+                    root_id = "n_root"
+                if root_id in existing_ids:
+                    i = 1
+                    while f"n_root{i}" in existing_ids:
+                        i += 1
+                    root_id = f"n_root{i}"
+
+                root_node = {"id": root_id, "type": "root", "label": "Video", "level": 0, "data": {}}
+                nodes.append(root_node)
+
+                edges = mindmap.get("edges")
+                if not isinstance(edges, list):
+                    edges = []
+                    mindmap["edges"] = edges
+
+                incoming: set[str] = set()
+                for e in edges:
+                    if isinstance(e, dict) and isinstance(e.get("target"), str):
+                        incoming.add(e.get("target"))
+
+                # Connect root -> all topic nodes without incoming edges.
+                edge_i = len([e for e in edges if isinstance(e, dict)])
+                for n in nodes:
+                    if not isinstance(n, dict):
+                        continue
+                    nid = n.get("id")
+                    if not isinstance(nid, str) or not nid or nid == root_id:
+                        continue
+                    if n.get("type") != "topic":
+                        continue
+                    if nid in incoming:
+                        continue
+                    edges.append({"id": f"e_auto_{edge_i}", "source": root_id, "target": nid})
+                    edge_i += 1
 
         # Normalize edges: from/to -> source/target.
         edges = mindmap.get("edges")
@@ -691,7 +750,50 @@ def generate_plan(
             )
         provider = resolved
 
-    segments = transcript.get("segments")
+    req = build_plan_request(transcript=transcript, summaries=summaries, output_language=output_language)
+    messages = req.get("messages")
+    if not isinstance(messages, list):
+        raise AnalyzeError(
+            code=ErrorCode.JOB_STAGE_FAILED,
+            message="Invalid plan request",
+            details={"reason": "plan_request_invalid"},
+        )
+
+    res = provider.generate_json("plan", {"messages": messages})
+
+    if not isinstance(res, dict):
+        raise AnalyzeError(
+            code=ErrorCode.JOB_STAGE_FAILED,
+            message="Invalid LLM output",
+            details={"reason": "invalid_llm_output", "task": "plan", "outputType": type(res).__name__},
+        )
+
+    try:
+        return validate_plan(res)
+    except ValidationError as e:
+        # Keep stable attribution for callers/tests: it's still invalid LLM output.
+        details: dict[str, object] = {"reason": "invalid_llm_output", "task": "plan", "error": str(e), "validation": True}
+        details["errors"] = e.errors()
+        raise AnalyzeError(code=ErrorCode.JOB_STAGE_FAILED, message="Invalid LLM output (schema)", details=details)
+    except ValueError as e:
+        details: dict[str, object] = {"reason": "invalid_llm_output", "task": "plan", "error": str(e)}
+        details["outputKeys"] = sorted([str(k) for k in res.keys()])
+        raise AnalyzeError(code=ErrorCode.JOB_STAGE_FAILED, message="Invalid LLM output", details=details)
+
+
+def build_plan_request(
+    *,
+    transcript: dict,
+    summaries: list[dict] | None = None,
+    output_language: str | None = None,
+) -> dict:
+    """Build the LLM request payload for the plan stage.
+
+    Intended for external AI editors (llmMode=external) so they can reproduce
+    the backend's prompts/schema and submit a validated plan back.
+    """
+
+    segments = transcript.get("segments") if isinstance(transcript, dict) else None
     if not isinstance(segments, list):
         segments = []
     seg_dicts = [s for s in segments if isinstance(s, dict)]
@@ -720,7 +822,6 @@ def generate_plan(
         "Schema keys MUST be exactly: schemaVersion, contentBlocks, mindmap. All times MUST be int ms. "
         "contentBlocks[] item: {blockId:str, idx:int, title:str, startMs:int, endMs:int, highlights:[...]}. "
         "highlights[] item: {highlightId:str, idx:int, text:str, startMs:int, endMs:int, keyframes?:[{timeMs:int}]}. "
-        # Mindmap structure specification
         "mindmap: {nodes:[], edges:[]}. "
         "node fields: {id:str, type:str, label:str, level:int, data:{targetBlockId?:str, targetHighlightId?:str}}. "
         "node types: exactly 1 root(type=\"root\",level=0,no targetBlockId); "
@@ -742,30 +843,14 @@ def generate_plan(
     if isinstance(summaries, list) and summaries:
         user_payload["summaries"] = summaries
 
-    res = provider.generate_json(
-        "plan",
-        {
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": _json_dumps_compact(user_payload)},
-            ],
-        },
-    )
-
-    if not isinstance(res, dict):
-        raise AnalyzeError(
-            code=ErrorCode.JOB_STAGE_FAILED,
-            message="Invalid LLM output",
-            details={"reason": "invalid_llm_output", "task": "plan", "outputType": type(res).__name__},
-        )
-
-    try:
-        return validate_plan(res)
-    except ValidationError as e:
-        details: dict[str, object] = {"reason": "invalid_llm_output_validation", "task": "plan", "error": str(e)}
-        details["errors"] = e.errors()
-        raise AnalyzeError(code=ErrorCode.JOB_STAGE_FAILED, message="Invalid LLM output (schema)", details=details)
-    except ValueError as e:
-        details: dict[str, object] = {"reason": "invalid_llm_output", "task": "plan", "error": str(e)}
-        details["outputKeys"] = sorted([str(k) for k in res.keys()])
-        raise AnalyzeError(code=ErrorCode.JOB_STAGE_FAILED, message="Invalid LLM output", details=details)
+    return {
+        "task": "plan",
+        "schemaVersion": "2026-02-06",
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": _json_dumps_compact(user_payload)},
+        ],
+        # Helpful for debugging / external tooling.
+        "system": system,
+        "userPayload": user_payload,
+    }

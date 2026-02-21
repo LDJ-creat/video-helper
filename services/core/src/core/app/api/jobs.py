@@ -28,6 +28,7 @@ from core.llm.secrets_crypto import decrypt_api_key
 from core.schemas.jobs import CreateJobRequest, JobCreatedDTO, JobDTO
 from core.schemas.logs import JobLogsPageDTO, LogItemDTO
 from core.app.logs.job_logs import read_job_logs_page
+from core.app.pipeline.llm_plan import build_plan_request, validate_plan
 from core.storage.layout import allocate_upload_path
 from core.external.ytdlp import fetch_video_title, probe_url_support
 
@@ -330,6 +331,17 @@ async def create_job(request: Request, session: Session = Depends(get_db_session
 		source_type_raw = (req.sourceType or "").strip().lower()
 		source_type_from_client = bool(source_type_raw)
 		source_type = source_type_raw or _infer_source_type_from_url(req.sourceUrl)
+		llm_mode = (req.llmMode or "backend").strip().lower()
+		if llm_mode not in {"backend", "external"}:
+			return JSONResponse(
+				status_code=400,
+				content=build_error_envelope(
+					code=ErrorCode.VALIDATION_ERROR,
+					message="Invalid llmMode",
+					details={"llmMode": req.llmMode},
+					request_id=getattr(request.state, "request_id", None),
+				),
+			)
 		if source_type == _UPLOAD_SOURCE_TYPE:
 			return JSONResponse(
 				status_code=400,
@@ -377,9 +389,10 @@ async def create_job(request: Request, session: Session = Depends(get_db_session
 					),
 				)
 
-		preflight = await _llm_preflight_or_error(request, session)
-		if preflight is not None:
-			return preflight
+		if llm_mode != "external":
+			preflight = await _llm_preflight_or_error(request, session)
+			if preflight is not None:
+				return preflight
 
 		now_ms = _now_ms()
 		canonical_url = _canonical_source_url(source_type, req.sourceUrl)
@@ -442,6 +455,7 @@ async def create_job(request: Request, session: Session = Depends(get_db_session
 			error=None,
 			attempt=0,
 			output_language=output_language,
+			llm_mode=llm_mode,
 			created_at_ms=now_ms,
 			updated_at_ms=now_ms,
 		)
@@ -455,6 +469,17 @@ async def create_job(request: Request, session: Session = Depends(get_db_session
 	if content_type.startswith("multipart/form-data"):
 		form = await request.form()
 		source_type = str(form.get("sourceType") or "").strip().lower()
+		llm_mode = str(form.get("llmMode") or "").strip().lower() or "backend"
+		if llm_mode not in {"backend", "external"}:
+			return JSONResponse(
+				status_code=400,
+				content=build_error_envelope(
+					code=ErrorCode.VALIDATION_ERROR,
+					message="Invalid llmMode",
+					details={"llmMode": llm_mode},
+					request_id=getattr(request.state, "request_id", None),
+				),
+			)
 		if source_type != _UPLOAD_SOURCE_TYPE:
 			return JSONResponse(
 				status_code=400,
@@ -488,9 +513,10 @@ async def create_job(request: Request, session: Session = Depends(get_db_session
 				),
 			)
 
-		preflight = await _llm_preflight_or_error(request, session)
-		if preflight is not None:
-			return preflight
+		if llm_mode != "external":
+			preflight = await _llm_preflight_or_error(request, session)
+			if preflight is not None:
+				return preflight
 
 		now_ms = _now_ms()
 		project_id = str(uuid.uuid4())
@@ -563,6 +589,7 @@ async def create_job(request: Request, session: Session = Depends(get_db_session
 			error=None,
 			attempt=0,
 			output_language=_normalize_output_language(str(form.get("outputLanguage") or "")),
+			llm_mode=llm_mode,
 			created_at_ms=now_ms,
 			updated_at_ms=now_ms,
 		)
@@ -641,6 +668,195 @@ def get_job(jobId: str, request: Request, session: Session = Depends(get_db_sess
 		error=job.error,
 		updatedAtMs=job.updated_at_ms,
 	)
+
+
+@router.get("/jobs/{jobId}/plan-request")
+def get_job_plan_request(jobId: str, request: Request, session: Session = Depends(get_db_session)):
+	"""Return the prompt/messages payload for external plan generation.
+
+	This is used when a job is created with llmMode=external.
+	"""
+
+	try:
+		uuid.UUID(jobId)
+	except ValueError:
+		return JSONResponse(
+			status_code=400,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message="Invalid jobId",
+				details={"jobId": jobId},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
+	job = get_job_by_id(session, jobId)
+	if job is None:
+		return JSONResponse(
+			status_code=404,
+			content=build_error_envelope(
+				code=ErrorCode.JOB_NOT_FOUND,
+				message="Job does not exist",
+				details={"jobId": jobId},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
+	llm_mode = (getattr(job, "llm_mode", None) or "backend").strip().lower()
+	if llm_mode != "external":
+		return JSONResponse(
+			status_code=400,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message="Job is not configured for external LLM",
+				details={"llmMode": llm_mode},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
+	if job.transcript is None:
+		return JSONResponse(
+			status_code=409,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message="Transcript not ready",
+				details={"reason": "transcript_not_ready"},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
+	plan_request = build_plan_request(transcript=job.transcript or {}, output_language=getattr(job, "output_language", None))
+	return {
+		"jobId": job.job_id,
+		"projectId": job.project_id,
+		"llmMode": "external",
+		"planRequest": plan_request,
+		"submitUrl": f"/api/v1/jobs/{job.job_id}/plan",
+	}
+
+
+@router.post("/jobs/{jobId}/plan")
+async def submit_job_plan(jobId: str, request: Request, session: Session = Depends(get_db_session)):
+	"""Submit an externally generated plan JSON for a blocked job."""
+
+	try:
+		uuid.UUID(jobId)
+	except ValueError:
+		return JSONResponse(
+			status_code=400,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message="Invalid jobId",
+				details={"jobId": jobId},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
+	job = get_job_by_id(session, jobId)
+	if job is None:
+		return JSONResponse(
+			status_code=404,
+			content=build_error_envelope(
+				code=ErrorCode.JOB_NOT_FOUND,
+				message="Job does not exist",
+				details={"jobId": jobId},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
+	llm_mode = (getattr(job, "llm_mode", None) or "backend").strip().lower()
+	if llm_mode != "external":
+		return JSONResponse(
+			status_code=400,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message="Job is not configured for external LLM",
+				details={"llmMode": llm_mode},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
+	if job.status == "running":
+		return JSONResponse(
+			status_code=409,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message="Job is running; cannot accept external plan right now",
+				details={"status": job.status},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
+	content_type = (request.headers.get("content-type") or "").lower()
+	if not content_type.startswith("application/json"):
+		return JSONResponse(
+			status_code=415,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message="Unsupported Content-Type",
+				details={"contentType": request.headers.get("content-type")},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
+	try:
+		payload = await request.json()
+	except Exception:
+		return JSONResponse(
+			status_code=400,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message="Invalid JSON body",
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
+	if not isinstance(payload, dict):
+		return JSONResponse(
+			status_code=400,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message="Invalid plan payload",
+				details={"reason": "plan_not_object"},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
+	try:
+		normalized = validate_plan(payload)
+	except Exception as e:
+		return JSONResponse(
+			status_code=400,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message="Invalid plan",
+				details={"reason": "invalid_plan", "error": str(e)},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
+	now_ms = _now_ms()
+	job.external_plan = normalized
+	job.status = "queued"
+	job.stage = "plan"
+	job.progress = max(job.progress or 0.0, 0.6)
+	job.error = None
+	job.claimed_by = None
+	job.claim_token = None
+	job.lease_expires_at_ms = None
+	job.updated_at_ms = now_ms
+	session.add(job)
+	session.commit()
+
+	# Best-effort notify watchers.
+	try:
+		GLOBAL_JOB_EVENT_BUS.emit_state(job_id=job.job_id, project_id=job.project_id, stage="plan", message="plan=submitted")
+		GLOBAL_JOB_EVENT_BUS.emit_state(job_id=job.job_id, project_id=job.project_id, stage="plan", message="status=queued")
+		GLOBAL_JOB_EVENT_BUS.emit_progress(job_id=job.job_id, project_id=job.project_id, stage="plan", progress=float(job.progress or 0.6), message="progress=0.6")
+	except Exception:
+		pass
+
+	return {"jobId": job.job_id, "status": job.status}
 
 
 @router.get("/jobs/{jobId}/logs", response_model=JobLogsPageDTO)
