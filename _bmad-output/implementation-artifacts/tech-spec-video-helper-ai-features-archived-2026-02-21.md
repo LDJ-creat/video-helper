@@ -3,7 +3,7 @@ title: 'Video Helper AI Features'
 slug: 'video-helper-ai-features'
 created: '2026-02-14'
 status: 'done'
-stepsCompleted: [1, 2, 3, 4]
+stepsCompleted: [1, 2, 3]
 tech_stack: ['FastAPI', 'Pydantic', 'Next.js', 'React Query', 'Tailwind CSS', 'PostgreSQL', 'SQLAlchemy']
 files_to_modify: 
     - 'apps/web/src/app/(main)/projects/[projectId]/results/page.tsx'
