@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -114,9 +115,41 @@ def map_transcribe_error(exc: Exception) -> dict:
 
 	# Model / dependency missing.
 	if isinstance(exc, AsrError) and exc.kind == "dependency_missing":
-		return {"code": ErrorCode.JOB_STAGE_FAILED, "message": "ASR dependency missing", "details": {"reason": "dependency_missing", "step": "asr"}}
+		details = {"reason": "dependency_missing", "step": "asr"}
+		if isinstance(getattr(exc, "details", None), dict):
+			for k in (
+				"type",
+				"error",
+				"missingFile",
+				"modelSize",
+				"modelDir",
+				"cacheDir",
+				"fallbackTried",
+				"downloadErrorType",
+				"downloadError",
+				"vad",
+			):
+				if k in exc.details:
+					details[k] = exc.details.get(k)
+		return {"code": ErrorCode.JOB_STAGE_FAILED, "message": "ASR dependency missing", "details": details}
 	if isinstance(exc, AsrError) and exc.kind == "model_missing":
-		return {"code": ErrorCode.JOB_STAGE_FAILED, "message": "ASR model not available", "details": {"reason": "model_missing", "step": "asr"}}
+		details = {"reason": "model_missing", "step": "asr"}
+		if isinstance(getattr(exc, "details", None), dict):
+			for k in (
+				"type",
+				"error",
+				"missingFile",
+				"modelSize",
+				"modelDir",
+				"cacheDir",
+				"fallbackTried",
+				"downloadErrorType",
+				"downloadError",
+				"vad",
+			):
+				if k in exc.details:
+					details[k] = exc.details.get(k)
+		return {"code": ErrorCode.JOB_STAGE_FAILED, "message": "ASR model not available", "details": details}
 
 	# Timeouts.
 	if isinstance(exc, (YtDlpError, FfmpegError)) and getattr(exc, "kind", None) == "timeout":
@@ -134,17 +167,28 @@ def map_transcribe_error(exc: Exception) -> dict:
 					details[k] = exc.details.get(k)
 		return {"code": ErrorCode.JOB_STAGE_FAILED, "message": "Media has no audio", "details": details}
 	if isinstance(exc, YtDlpError) and exc.kind == "content_error" and isinstance(getattr(exc, "details", None), dict):
+		if exc.details.get("type") == "invalid_source_url":
+			return {
+				"code": ErrorCode.JOB_STAGE_FAILED,
+				"message": "Invalid sourceUrl for yt-dlp",
+				"details": {
+					"reason": "invalid_source_url",
+					"step": "download",
+					"source": exc.details.get("source"),
+				},
+			}
 		if exc.details.get("cookiesError") in {"cookie_db_copy_failed", "cookie_dpapi_decrypt_failed"}:
 			return {
 				"code": ErrorCode.JOB_STAGE_FAILED,
 				"message": "Cannot read browser cookies on this machine. Export cookies.txt and pass it to yt-dlp.",
 				"details": {"reason": "cookies_required", "source": exc.details.get("source")},
 			}
-		if exc.details.get("blocked") is True and exc.details.get("httpStatus") == 412:
+		if exc.details.get("blocked") is True and isinstance(exc.details.get("httpStatus"), int):
+			status = int(exc.details.get("httpStatus"))
 			return {
 				"code": ErrorCode.JOB_STAGE_FAILED,
-				"message": "Source blocked by provider (HTTP 412). Provide cookies for yt-dlp.",
-				"details": {"reason": "content_blocked", "source": exc.details.get("source")},
+				"message": f"Source blocked by provider (HTTP {status}). Provide cookies for yt-dlp.",
+				"details": {"reason": "content_blocked", "source": exc.details.get("source"), "httpStatus": status},
 			}
 	if isinstance(exc, YtDlpError) and exc.kind == "output_not_found":
 		return {
@@ -222,7 +266,28 @@ def run_real_transcribe(
 		_progress(0.10, "download=starting")
 		if not plan.download_dir_abs or not plan.source_url:
 			raise ValueError("invalid url source plan")
-		res = download_with_ytdlp(url=plan.source_url, output_dir=plan.download_dir_abs / job_id, base_filename="source")
+		stop_evt = threading.Event()
+		start_ts = time.time()
+
+		def _download_heartbeat() -> None:
+			# Keep UX alive during long yt-dlp runs (which are otherwise a single blocking call).
+			interval_s = 15.0
+			raw = (os.environ.get("YTDLP_DOWNLOAD_HEARTBEAT_S") or "").strip()
+			if raw:
+				try:
+					interval_s = float(max(5.0, float(raw)))
+				except ValueError:
+					interval_s = 15.0
+			while not stop_evt.wait(interval_s):
+				elapsed = int(max(0.0, time.time() - start_ts))
+				_progress(0.10, f"download=running elapsed={elapsed}s")
+
+		th = threading.Thread(target=_download_heartbeat, name="ytdlp-download-heartbeat", daemon=True)
+		th.start()
+		try:
+			res = download_with_ytdlp(url=plan.source_url, output_dir=plan.download_dir_abs / job_id, base_filename="source")
+		finally:
+			stop_evt.set()
 		updated_source_path = res.rel_path
 		media_abs = res.abs_path
 		_progress(0.20, f"download=ok media={res.rel_path}")
