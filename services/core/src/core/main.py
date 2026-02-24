@@ -46,6 +46,7 @@ def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         init_db()
+        logger.info("DATA_DIR=%s", str(get_data_dir()))
         _auto_load_cookies()
 
         worker = WorkerService(config=WorkerConfig.from_env())

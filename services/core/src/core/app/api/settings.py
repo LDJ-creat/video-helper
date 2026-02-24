@@ -40,6 +40,7 @@ from core.schemas.settings import (
 	LLMCatalogProviderDTO,
 	LLMActiveDTO,
 	LLMActiveTestDTO,
+	AsrPrefetchRequestDTO,
 	OkDTO,
 	PutLLMActiveRequestDTO,
 	PutLLMProviderSecretRequestDTO,
@@ -49,6 +50,8 @@ from core.schemas.settings import (
 )
 from core.settings import get_effective_analyze_settings
 from core.db.session import get_data_dir
+
+from core.external.asr_faster_whisper import AsrError, prefetch_faster_whisper_model
 
 
 router = APIRouter(tags=["settings"])
@@ -771,3 +774,25 @@ def get_ytdlp_cookies_status(request: Request):
 			updatedAtMs=int(stat.st_mtime * 1000),
 		)
 	return YtdlpCookiesStatusDTO(hasFile=False)
+
+
+# ─── ASR Model Prefetch ─────────────────────────────────────────────────────
+
+
+@router.post("/settings/asr/prefetch", response_model=OkDTO)
+def prefetch_asr_model(request: Request, body: AsrPrefetchRequestDTO):
+	"""Pre-download faster-whisper model into DATA_DIR for offline/packaged runs."""
+	model_size = (body.modelSize or "base").strip() or "base"
+	try:
+		prefetch_faster_whisper_model(model_size=model_size)
+		return OkDTO(ok=True)
+	except AsrError as e:
+		return JSONResponse(
+			status_code=400,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message=str(e),
+				details=getattr(e, "details", None) or {"reason": getattr(e, "kind", None) or "model_missing"},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)

@@ -83,3 +83,10 @@ class YtdlpCookiesStatusDTO(BaseModel):
 	hasFile: bool
 	fileName: str | None = None
 	updatedAtMs: int | None = None
+
+
+# ─── ASR Prefetch DTOs ───────────────────────────────────────────────────────
+
+
+class AsrPrefetchRequestDTO(BaseModel):
+	modelSize: str | None = None
