@@ -91,6 +91,13 @@ def _env_bool(name: str, default: bool = False) -> bool:
         return True
     if raw in {"0", "false", "no", "n", "off"}:
         return False
+    # Common operator expectation: any non-zero integer means true.
+    # This makes values like "2" behave as enabled.
+    try:
+        if raw.isdigit() and int(raw) != 0:
+            return True
+    except Exception:
+        pass
     return default
 
 
@@ -108,8 +115,12 @@ class WorkerConfig:
 
     @staticmethod
     def from_env() -> "WorkerConfig":
+        # Default behavior:
+        # - Runtime (manual dev run): enable worker unless explicitly disabled.
+        # - Pytest: disable by default to avoid background tasks affecting tests.
+        default_enabled = not bool(os.environ.get("PYTEST_CURRENT_TEST"))
         return WorkerConfig(
-            enabled=_env_bool("WORKER_ENABLE", False),
+            enabled=_env_bool("WORKER_ENABLE", default_enabled),
             max_concurrent_jobs=max(1, _env_int("MAX_CONCURRENT_JOBS", 2)),
             poll_interval_ms=max(50, _env_int("WORKER_POLL_INTERVAL_MS", 500)),
             lease_ms=max(1_000, _env_int("WORKER_LEASE_MS", 30_000)),

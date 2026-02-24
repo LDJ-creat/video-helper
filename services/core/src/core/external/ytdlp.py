@@ -118,8 +118,19 @@ def _apply_optional_network_args(cmd: list[str]) -> list[str]:
 
 
 def _resolve_ytdlp_runner() -> list[str] | None:
-	# Prefer the Python module in the current environment: it's deterministic and
-	# avoids PATH picking up a mismatched/old yt-dlp executable.
+	# IMPORTANT (PyInstaller): in frozen builds, sys.executable is the packaged
+	# app (e.g. backend.exe), not a Python interpreter. Running
+	#   sys.executable -m yt_dlp
+	# would re-launch the backend server instead of yt-dlp.
+	is_frozen = bool(getattr(sys, "frozen", False))
+	if is_frozen:
+		# Prefer standalone executable on PATH (desktop app prepends _internal).
+		if shutil.which("yt-dlp"):
+			return ["yt-dlp"]
+		return None
+
+	# Dev/venv: Prefer the Python module in the current environment: it's
+	# deterministic and avoids PATH picking up a mismatched/old executable.
 	try:
 		spec = importlib.util.find_spec("yt_dlp")
 	except Exception:
@@ -173,6 +184,29 @@ def download_with_ytdlp(
 	- output_not_found
 	"""
 
+	# Fast fail on obviously invalid but "supported" URLs that yt-dlp may treat as
+	# a generic page and still exit 0 (producing no file).
+	try:
+		from urllib.parse import parse_qs, urlsplit
+
+		parts = urlsplit(url)
+		host = (parts.netloc or "").lower()
+		path = (parts.path or "").rstrip("/")
+		if host.endswith("youtube.com") and path == "/watch":
+			qs = parse_qs(parts.query or "")
+			v = (qs.get("v") or [""])[0].strip()
+			if not v:
+				raise YtDlpError(
+					"content_error",
+					"invalid YouTube URL: missing v parameter",
+					details={"type": "invalid_source_url", "source": _redact_url(url)},
+				)
+	except YtDlpError:
+		raise
+	except Exception:
+		# If parsing fails, let yt-dlp handle it.
+		pass
+
 	runner = _resolve_ytdlp_runner()
 	if not runner:
 		raise YtDlpError("dependency_missing", "yt-dlp is missing")
@@ -205,9 +239,15 @@ def download_with_ytdlp(
 		blocked = False
 		http_status: int | None = None
 		cookies_error: str | None = None
-		if "HTTP Error 412" in output or "Precondition Failed" in output:
+		# Best-effort detect HTTP status. (Used for friendly operator messaging.)
+		m = re.search(r"HTTP\s+Error\s+(?P<code>\d{3})", output)
+		if m:
+			try:
+				http_status = int(m.group("code"))
+			except Exception:
+				http_status = None
+		if http_status in {403, 412, 429} or "Precondition Failed" in output:
 			blocked = True
-			http_status = 412
 		if "Could not copy Chrome cookie database" in output:
 			cookies_error = "cookie_db_copy_failed"
 		if "Failed to decrypt with DPAPI" in output:
@@ -220,6 +260,7 @@ def download_with_ytdlp(
 				"blocked": blocked,
 				"httpStatus": http_status,
 				"cookiesError": cookies_error,
+				"outputTail": _sanitize_output_tail(output),
 			},
 		)
 

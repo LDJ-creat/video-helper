@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -48,10 +49,31 @@ def _sanitize_output_tail(output: str, *, max_lines: int = 14) -> str:
 	return "\n".join(safe)
 
 
-def build_ffmpeg_extract_audio_command(*, input_path: Path, output_path: Path) -> list[str]:
+def _resolve_ffmpeg_executable() -> str | None:
+	resolved = shutil.which("ffmpeg")
+	if resolved:
+		return resolved
+
+	# Frozen backend: desktop app usually prepends `_internal` to PATH, but keep a
+	# robust fallback in case backend is launched without the wrapper.
+	try:
+		base_dir = Path(sys.executable).resolve().parent
+		candidate = base_dir / "_internal" / "ffmpeg.exe"
+		if candidate.is_file():
+			return str(candidate)
+		candidate2 = base_dir / "ffmpeg.exe"
+		if candidate2.is_file():
+			return str(candidate2)
+	except Exception:
+		pass
+
+	return None
+
+
+def build_ffmpeg_extract_audio_command(*, ffmpeg: str = "ffmpeg", input_path: Path, output_path: Path) -> list[str]:
 	"""Build ffmpeg command for 16kHz mono PCM wav extraction."""
 	return [
-		"ffmpeg",
+		ffmpeg,
 		"-hide_banner",
 		"-nostdin",
 		"-y",
@@ -70,7 +92,7 @@ def build_ffmpeg_extract_audio_command(*, input_path: Path, output_path: Path) -
 	]
 
 
-def build_ffmpeg_extract_frame_command(*, input_path: Path, output_path: Path, time_s: float) -> list[str]:
+def build_ffmpeg_extract_frame_command(*, ffmpeg: str = "ffmpeg", input_path: Path, output_path: Path, time_s: float) -> list[str]:
 	"""Build ffmpeg command for extracting a single video frame as JPEG.
 
 	We place -ss before -i for speed (best-effort seeking).
@@ -78,7 +100,7 @@ def build_ffmpeg_extract_frame_command(*, input_path: Path, output_path: Path, t
 	# Use fixed-format time to keep command deterministic.
 	time_arg = f"{float(time_s):.3f}"
 	return [
-		"ffmpeg",
+		ffmpeg,
 		"-hide_banner",
 		"-nostdin",
 		"-y",
@@ -124,12 +146,13 @@ def extract_audio_wav_16k_mono(
 	if not input_path.exists() or not input_path.is_file():
 		raise FfmpegError("content_error", "input media file not readable")
 
-	if not shutil.which("ffmpeg"):
+	ffmpeg = _resolve_ffmpeg_executable()
+	if not ffmpeg:
 		raise FfmpegError("dependency_missing", "ffmpeg is missing")
 
 	output_dir.mkdir(parents=True, exist_ok=True)
 	out_path = output_dir / f"{base_filename}.wav"
-	cmd = build_ffmpeg_extract_audio_command(input_path=input_path, output_path=out_path)
+	cmd = build_ffmpeg_extract_audio_command(ffmpeg=ffmpeg, input_path=input_path, output_path=out_path)
 
 	try:
 		completed = subprocess.run(
@@ -181,11 +204,12 @@ def extract_video_frame_jpeg(
 	if not input_path.exists() or not input_path.is_file():
 		raise FfmpegError("content_error", "input media file not readable")
 
-	if not shutil.which("ffmpeg"):
+	ffmpeg = _resolve_ffmpeg_executable()
+	if not ffmpeg:
 		raise FfmpegError("dependency_missing", "ffmpeg is missing")
 
 	output_path.parent.mkdir(parents=True, exist_ok=True)
-	cmd = build_ffmpeg_extract_frame_command(input_path=input_path, output_path=output_path, time_s=time_s)
+	cmd = build_ffmpeg_extract_frame_command(ffmpeg=ffmpeg, input_path=input_path, output_path=output_path, time_s=time_s)
 
 	try:
 		completed = subprocess.run(

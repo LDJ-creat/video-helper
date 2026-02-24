@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -20,6 +21,26 @@ class MetadataError(RuntimeError):
     def __init__(self, kind: str, message: str) -> None:
         super().__init__(message)
         self.kind = kind
+
+
+def _resolve_ffprobe_executable() -> str | None:
+    resolved = shutil.which("ffprobe")
+    if resolved:
+        return resolved
+
+    # Frozen backend: executables may be shipped under `_internal`.
+    try:
+        base_dir = Path(sys.executable).resolve().parent
+        candidate = base_dir / "_internal" / "ffprobe.exe"
+        if candidate.is_file():
+            return str(candidate)
+        candidate2 = base_dir / "ffprobe.exe"
+        if candidate2.is_file():
+            return str(candidate2)
+    except Exception:
+        pass
+
+    return None
 
 
 def _parse_fps(value: str | None) -> float | None:
@@ -55,14 +76,14 @@ def extract_video_metadata(path: Path) -> VideoMetadata:
     if not path.exists() or not path.is_file():
         raise MetadataError("file_unreadable", "File is not readable")
 
-    ffprobe = shutil.which("ffprobe")
+    ffprobe = _resolve_ffprobe_executable()
     if not ffprobe:
         raise MetadataError("dependency_missing", "ffprobe is missing")
 
     try:
         completed = subprocess.run(
             [
-                "ffprobe",
+                ffprobe,
                 "-v",
                 "error",
                 "-print_format",

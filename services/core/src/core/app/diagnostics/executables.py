@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import os
 import re
 import shutil
@@ -55,6 +56,13 @@ def _resolve_executable(executable: str) -> str | None:
     scripts_dir = Path(sys.executable).resolve().parent
     for name in _candidate_executable_names(executable):
         candidate = scripts_dir / name
+        if candidate.is_file():
+            return str(candidate)
+
+    # Frozen backend shipped executables (desktop app bundles to `_internal`).
+    internal_dir = scripts_dir / "_internal"
+    for name in _candidate_executable_names(executable):
+        candidate = internal_dir / name
         if candidate.is_file():
             return str(candidate)
 
@@ -121,6 +129,25 @@ def check_ffmpeg() -> DependencyProbe:
 
 
 def check_yt_dlp() -> DependencyProbe:
+    # The backend prefers running yt-dlp as a Python module (python -m yt_dlp)
+    # when available. Treat it as satisfied to avoid false "missing" banners in
+    # packaged desktop builds.
+    try:
+        spec = importlib.util.find_spec("yt_dlp")
+    except Exception:
+        spec = None
+
+    if spec is not None:
+        version: str | None = None
+        try:
+            import yt_dlp.version as _yv  # type: ignore
+
+            version = getattr(_yv, "__version__", None) or None
+        except Exception:
+            version = None
+
+        return DependencyProbe(ok=True, version=version, message=None, actions=[])
+
     return _check_executable(
         display_name="yt-dlp",
         executable="yt-dlp",
