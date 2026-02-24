@@ -1,0 +1,58 @@
+# Node artifacts
+node_modules/
+dist/
+
+# Package artifacts
+*.tgz
+
+# Release/build output and temporary release folders
+release/
+release-*/
+release-temp*/
+
+# Electron / packaging outputs
+*.exe
+win-unpacked/
+
+# Resources produced by packaging
+resources/backend/backend.exe
+resources/backend/*.exe
+resources/backend/_internal/
+
+# Local runtime data
+resources/data/*.sqlite3
+resources/data/*.db
+
+# Keep static source assets (do not ignore)
+!resources/icon.ico
+
+# Logs and debug
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment files
+.env
+.env.local
+.local
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# IDE / editor
+.vscode/
+*.suo
+*.user
+*.userosscache
+
+# TypeScript
+*.tsbuildinfo
+
+# Misc
+coverage/
+*.tmp
+*.temp
+.cache/

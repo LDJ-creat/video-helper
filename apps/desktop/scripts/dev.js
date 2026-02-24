@@ -85,7 +85,7 @@ async function startFrontend() {
     console.log('🌐 Starting frontend (Next.js)...');
     spawnTracked('pnpm', ['dev'], {
         cwd: WEB_DIR,
-        env: { ...process.env, NEXT_PUBLIC_API_BASE_URL: `http://localhost:${BACKEND_PORT}` },
+        env: { ...process.env, NEXT_PUBLIC_API_BASE_URL: `http://127.0.0.1:${BACKEND_PORT}` },
         stdio: 'inherit',
         shell: true,
     });
