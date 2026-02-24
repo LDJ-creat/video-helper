@@ -114,8 +114,8 @@ export function Sidebar() {
                     );
                 })}
 
-                <div className={`flex items-center gap-3 rounded-lg px-3 py-3 ${isCollapsed ? 'justify-center' : ''}`}>
-                    <LanguageSwitcher />
+                <div className="flex items-center gap-3 rounded-lg overflow-hidden">
+                    <LanguageSwitcher isCollapsed={isCollapsed} />
                 </div>
 
                 {/* Collapse Toggle */}

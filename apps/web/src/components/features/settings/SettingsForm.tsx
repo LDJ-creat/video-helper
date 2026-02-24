@@ -15,13 +15,16 @@ import {
 } from "@/lib/api/llmSettingsQueries";
 import type { Provider } from "@/lib/contracts/llmSettingsTypes";
 
+import { useTranslations } from "next-intl";
+
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 /** Badge shown next to custom models/providers */
 function CustomBadge() {
+    const t = useTranslations("Settings");
     return (
         <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-100 text-purple-700 leading-none">
-            自定义
+            {t("customBadge")}
         </span>
     );
 }
@@ -35,6 +38,7 @@ interface AddCustomModelFormProps {
 }
 
 function AddCustomModelForm({ providerId, onClose, onSuccess }: AddCustomModelFormProps) {
+    const t = useTranslations("Settings");
     const [modelId, setModelId] = useState("");
     const [displayName, setDisplayName] = useState("");
     const addModel = useAddCustomModel();
@@ -47,7 +51,7 @@ function AddCustomModelForm({ providerId, onClose, onSuccess }: AddCustomModelFo
                 providerId,
                 request: { modelId: mid, displayName: displayName.trim() || mid },
             });
-            onSuccess(`已添加自定义 Model: ${displayName.trim() || mid}`);
+            onSuccess(t("addModelSuccess", { name: displayName.trim() || mid }));
             onClose();
         } catch (err) {
             console.error("Failed to add custom model:", err);
@@ -56,24 +60,24 @@ function AddCustomModelForm({ providerId, onClose, onSuccess }: AddCustomModelFo
 
     return (
         <div className="mt-3 p-3 bg-purple-50 border border-purple-200 rounded-lg space-y-2">
-            <p className="text-xs font-medium text-purple-800">添加自定义 Model ID</p>
+            <p className="text-xs font-medium text-purple-800">{t("addCustomModelTitle")}</p>
             <input
                 type="text"
                 value={modelId}
                 onChange={(e) => setModelId(e.target.value)}
-                placeholder="Model ID（如 gpt-4o-2025-01）"
+                placeholder={t("modelIdPlaceholder")}
                 className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-purple-400"
             />
             <input
                 type="text"
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
-                placeholder="显示名称（可选，默认同 Model ID）"
+                placeholder={t("displayNamePlaceholder")}
                 className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-purple-400"
             />
             {addModel.isError && (
                 <p className="text-xs text-red-600">
-                    添加失败: {(addModel.error as any)?.message || "未知错误"}
+                    {t("addModelFailed", { error: (addModel.error as any)?.message || t("unknownError") })}
                 </p>
             )}
             <div className="flex gap-2">
@@ -82,13 +86,13 @@ function AddCustomModelForm({ providerId, onClose, onSuccess }: AddCustomModelFo
                     disabled={!modelId.trim() || addModel.isPending}
                     className="px-3 py-1.5 bg-purple-500 text-white text-xs rounded hover:bg-purple-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
                 >
-                    {addModel.isPending ? "保存中..." : "保存"}
+                    {addModel.isPending ? t("saving") : t("save")}
                 </button>
                 <button
                     onClick={onClose}
                     className="px-3 py-1.5 bg-gray-200 text-gray-700 text-xs rounded hover:bg-gray-300 transition-colors"
                 >
-                    取消
+                    {t("cancel")}
                 </button>
             </div>
         </div>
@@ -103,6 +107,7 @@ interface AddCustomProviderFormProps {
 }
 
 function AddCustomProviderForm({ onClose, onSuccess }: AddCustomProviderFormProps) {
+    const t = useTranslations("Settings");
     const [form, setForm] = useState({
         providerId: "",
         displayName: "",
@@ -138,7 +143,7 @@ function AddCustomProviderForm({ onClose, onSuccess }: AddCustomProviderFormProp
                 await updateSecret.mutateAsync({ providerId: pid, apiKey: form.apiKey.trim() });
             }
 
-            onSuccess(`已添加自定义提供商: ${dname}`);
+            onSuccess(t("customProviderAdded", { name: dname }));
             onClose();
         } catch (err) {
             console.error("Failed to add custom provider:", err);
@@ -147,20 +152,20 @@ function AddCustomProviderForm({ onClose, onSuccess }: AddCustomProviderFormProp
 
     const isSubmitting = addProvider.isPending || updateSecret.isPending;
     const submitError = addProvider.isError || updateSecret.isError;
-    const submitErrorMsg = ((addProvider.error || updateSecret.error) as any)?.message || "未知错误";
+    const submitErrorMsg = ((addProvider.error || updateSecret.error) as any)?.message || t("unknownError");
 
     const fields: { key: keyof typeof form; label: string; placeholder: string; required?: boolean; type?: string }[] = [
-        { key: "providerId", label: "Provider ID", placeholder: "如 my-provider（小写字母+数字+短横）", required: true },
-        { key: "displayName", label: "显示名称", placeholder: "如 My Custom LLM", required: true },
+        { key: "providerId", label: "Provider ID", placeholder: t("providerIdPlaceholderCommon"), required: true },
+        { key: "displayName", label: t("displayName"), placeholder: t("displayNamePlaceholder"), required: true },
         { key: "baseUrl", label: "Base URL", placeholder: "https://api.example.com/v1", required: true },
-        { key: "modelId", label: "首个 Model ID", placeholder: "如 custom-model-v1", required: true },
-        { key: "modelDisplayName", label: "模型显示名称", placeholder: "可选，默认同 Model ID" },
-        { key: "apiKey", label: "API Key", placeholder: "可选，稍后也可在卡片中配置", type: "password" },
+        { key: "modelId", label: t("firstModelId"), placeholder: "如 custom-model-v1", required: true },
+        { key: "modelDisplayName", label: t("modelDisplayName"), placeholder: t("displayNamePlaceholder") },
+        { key: "apiKey", label: "API Key", placeholder: t("apiKeyPlaceholder"), type: "password" },
     ];
 
     return (
         <div className="p-5 bg-purple-50 border-2 border-purple-200 rounded-lg space-y-3">
-            <p className="font-semibold text-purple-900 text-sm">添加自定义提供商</p>
+            <p className="font-semibold text-purple-900 text-sm">{t("addCustomProviderTitle")}</p>
             {fields.map((f) => (
                 <div key={f.key}>
                     <label className="block text-xs font-medium text-gray-700 mb-1">
@@ -178,7 +183,7 @@ function AddCustomProviderForm({ onClose, onSuccess }: AddCustomProviderFormProp
             ))}
 
             {submitError && (
-                <p className="text-xs text-red-600">添加失败: {submitErrorMsg}</p>
+                <p className="text-xs text-red-600">{t("addModelFailed", { error: submitErrorMsg })}</p>
             )}
 
             <div className="flex gap-2 pt-1">
@@ -187,13 +192,13 @@ function AddCustomProviderForm({ onClose, onSuccess }: AddCustomProviderFormProp
                     disabled={!form.providerId.trim() || !form.displayName.trim() || !form.baseUrl.trim() || !form.modelId.trim() || isSubmitting}
                     className="px-4 py-2 bg-purple-500 text-white text-sm rounded-lg hover:bg-purple-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
                 >
-                    {isSubmitting ? "保存中..." : "保存"}
+                    {isSubmitting ? t("saving") : t("save")}
                 </button>
                 <button
                     onClick={onClose}
                     className="px-4 py-2 bg-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-300 transition-colors"
                 >
-                    取消
+                    {t("cancel")}
                 </button>
             </div>
         </div>
@@ -203,6 +208,7 @@ function AddCustomProviderForm({ onClose, onSuccess }: AddCustomProviderFormProp
 // ─── Main SettingsForm ────────────────────────────────────────────────────────
 
 export function SettingsForm() {
+    const t = useTranslations("Settings");
     const { data: catalog, isLoading: catalogLoading, isError: catalogError } = useLlmCatalog();
     const { data: activeSettings, isLoading: activeLoading, isError: activeError } = useActiveLlmSettings();
     const updateActive = useUpdateActiveLlmSettings();
@@ -236,17 +242,17 @@ export function SettingsForm() {
             await updateSecret.mutateAsync({ providerId, apiKey });
             setApiKeys({ ...apiKeys, [providerId]: "" });
             setExpandedProvider(null);
-            showSuccess("API Key 已保存");
+            showSuccess(t("apiKeySaved"));
         } catch (err) {
             console.error("Failed to save API key:", err);
         }
     };
 
     const handleDeleteApiKey = async (providerId: string) => {
-        if (!confirm("确定要删除此提供方的 API Key 吗？")) return;
+        if (!confirm(t("deleteApiKeyConfirm"))) return;
         try {
             await deleteSecret.mutateAsync(providerId);
-            showSuccess("API Key 已删除");
+            showSuccess(t("apiKeyDeleted"));
         } catch (err) {
             console.error("Failed to delete API key:", err);
         }
@@ -257,7 +263,7 @@ export function SettingsForm() {
         if (!modelId) return;
         try {
             await updateActive.mutateAsync({ providerId: provider.providerId, modelId });
-            showSuccess("已设置为当前使用的提供方");
+            showSuccess(t("activeSetSuccess"));
         } catch (err) {
             console.error("Failed to update active settings:", err);
         }
@@ -267,7 +273,7 @@ export function SettingsForm() {
         try {
             const result = await testConnection.mutateAsync();
             if (result.ok) {
-                showSuccess(`连接测试成功！延迟: ${result.latencyMs}ms`);
+                showSuccess(t("testSuccess", { latency: result.latencyMs ?? 0 }));
             }
         } catch (err: any) {
             console.error("Connection test failed:", err);
@@ -275,20 +281,20 @@ export function SettingsForm() {
     };
 
     const handleDeleteCustomModel = async (providerId: string, modelId: string) => {
-        if (!confirm(`确定删除自定义 Model "${modelId}" 吗？`)) return;
+        if (!confirm(t("deleteModelConfirm", { modelId }))) return;
         try {
             await deleteCustomModel.mutateAsync({ providerId, modelId });
-            showSuccess("自定义 Model 已删除");
+            showSuccess(t("customModelDeleted"));
         } catch (err) {
             console.error("Failed to delete custom model:", err);
         }
     };
 
     const handleDeleteCustomProvider = async (providerId: string, displayName: string) => {
-        if (!confirm(`确定删除自定义提供商 "${displayName}" 及其所有模型吗？`)) return;
+        if (!confirm(t("deleteProviderConfirm", { displayName }))) return;
         try {
             await deleteCustomProvider.mutateAsync(providerId);
-            showSuccess("自定义提供商已删除");
+            showSuccess(t("customProviderDeleted"));
         } catch (err) {
             console.error("Failed to delete custom provider:", err);
         }
@@ -297,7 +303,7 @@ export function SettingsForm() {
     if (isLoading) {
         return (
             <div className="flex items-center justify-center py-12">
-                <div className="text-gray-500">加载设置中...</div>
+                <div className="text-gray-500">{t("loading")}</div>
             </div>
         );
     }
@@ -305,7 +311,7 @@ export function SettingsForm() {
     if (isError) {
         return (
             <div className="flex items-center justify-center py-12">
-                <div className="text-red-500">加载设置失败</div>
+                <div className="text-red-500">{t("loadFailed")}</div>
             </div>
         );
     }
@@ -325,10 +331,10 @@ export function SettingsForm() {
             {/* Active Settings Card */}
             {activeSettings && activeProvider ? (
                 <div className="p-6 bg-blue-50 border-2 border-blue-200 rounded-lg">
-                    <h3 className="text-lg font-semibold mb-4 text-blue-900">当前使用的配置</h3>
+                    <h3 className="text-lg font-semibold mb-4 text-blue-900">{t("activeConfig")}</h3>
                     <div className="space-y-2 mb-4">
                         <div className="flex items-center gap-2">
-                            <span className="text-sm text-gray-600">提供方:</span>
+                            <span className="text-sm text-gray-600">{t("provider")}:</span>
                             <span className="font-medium">{activeProvider.displayName}</span>
                             {activeProvider.isCustom && <CustomBadge />}
                             {activeSettings.hasKey ? (
@@ -336,16 +342,16 @@ export function SettingsForm() {
                                     <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
                                         <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                                     </svg>
-                                    已配置
+                                    {t("configured")}
                                 </span>
                             ) : (
                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-yellow-100 text-yellow-700 text-xs rounded-full">
-                                    ⚠️ 未配置 Key
+                                    {t("noApiKey")}
                                 </span>
                             )}
                         </div>
                         <div className="flex items-center gap-2">
-                            <span className="text-sm text-gray-600">模型:</span>
+                            <span className="text-sm text-gray-600">{t("model")}:</span>
                             <span className="font-medium">{activeModel?.displayName || activeSettings.modelId}</span>
                             {activeModel?.isCustom && <CustomBadge />}
                         </div>
@@ -356,24 +362,24 @@ export function SettingsForm() {
                             disabled={testConnection.isPending}
                             className="px-4 py-2 bg-blue-500 text-white text-sm rounded-lg hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
                         >
-                            {testConnection.isPending ? "测试中..." : "测试连接"}
+                            {testConnection.isPending ? t("testing") : t("testConnection")}
                         </button>
                     </div>
                     {testConnection.isError && (
                         <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
-                            连接测试失败: {(testConnection.error as any)?.message || "未知错误"}
+                            {t("testFailed", { error: (testConnection.error as any)?.message || t("unknownError") })}
                         </div>
                     )}
                 </div>
             ) : (
                 <div className="p-6 bg-gray-50 border-2 border-gray-200 border-dashed rounded-lg text-center">
-                    <p className="text-gray-600">暂未配置模型提供方，请从下方列表中选择</p>
+                    <p className="text-gray-600">{t("noProviderConfigured")}</p>
                 </div>
             )}
 
             {/* Provider Catalog */}
             <div>
-                <h3 className="text-lg font-semibold mb-4">可用的模型提供方</h3>
+                <h3 className="text-lg font-semibold mb-4">{t("availableProviders")}</h3>
                 <div className="space-y-4">
                     {catalog?.providers.map((provider) => {
                         const isExpanded = expandedProvider === provider.providerId;
@@ -384,8 +390,8 @@ export function SettingsForm() {
                             <div
                                 key={provider.providerId}
                                 className={`p-5 rounded-lg transition-all ${provider.hasKey
-                                        ? "bg-white border-2 border-green-200 shadow-sm"
-                                        : "bg-gray-50 border-2 border-dashed border-gray-300"
+                                    ? "bg-white border-2 border-green-200 shadow-sm"
+                                    : "bg-gray-50 border-2 border-dashed border-gray-300"
                                     }`}
                             >
                                 {/* Provider Header */}
@@ -409,30 +415,30 @@ export function SettingsForm() {
                                             </div>
                                             {provider.hasKey ? (
                                                 <p className="text-xs text-green-600 mt-0.5">
-                                                    API Key 已配置
+                                                    {t("apiKeyConfigured")}
                                                     {provider.secretUpdatedAtMs &&
-                                                        ` · 更新于 ${new Date(provider.secretUpdatedAtMs).toLocaleDateString()}`}
+                                                        ` · ${t("updatedAt", { date: new Date(provider.secretUpdatedAtMs as number).toLocaleDateString() })}`}
                                                 </p>
                                             ) : (
-                                                <p className="text-xs text-yellow-600 mt-0.5">需要配置 API Key</p>
+                                                <p className="text-xs text-yellow-600 mt-0.5">{t("needsApiKey")}</p>
                                             )}
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-2">
                                         <span
                                             className={`px-3 py-1 text-xs font-medium rounded-full ${provider.hasKey
-                                                    ? "bg-green-100 text-green-700"
-                                                    : "bg-yellow-100 text-yellow-700"
+                                                ? "bg-green-100 text-green-700"
+                                                : "bg-yellow-100 text-yellow-700"
                                                 }`}
                                         >
-                                            {provider.hasKey ? "已配置" : "未配置"}
+                                            {provider.hasKey ? t("configured") : t("notConfigured")}
                                         </span>
                                         {/* Delete button for custom providers */}
                                         {provider.isCustom && (
                                             <button
                                                 onClick={() => handleDeleteCustomProvider(provider.providerId, provider.displayName)}
                                                 disabled={deleteCustomProvider.isPending}
-                                                title="删除此自定义提供商"
+                                                title={t("deleteProvider")}
                                                 className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
                                             >
                                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -445,7 +451,7 @@ export function SettingsForm() {
 
                                 {/* Model Selection */}
                                 <div className="mb-3">
-                                    <label className="block text-sm font-medium text-gray-700 mb-2">选择模型</label>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">{t("selectModel")}</label>
                                     <div className="flex items-center gap-2">
                                         <select
                                             value={selectedModel}
@@ -457,7 +463,7 @@ export function SettingsForm() {
                                             {provider.models.map((model) => (
                                                 <option key={model.modelId} value={model.modelId}>
                                                     {model.displayName}
-                                                    {model.isCustom ? " [自定义]" : ""}
+                                                    {model.isCustom ? t("customLabel") : ""}
                                                 </option>
                                             ))}
                                         </select>
@@ -470,7 +476,7 @@ export function SettingsForm() {
                                                 <button
                                                     onClick={() => handleDeleteCustomModel(provider.providerId, selectedModel)}
                                                     disabled={deleteCustomModel.isPending}
-                                                    title="删除此自定义 Model"
+                                                    title={t("deleteModel")}
                                                     className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg border border-red-200 transition-colors"
                                                 >
                                                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -487,7 +493,7 @@ export function SettingsForm() {
                                             onClick={() => setAddingModelFor(provider.providerId)}
                                             className="mt-2 text-xs text-purple-600 hover:text-purple-800 hover:underline transition-colors"
                                         >
-                                            ＋ 添加自定义 Model ID
+                                            {t("addCustomModel")}
                                         </button>
                                     ) : null}
 
@@ -511,7 +517,7 @@ export function SettingsForm() {
                                                 onChange={(e) =>
                                                     setApiKeys({ ...apiKeys, [provider.providerId]: e.target.value })
                                                 }
-                                                placeholder="输入 API Key"
+                                                placeholder={t("inputApiKey")}
                                                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                             />
                                             <div className="flex gap-2">
@@ -520,13 +526,13 @@ export function SettingsForm() {
                                                     disabled={updateSecret.isPending}
                                                     className="px-4 py-2 bg-green-500 text-white text-sm rounded-lg hover:bg-green-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
                                                 >
-                                                    {updateSecret.isPending ? "保存中..." : "保存"}
+                                                    {updateSecret.isPending ? t("saving") : t("save")}
                                                 </button>
                                                 <button
                                                     onClick={() => setExpandedProvider(null)}
                                                     className="px-4 py-2 bg-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-300 transition-colors"
                                                 >
-                                                    取消
+                                                    {t("cancel")}
                                                 </button>
                                             </div>
                                         </div>
@@ -536,7 +542,7 @@ export function SettingsForm() {
                                                 onClick={() => setExpandedProvider(provider.providerId)}
                                                 className="px-4 py-2 bg-gray-100 text-gray-700 text-sm rounded-lg hover:bg-gray-200 transition-colors"
                                             >
-                                                {provider.hasKey ? "更新 API Key" : "配置 API Key"}
+                                                {provider.hasKey ? t("updateApiKey") : t("configApiKey")}
                                             </button>
                                             {provider.hasKey && (
                                                 <button
@@ -544,7 +550,7 @@ export function SettingsForm() {
                                                     disabled={deleteSecret.isPending}
                                                     className="px-4 py-2 bg-red-100 text-red-700 text-sm rounded-lg hover:bg-red-200 disabled:bg-gray-200 disabled:cursor-not-allowed transition-colors"
                                                 >
-                                                    {deleteSecret.isPending ? "删除中..." : "删除 API Key"}
+                                                    {deleteSecret.isPending ? t("deletingApiKey") : t("deleteApiKey")}
                                                 </button>
                                             )}
                                         </div>
@@ -557,23 +563,23 @@ export function SettingsForm() {
                                     disabled={!provider.hasKey || updateActive.isPending}
                                     className="w-full px-4 py-2 bg-blue-500 text-white text-sm font-medium rounded-lg hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
                                 >
-                                    {updateActive.isPending ? "设置中..." : "选择此提供方"}
+                                    {updateActive.isPending ? t("selecting") : t("selectProvider")}
                                 </button>
                                 {!provider.hasKey && (
                                     <p className="mt-2 text-xs text-gray-500 text-center">
-                                        需要先配置 API Key 才能选择此提供方
+                                        {t("apiKeyRequiredToSelect")}
                                     </p>
                                 )}
 
                                 {/* Error Messages */}
                                 {updateSecret.isError && expandedProvider === provider.providerId && (
                                     <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
-                                        保存失败: {(updateSecret.error as any)?.message || "未知错误"}
+                                        {t("saveFailed", { error: (updateSecret.error as any)?.message || t("unknownError") })}
                                     </div>
                                 )}
                                 {updateActive.isError && (
                                     <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
-                                        设置失败: {(updateActive.error as any)?.message || "未知错误"}
+                                        {t("selectProviderFailed", { error: (updateActive.error as any)?.message || t("unknownError") })}
                                     </div>
                                 )}
                             </div>
@@ -588,7 +594,7 @@ export function SettingsForm() {
                             onClick={() => setShowAddProvider(true)}
                             className="w-full px-4 py-3 border-2 border-dashed border-purple-300 text-purple-600 text-sm font-medium rounded-lg hover:bg-purple-50 hover:border-purple-400 transition-colors"
                         >
-                            ＋ 添加自定义提供商
+                            {t("addCustomProvider")}
                         </button>
                     ) : (
                         <AddCustomProviderForm
@@ -602,7 +608,7 @@ export function SettingsForm() {
             {/* Info Note */}
             <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
                 <p className="text-sm text-blue-800">
-                    <strong>注意：</strong> API Key 仅用于配置，永不回显。修改后将立即生效。自定义提供商和模型支持任意兼容 OpenAI API 格式的服务。
+                    {t.rich("infoNote", { strong: (chunks) => <strong>{chunks}</strong> })}
                 </p>
             </div>
         </div>

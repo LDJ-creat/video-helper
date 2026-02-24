@@ -1,7 +1,11 @@
 {
     "HomePage": {
-        "title": "video-helper",
-        "description": "App Router scaffold is ready. Start with /projects."
+        "title": "Video Analysis Assistant",
+        "description": "Upload video or paste link to generate chapters, mind maps, and notes automatically.",
+        "cta": "Create New Analysis",
+        "recentTitle": "Recent Projects",
+        "viewAll": "View All Projects",
+        "footer": "© 2026 Video Helper. Designed for Focus."
     },
     "Navigation": {
         "menu": "Menu",
@@ -18,7 +22,66 @@
     "Settings": {
         "title": "Settings",
         "modelConfig": "Model Configuration",
-        "modelConfigDesc": "Select and configure AI model providers. Once the API Key is configured, you can use the corresponding model for video analysis."
+        "modelConfigDesc": "Select and configure AI model providers. Once the API Key is configured, you can use the corresponding model for video analysis.",
+        "activeConfig": "Current Configuration",
+        "provider": "Provider",
+        "model": "Model",
+        "configured": "Configured",
+        "notConfigured": "Not Configured",
+        "noApiKey": "⚠️ API Key not configured",
+        "testConnection": "Test Connection",
+        "testing": "Testing...",
+        "testSuccess": "Connection successful! Latency: {latency}ms",
+        "testFailed": "Connection test failed: {error}",
+        "availableProviders": "Available Model Providers",
+        "needsApiKey": "Requires API Key",
+        "apiKeyConfigured": "API Key configured",
+        "updatedAt": "Updated at {date}",
+        "deleteProviderConfirm": "Are you sure you want to delete custom provider \"{displayName}\" and all its models?",
+        "deleteProvider": "Delete custom provider",
+        "selectModel": "Select Model",
+        "customLabel": " [Custom]",
+        "deleteModelConfirm": "Are you sure you want to delete custom model \"{modelId}\"?",
+        "deleteModel": "Delete custom model",
+        "addCustomModel": "＋ Add Custom Model ID",
+        "addCustomModelTitle": "Add Custom Model ID",
+        "modelIdPlaceholder": "Model ID (e.g. gpt-4o-2025-01)",
+        "displayNamePlaceholder": "Display Name (Optional, default is Model ID)",
+        "providerIdPlaceholderCommon": "e.g. my-provider (lowercase, numbers, and hyphens)",
+        "displayName": "Display Name",
+        "firstModelId": "First Model ID",
+        "modelDisplayName": "Model Display Name",
+        "apiKeyPlaceholder": "Optional, can be configured later in the card",
+        "save": "Save",
+        "saving": "Saving...",
+        "cancel": "Cancel",
+        "addModelSuccess": "Custom model added: {name}",
+        "addModelFailed": "Failed to add: {error}",
+        "inputApiKey": "Enter API Key",
+        "updateApiKey": "Update API Key",
+        "configApiKey": "Configure API Key",
+        "deleteApiKey": "Delete API Key",
+        "deletingApiKey": "Deleting...",
+        "deleteApiKeyConfirm": "Are you sure you want to delete the API Key for this provider?",
+        "saveFailed": "Save failed: {error}",
+        "selectProviderFailed": "Failed to set provider: {error}",
+        "apiKeySaved": "API Key saved",
+        "apiKeyDeleted": "API Key deleted",
+        "customModelDeleted": "Custom model deleted",
+        "customProviderDeleted": "Custom provider deleted",
+        "selectProvider": "Select this Provider",
+        "selecting": "Setting...",
+        "activeSetSuccess": "Set as current provider",
+        "apiKeyRequiredToSelect": "Please configure API Key before selecting this provider",
+        "addCustomProvider": "＋ Add Custom Provider",
+        "addCustomProviderTitle": "Add Custom Provider",
+        "customProviderAdded": "Custom provider added: {name}",
+        "customBadge": "Custom",
+        "loading": "Loading settings...",
+        "loadFailed": "Failed to load settings",
+        "noProviderConfigured": "No provider configured yet. Please select one below.",
+        "infoNote": "**Note:** API Keys are used for configuration only and are never displayed back. Changes take effect immediately. Custom providers and models support any service compatible with the OpenAI API format.",
+        "unknownError": "Unknown error"
     },
     "Projects": {
         "title": "My Projects",
@@ -88,6 +151,9 @@
         "startPrompt": "Enter keywords to start searching"
     },
     "Results": {
+        "pageTitle": "Video Analysis Results",
+        "export": "Export",
+        "settings": "Settings",
         "loading": "Loading...",
         "loadFailed": "Load Failed",
         "noResult": "No Result",
@@ -109,10 +175,5 @@
         "connection": "Connection",
         "type": "Type",
         "notFound": "Job not found"
-    },
-    "Landing": {
-        "title": "Video Analysis Assistant",
-        "description": "Upload video or paste link to generate chapters, mind maps, and notes automatically.",
-        "footer": "© 2026 Video Helper. Designed for Focus."
     }
 }

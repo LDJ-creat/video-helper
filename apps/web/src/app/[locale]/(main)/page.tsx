@@ -1,54 +1,65 @@
+"use client";
+
 import Link from "next/link";
 import { useTranslations } from 'next-intl';
+import { RecentProjects } from "@/components/features/projects/RecentProjects";
+import { Sparkles, Video, ArrowRight } from "lucide-react";
 
 export default function Home() {
-    const t = useTranslations('Landing');
-    const tNav = useTranslations('Navigation'); // For button labels
+    const t = useTranslations('HomePage');
 
     return (
-        <div className="flex h-full flex-col font-sans text-stone-800 selection:bg-orange-100 selection:text-orange-900">
-            <main className="flex w-full flex-col items-center gap-12 px-6 py-20 text-center sm:items-start sm:text-left">
+        <div className="relative flex min-h-full flex-col items-center justify-center font-sans text-stone-800 selection:bg-stone-200 selection:text-stone-900 overflow-hidden py-12">
 
-                {/* Header Section */}
-                <div className="flex flex-col items-center gap-6 sm:items-start">
-                    {/* Logo / Brand */}
-                    <div className="text-sm font-bold tracking-widest uppercase text-stone-500">
-                        {t('title')}
+            {/* Background Decorative Gradients */}
+            <div className="absolute top-0 -z-10 h-full w-full bg-[#FDFBF7]">
+                <div className="absolute top-[-10%] left-[-10%] h-[40%] w-[40%] rounded-full bg-orange-100/30 blur-[120px]" />
+                <div className="absolute bottom-[-10%] right-[-10%] h-[40%] w-[40%] rounded-full bg-stone-200/30 blur-[120px]" />
+            </div>
+
+            <main className="relative z-10 flex w-full flex-col items-center px-6">
+
+                {/* Hero Section */}
+                <div className="flex flex-col items-center text-center max-w-4xl space-y-8 animate-in fade-in slide-in-from-bottom-10 duration-1000">
+
+                    {/* Badge */}
+                    <div className="inline-flex items-center gap-2 rounded-full border border-stone-200 bg-white/80 px-4 py-1.5 text-xs font-semibold text-stone-600 shadow-sm backdrop-blur-md">
+                        <Sparkles size={14} className="text-stone-800" />
+                        <span>{t('title')}</span>
                     </div>
 
-                    <h1 className="max-w-xl text-4xl font-bold tracking-tight text-stone-900 sm:text-5xl md:text-6xl">
+                    {/* Main Title */}
+                    <h1 className="text-5xl font-extrabold tracking-tight text-stone-900 sm:text-6xl lg:text-7xl">
                         {t('title')}
                     </h1>
-                    <p className="max-w-lg text-lg leading-relaxed text-stone-600">
+
+                    {/* Description */}
+                    <p className="max-w-2xl text-lg leading-relaxed text-stone-500 sm:text-xl">
                         {t('description')}
                     </p>
+
+                    {/* Primary CTA */}
+                    <div className="pt-4">
+                        <Link
+                            href="/ingest"
+                            className="group relative flex h-14 items-center justify-center gap-3 overflow-hidden rounded-2xl bg-stone-900 px-10 text-lg font-bold text-white shadow-xl shadow-stone-200 transition-all hover:-translate-y-1 hover:bg-stone-800 active:scale-95"
+                        >
+                            <Video size={20} />
+                            {t('cta')}
+                            <ArrowRight size={20} className="transition-transform group-hover:translate-x-1" />
+
+                            {/* Shine Effect */}
+                            <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/10 to-transparent transition-transform duration-1000 group-hover:translate-x-full" />
+                        </Link>
+                    </div>
                 </div>
 
-                {/* Action Buttons */}
-                <div className="flex w-full flex-col gap-4 sm:w-auto sm:flex-row">
-                    <Link
-                        href="/ingest"
-                        className="flex h-12 items-center justify-center rounded-lg bg-stone-800 px-8 text-base font-medium text-white shadow-sm transition-all hover:bg-stone-900 hover:shadow-md active:scale-95"
-                    >
-                        {tNav('ingest')}
-                    </Link>
-                    <Link
-                        href="/projects"
-                        className="flex h-12 items-center justify-center rounded-lg border border-stone-200 bg-white px-8 text-base font-medium text-stone-700 shadow-sm transition-all hover:border-stone-300 hover:bg-stone-50 active:scale-95"
-                    >
-                        {tNav('projects')}
-                    </Link>
-                    <Link
-                        href="/settings"
-                        className="flex h-12 items-center justify-center rounded-lg border border-transparent px-6 text-base font-medium text-stone-500 transition-all hover:bg-stone-100 hover:text-stone-700 active:scale-95"
-                    >
-                        {tNav('settings')}
-                    </Link>
-                </div>
+                {/* Recent Projects Preview */}
+                <RecentProjects />
             </main>
 
-            {/* Footer / Decorative */}
-            <footer className="mt-auto px-6 py-6 text-xs text-stone-400">
+            {/* Footer */}
+            <footer className="mt-20 px-6 py-8 text-center text-xs font-medium tracking-tight text-stone-400">
                 {t('footer')}
             </footer>
         </div>
