@@ -237,7 +237,7 @@ function startBackend(): Promise<void> {
         childEnv.PORT = String(BACKEND_PORT);
         childEnv.DATA_DIR = dataDir;
         // Prefer packaged native deps over system/conda PATH.
-        childEnv.PATH = `${internalDir};${process.env.PATH ?? ''}`;
+        childEnv.PATH = `${internalDir}${path.delimiter}${process.env.PATH ?? ''}`;
         backendProcess = spawn(exePath, [], {
             cwd: backendDir,
             env: childEnv,

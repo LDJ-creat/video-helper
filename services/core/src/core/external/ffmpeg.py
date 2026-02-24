@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import os
 import shutil
 import subprocess
 import sys
@@ -58,10 +59,11 @@ def _resolve_ffmpeg_executable() -> str | None:
 	# robust fallback in case backend is launched without the wrapper.
 	try:
 		base_dir = Path(sys.executable).resolve().parent
-		candidate = base_dir / "_internal" / "ffmpeg.exe"
+		suffix = ".exe" if os.name == "nt" else ""
+		candidate = base_dir / "_internal" / f"ffmpeg{suffix}"
 		if candidate.is_file():
 			return str(candidate)
-		candidate2 = base_dir / "ffmpeg.exe"
+		candidate2 = base_dir / f"ffmpeg{suffix}"
 		if candidate2.is_file():
 			return str(candidate2)
 	except Exception:

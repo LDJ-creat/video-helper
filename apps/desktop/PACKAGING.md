@@ -21,7 +21,7 @@ powershell -ExecutionPolicy Bypass -File apps\desktop\scripts\build-all.ps1
 | uv | 最新 | `uv --version` |
 
 > [!IMPORTANT]
-> **仅支持 Windows x64 构建。** macOS / Linux 包需要在对应平台的 CI 环境中构建。
+> **本地一键脚本仅覆盖 Windows x64。** macOS / Linux 安装包建议使用 GitHub Actions（在对应 Runner 平台构建）。
 
 ---
 
@@ -70,6 +70,13 @@ uv run python scripts\build_backend.py
 1. 安装 PyInstaller（进入 uv 虚拟环境）
 2. 以 `backend.spec` 为配置运行 PyInstaller
 3. 将产物复制到 `apps/desktop/resources/backend/`
+
+并在可用时**自动捆绑外部可执行文件**到 `resources/backend/_internal/`：
+- `ffmpeg` / `ffprobe`（音频抽取、关键帧提取所需）
+- （可选）`yt-dlp`
+
+> [!NOTE]
+> CI 环境下会先安装/下载 ffmpeg，使其能被脚本从 PATH 发现并打入安装包。
 
 产物：`apps/desktop/resources/backend/backend.exe`（及所有依赖文件）
 
@@ -156,3 +163,31 @@ Cannot find source directory "../web/.next/standalone"
 1. 打开开发者工具查看控制台错误（开发模式下按 `Ctrl+Shift+I`）
 2. 检查后端健康端点：访问 `http://localhost:8000/api/v1/health`
 3. 查看后端日志：`%APPDATA%\Video Helper\logs\backend.log`
+
+---
+
+## 🤖 GitHub Actions 多平台构建与发布
+
+仓库已提供 GitHub Actions 工作流用于 **Windows/macOS/Linux** 标准构建：
+- 工作流文件：`.github/workflows/desktop-build-release.yml`
+- 触发方式：
+	- 手动触发（仅构建并上传 Artifacts，不自动发 Release）：在 GitHub -> Actions -> 选择 `desktop-build-release` -> Run workflow
+	- 推送 tag 触发（构建 + 自动创建 GitHub Release 并上传安装包）：push `v*` tag
+
+### 发布一个版本（推荐流程）
+
+1. 更新版本号（至少更新 `apps/desktop/package.json` 的 `version`）
+2. 创建并推送 tag：
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+3. 等待 Actions 全部通过后，在 GitHub -> Releases 会看到自动创建的 Release，并包含：
+	 - Windows：`Video Helper Setup *.exe`
+	 - macOS：`.dmg` / `.zip`
+	 - Linux：`.AppImage` / `.tar.gz`
+
+> [!TIP]
+> macOS 产物默认是未签名/未公证的，用户首次运行可能需要在系统安全设置中允许打开；如需更顺滑的安装体验，需要后续补 Apple 签名与公证流程。

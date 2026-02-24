@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -31,10 +32,11 @@ def _resolve_ffprobe_executable() -> str | None:
     # Frozen backend: executables may be shipped under `_internal`.
     try:
         base_dir = Path(sys.executable).resolve().parent
-        candidate = base_dir / "_internal" / "ffprobe.exe"
+        suffix = ".exe" if os.name == "nt" else ""
+        candidate = base_dir / "_internal" / f"ffprobe{suffix}"
         if candidate.is_file():
             return str(candidate)
-        candidate2 = base_dir / "ffprobe.exe"
+        candidate2 = base_dir / f"ffprobe{suffix}"
         if candidate2.is_file():
             return str(candidate2)
     except Exception:

@@ -36,6 +36,9 @@ def maybe_fix_conda_libexpat(resources_dir: Path) -> None:
     If we detect a Conda layout, prefer Conda's Library/bin/libexpat.dll.
     """
 
+    if os.name != "nt":
+        return
+
     internal_dir = resources_dir / "_internal"
     if not internal_dir.exists():
         return
@@ -64,55 +67,69 @@ def _pick_first_existing(paths: Iterable[Path]) -> Path | None:
     return None
 
 
-def maybe_bundle_windows_executables(resources_dir: Path) -> None:
+def maybe_bundle_external_executables(resources_dir: Path) -> None:
     """Best-effort bundle external executables into the packaged backend.
 
-    - yt-dlp.exe: improves UX when environment lacks PATH configuration
-    - ffmpeg.exe/ffprobe.exe: required for audio extraction/keyframes
+    - yt-dlp: improves UX when environment lacks PATH configuration
+    - ffmpeg/ffprobe: required for audio extraction/keyframes
 
     This function does NOT download anything. It only copies from the local
     build environment when available.
     """
 
-    if os.name != "nt":
-        return
-
     internal_dir = resources_dir / "_internal"
     if not internal_dir.exists():
         return
 
-    # Common locations in virtualenv/conda setups.
-    venv_scripts = Path(sys.executable).resolve().parent
-    conda_prefix = Path(sys.base_prefix)
-    conda_scripts = conda_prefix / "Scripts"
-    conda_bin = conda_prefix / "Library" / "bin"
+    exe_suffix = ".exe" if os.name == "nt" else ""
 
-    tools: list[tuple[str, list[Path]]] = [
+    # Common locations in virtualenv/conda setups.
+    venv_bin = Path(sys.executable).resolve().parent
+    conda_prefix = Path(sys.base_prefix)
+
+    conda_candidates: dict[str, list[Path]]
+    if os.name == "nt":
+        conda_candidates = {
+            "yt-dlp": [conda_prefix / "Scripts" / f"yt-dlp{exe_suffix}"],
+            "ffmpeg": [conda_prefix / "Library" / "bin" / f"ffmpeg{exe_suffix}"],
+            "ffprobe": [conda_prefix / "Library" / "bin" / f"ffprobe{exe_suffix}"],
+        }
+    else:
+        conda_candidates = {
+            "yt-dlp": [conda_prefix / "bin" / "yt-dlp"],
+            "ffmpeg": [conda_prefix / "bin" / "ffmpeg"],
+            "ffprobe": [conda_prefix / "bin" / "ffprobe"],
+        }
+
+    tools: list[tuple[str, str, list[Path]]] = [
         (
-            "yt-dlp.exe",
+            "yt-dlp",
+            f"yt-dlp{exe_suffix}",
             [
                 Path(shutil.which("yt-dlp") or ""),
-                venv_scripts / "yt-dlp.exe",
-                conda_scripts / "yt-dlp.exe",
+                venv_bin / f"yt-dlp{exe_suffix}",
+                *conda_candidates["yt-dlp"],
             ],
         ),
         (
-            "ffmpeg.exe",
+            "ffmpeg",
+            f"ffmpeg{exe_suffix}",
             [
                 Path(shutil.which("ffmpeg") or ""),
-                conda_bin / "ffmpeg.exe",
+                *conda_candidates["ffmpeg"],
             ],
         ),
         (
-            "ffprobe.exe",
+            "ffprobe",
+            f"ffprobe{exe_suffix}",
             [
                 Path(shutil.which("ffprobe") or ""),
-                conda_bin / "ffprobe.exe",
+                *conda_candidates["ffprobe"],
             ],
         ),
     ]
 
-    for dest_name, candidates in tools:
+    for tool_name, dest_name, candidates in tools:
         src = _pick_first_existing(candidates)
         if not src:
             continue
@@ -120,9 +137,15 @@ def maybe_bundle_windows_executables(resources_dir: Path) -> None:
         dest = internal_dir / dest_name
         try:
             shutil.copy2(src, dest)
-            print(f"\n[fix] Bundled {dest_name}: {src}")
+            if os.name != "nt":
+                try:
+                    mode = dest.stat().st_mode
+                    dest.chmod(mode | 0o111)
+                except Exception:
+                    pass
+            print(f"\n[fix] Bundled {tool_name}: {src}")
         except Exception as e:
-            print(f"\n[warn] Failed to bundle {dest_name} from {src}: {e}")
+            print(f"\n[warn] Failed to bundle {tool_name} from {src}: {e}")
 
 
 def run(cmd: list[str], cwd: Path = CORE_DIR) -> None:
@@ -155,12 +178,13 @@ def main() -> None:
     maybe_fix_conda_libexpat(RESOURCES_DIR)
 
     # Best-effort: bundle external executables when present on build machine.
-    maybe_bundle_windows_executables(RESOURCES_DIR)
+    maybe_bundle_external_executables(RESOURCES_DIR)
 
     print("\n✅ Backend packaged successfully!")
     print(f"   Output: {RESOURCES_DIR}")
-    print("\n   Run the backend exe to test:")
-    print(f"   {RESOURCES_DIR / 'backend.exe'}")
+    exe_name = "backend.exe" if os.name == "nt" else "backend"
+    print("\n   Run the backend executable to test:")
+    print(f"   {RESOURCES_DIR / exe_name}")
 
 
 if __name__ == "__main__":
