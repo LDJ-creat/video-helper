@@ -4,10 +4,12 @@ import {
     fetchSessionMessages,
     generateQuiz,
     saveQuizV1,
-    getChatCompletionUrl
+    getChatCompletionUrl,
+    fetchQuizSessions,
+    fetchQuizSessionDetail
 } from "../lib/api/ai";
 import { queryKeys } from "../lib/api/queryKeys";
-import type { ChatSession, ChatMessage, Quiz, QuizAnswerItem } from "../lib/api/ai";
+import type { ChatSession, ChatMessage, Quiz, QuizAnswerItem, QuizSession, QuizDetail } from "../lib/api/ai";
 
 // --- Chat Hooks ---
 

@@ -71,9 +71,41 @@ function JobProgress({ jobId, projectId }: { jobId: string; projectId: string })
                 {job?.error && (
                     <div className="mt-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 max-w-full">
                         <h3 className="font-bold mb-1">{t("failed")}</h3>
-                        <p className="text-sm font-mono break-all">
-                            {JSON.stringify(job.error, null, 2)}
-                        </p>
+                        <p className="text-sm font-medium">{job.error.message}</p>
+
+                        {(() => {
+                            const details = job.error?.details;
+                            const detailsObj = (details && typeof details === "object") ? (details as Record<string, unknown>) : null;
+                            const httpStatus = detailsObj?.httpStatus;
+                            const outputTail = detailsObj?.outputTail;
+
+                            return (
+                                <div className="mt-3 space-y-2">
+                                    {httpStatus != null ? (
+                                        <div className="text-sm">
+                                            <span className="font-medium">HTTP 状态码：</span>
+                                            <span className="font-mono">{String(httpStatus)}</span>
+                                        </div>
+                                    ) : null}
+
+                                    {typeof outputTail === "string" && outputTail.trim() ? (
+                                        <div>
+                                            <div className="text-sm font-medium">yt-dlp 输出（截断）</div>
+                                            <pre className="mt-1 text-xs font-mono whitespace-pre-wrap overflow-auto bg-red-100/50 border border-red-200 rounded p-2">
+                                                {outputTail}
+                                            </pre>
+                                        </div>
+                                    ) : null}
+
+                                    <details className="text-xs">
+                                        <summary className="cursor-pointer">原始错误信息</summary>
+                                        <pre className="mt-1 font-mono whitespace-pre-wrap overflow-auto bg-red-100/50 border border-red-200 rounded p-2">
+                                            {JSON.stringify(job.error, null, 2)}
+                                        </pre>
+                                    </details>
+                                </div>
+                            );
+                        })()}
                         <button
                             onClick={() => router.push(`/projects`)}
                             className="mt-4 px-4 py-2 bg-white border border-red-300 rounded shadow-sm hover:bg-red-50 text-sm font-medium"

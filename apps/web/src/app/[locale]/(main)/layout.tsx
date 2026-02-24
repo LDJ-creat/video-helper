@@ -10,7 +10,7 @@ export default function MainLayout({
     return (
         <div className="flex min-h-screen bg-stone-50">
             <Sidebar />
-            <div className="flex-1">
+            <div className="flex-1 overflow-y-auto no-scrollbar">
                 {children}
             </div>
         </div>

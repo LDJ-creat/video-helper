@@ -3,7 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { SseClient } from "./sseClient";
 import { queryKeys } from "../api/queryKeys";
 import type { JobEvent } from "./jobEvents";
-import type { Job, JobStage, LogEntry } from "../contracts/types";
+import type { Job, JobStage, JobStatus, LogEntry } from "../contracts/types";
 
 function isJobStage(stage: string): stage is JobStage {
   return (
@@ -14,6 +14,12 @@ function isJobStage(stage: string): stage is JobStage {
     stage === "assemble_result" ||
     stage === "extract_keyframes"
   );
+}
+
+function parseStatusFromMessage(message?: string): JobStatus | null {
+  if (!message) return null;
+  const match = /^status=(queued|running|blocked|succeeded|failed|canceled)$/.exec(message.trim());
+  return match ? (match[1] as JobStatus) : null;
 }
 
 export interface UseJobSseOptions {
@@ -40,6 +46,7 @@ export function useJobSse(options: UseJobSseOptions): UseJobSseReturn {
   const sseClientRef = useRef<SseClient | null>(null);
   const fallbackToPollingRef = useRef(false);
   const onEventRef = useRef<typeof onEvent>(onEvent);
+  const lastTerminalStatusRef = useRef<JobStatus | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [connectionMode, setConnectionMode] = useState<"sse" | "polling" | "disconnected">("disconnected");
   const [lastEvent, setLastEvent] = useState<JobEvent | null>(null);
@@ -65,17 +72,44 @@ export function useJobSse(options: UseJobSseOptions): UseJobSseReturn {
         setLastEvent(event);
         onEventRef.current?.(event);
 
+        const statusFromState = event.type === "state" ? parseStatusFromMessage(event.message) : null;
+        const isTerminalFromState =
+          statusFromState === "failed" ||
+          statusFromState === "succeeded" ||
+          statusFromState === "canceled";
+
         // Update React Query cache based on event type
         if (event.type === "progress" || event.type === "state") {
+          let shouldRefetchJob = false;
           queryClient.setQueryData<Job>(queryKeys.job(jobId), (old) => {
             if (!old) return old;
+
+            const nextStatus = statusFromState ?? old.status;
+            if (nextStatus !== old.status) {
+              shouldRefetchJob = true;
+            }
+
             return {
               ...old,
+              status: nextStatus,
               stage: isJobStage(event.stage) ? event.stage : old.stage,
               progress: typeof event.progress === "number" ? event.progress : old.progress,
               updatedAtMs: event.tsMs,
             };
           });
+
+          // When we get a terminal state via SSE, force a refetch once to pull
+          // the full job payload (especially job.error) even if polling is disabled.
+          if (shouldRefetchJob && isTerminalFromState) {
+            queryClient.invalidateQueries({ queryKey: queryKeys.job(jobId) });
+          }
+        }
+
+        // Even if the job query cache hasn't been populated yet, a terminal
+        // state event should trigger a one-time refetch to pull job.error.
+        if (isTerminalFromState && lastTerminalStatusRef.current !== statusFromState) {
+          lastTerminalStatusRef.current = statusFromState;
+          queryClient.invalidateQueries({ queryKey: queryKeys.job(jobId) });
         }
 
         if (event.type === "log" && event.message) {

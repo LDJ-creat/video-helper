@@ -19,4 +19,6 @@ export const queryKeys = {
   // Quiz Feature keys
   quizSessions: (projectId: string) => ["quiz", "sessions", projectId] as const,
   quizDetail: (sessionId: string) => ["quiz", "detail", sessionId] as const,
+  // Settings
+  settings: ["settings"] as const,
 };

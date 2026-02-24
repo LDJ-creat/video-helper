@@ -33,7 +33,7 @@ export function KeyframeGrid({ keyframes, onKeyframeClick, isLoading = false }: 
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             {keyframes.map((keyframe) => (
                 <button
-                    key={`${keyframe.assetId}-${keyframe.idx}`}
+                    key={`${keyframe.assetId}`}
                     onClick={() => onKeyframeClick(keyframe.timeMs)}
                     className="group relative bg-white rounded-lg border border-stone-200 overflow-hidden hover:border-stone-300 hover:shadow-md transition-all duration-200"
                 >
@@ -41,7 +41,7 @@ export function KeyframeGrid({ keyframes, onKeyframeClick, isLoading = false }: 
                     <div className="aspect-video bg-stone-100 overflow-hidden">
                         <img
                             src={endpoints.assetContent(keyframe.assetId)}
-                            alt={keyframe.caption || "关键帧"}
+                            alt="关键帧"
                             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
                             loading="lazy"
                         />
@@ -59,15 +59,6 @@ export function KeyframeGrid({ keyframes, onKeyframeClick, isLoading = false }: 
                     <div className="absolute top-2 left-2 px-2 py-1 bg-black/70 rounded text-xs font-mono text-white">
                         {formatTime(msToSeconds(keyframe.timeMs))}
                     </div>
-
-                    {/* Caption（底部） */}
-                    {keyframe.caption && (
-                        <div className="p-2 bg-white">
-                            <p className="text-sm text-stone-700 line-clamp-2">
-                                {keyframe.caption}
-                            </p>
-                        </div>
-                    )}
                 </button>
             ))}
         </div>

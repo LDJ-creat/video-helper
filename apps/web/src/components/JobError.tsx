@@ -14,6 +14,10 @@ export function JobError({ job }: JobErrorProps) {
     if (!job.error) return null;
 
     const suggestion = getErrorSuggestion(job.error.code);
+    const details = job.error.details;
+    const detailsObj = (details && typeof details === "object") ? (details as Record<string, unknown>) : null;
+    const httpStatus = detailsObj?.httpStatus;
+    const outputTail = detailsObj?.outputTail;
 
     return (
         <div className="border-l-4 border-red-500 bg-red-50 p-4 rounded">
@@ -24,11 +28,27 @@ export function JobError({ job }: JobErrorProps) {
                         <p className="font-medium">{job.error.message}</p>
                         <p className="mt-1 text-red-600">{suggestion}</p>
                     </div>
-                    {job.error.details ? (
+                    {details ? (
                         <details className="mt-2 text-xs text-red-600">
                             <summary className="cursor-pointer">查看详情</summary>
-                            <pre className="mt-1 overflow-auto">
-                                {JSON.stringify(job.error.details, null, 2)}
+                            {httpStatus != null ? (
+                                <div className="mt-2">
+                                    <div className="font-medium">HTTP 状态码</div>
+                                    <div className="mt-1 font-mono">{String(httpStatus)}</div>
+                                </div>
+                            ) : null}
+
+                            {typeof outputTail === "string" && outputTail.trim() ? (
+                                <div className="mt-2">
+                                    <div className="font-medium">yt-dlp 输出（截断）</div>
+                                    <pre className="mt-1 overflow-auto whitespace-pre-wrap font-mono">
+                                        {outputTail}
+                                    </pre>
+                                </div>
+                            ) : null}
+
+                            <pre className="mt-2 overflow-auto">
+                                {JSON.stringify(details, null, 2)}
                             </pre>
                         </details>
                     ) : null}

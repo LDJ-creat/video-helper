@@ -1,0 +1,4 @@
+# Ignore all files under the local data directory
+data/
+
+.vscode/

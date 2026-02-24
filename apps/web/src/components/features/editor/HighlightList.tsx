@@ -31,16 +31,16 @@ export function HighlightList({ highlights, onHighlightClick, isLoading = false 
     return (
         <div className="space-y-2">
             {highlights.map((highlight) => {
-                const hasTimeMs = typeof highlight.timeMs === "number";
+                const hasTimeMs = typeof highlight.startMs === "number";
                 const Component = hasTimeMs && onHighlightClick ? "button" : "div";
 
                 return (
                     <Component
                         key={highlight.highlightId}
-                        onClick={hasTimeMs && onHighlightClick ? () => onHighlightClick(highlight.timeMs!) : undefined}
+                        onClick={hasTimeMs && onHighlightClick ? () => onHighlightClick(highlight.startMs) : undefined}
                         className={`w-full text-left p-4 rounded-xl border border-stone-200 bg-white ${hasTimeMs && onHighlightClick
-                                ? "hover:border-orange-200 hover:shadow-md cursor-pointer transition-all duration-200"
-                                : ""
+                            ? "hover:border-orange-200 hover:shadow-md cursor-pointer transition-all duration-200"
+                            : ""
                             }`}
                     >
                         <div className="flex items-start gap-3">
@@ -51,7 +51,7 @@ export function HighlightList({ highlights, onHighlightClick, isLoading = false 
                                 {/* 时间戳（如果有） */}
                                 {hasTimeMs && (
                                     <div className="text-xs font-mono text-stone-500 mb-1">
-                                        {formatTime(msToSeconds(highlight.timeMs!))}
+                                        {formatTime(msToSeconds(highlight.startMs))}
                                     </div>
                                 )}
 

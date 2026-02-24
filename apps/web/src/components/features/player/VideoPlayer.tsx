@@ -235,7 +235,7 @@ export const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(
                             </button>
                             {showSpeedMenu && (
                                 <div className="absolute bottom-full right-0 mb-2 bg-stone-800 rounded-lg shadow-xl border border-stone-700 py-1 flex flex-col min-w-[5rem] overflow-hidden z-20">
-                                    {[0.5, 1.0, 1.25, 1.5, 2.0].map((rate) => (
+                                    {[0.5, 1.0, 1.25, 1.5, 2.0].map((rate: number) => (
                                         <button
                                             key={rate}
                                             onClick={() => handleSpeedChange(rate)}

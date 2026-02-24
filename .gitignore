@@ -33,3 +33,7 @@ www.bilibili.com_cookies.txt
 *.sqlite3
 *.log
 build_log.txt
+
+# Ignore backend build artifacts (PyInstaller / packaging outputs)
+services/core/build/
+services/core/build/**

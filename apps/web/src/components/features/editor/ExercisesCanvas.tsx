@@ -3,7 +3,7 @@ import { useParams } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { useQuizGenerator, useQuizSave, useQuizSessions, useQuizDetail } from "@/hooks/useAI";
 import { Loader2, CheckCircle2, XCircle, BrainCircuit, RefreshCw, Save, History, ChevronLeft, ChevronRight, Calendar, BookOpen } from "lucide-react";
-import type { Quiz, QuizItem } from "@/lib/api/ai";
+import type { Quiz, QuizItem, QuizSession } from "@/lib/api/ai";
 import { fetchQuizSessionDetail } from "@/lib/api/ai";
 import { queryKeys } from "@/lib/api/queryKeys";
 
@@ -50,7 +50,7 @@ export function ExercisesCanvas({ projectId: propProjectId }: ExercisesCanvasPro
         generateMutation.mutate(
             { projectId, topicFocus: topic || undefined },
             {
-                onSuccess: (data) => {
+                onSuccess: (data: Quiz) => {
                     setQuiz(data);
                 }
             }
@@ -182,7 +182,7 @@ export function ExercisesCanvas({ projectId: propProjectId }: ExercisesCanvasPro
                             无法加载练习记录
                         </div>
                     ) : historySessions?.length ? (
-                        historySessions.map(session => (
+                        historySessions.map((session: QuizSession) => (
                             <button
                                 key={session.id}
                                 onClick={() => handleSelectHistorySession(session.id)}
@@ -239,7 +239,7 @@ export function ExercisesCanvas({ projectId: propProjectId }: ExercisesCanvasPro
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                    {historyDetail.items.map((item, idx) => {
+                    {historyDetail.items.map((item: QuizItem, idx: number) => {
                         // Assuming quiz items in history match standard format. 
                         // We need to infer user's answer from backend persistence or just show question?
                         // Wait, backend save persists `user_answer`, but `QuizItemDTO` doesn't strictly have it?
@@ -256,7 +256,7 @@ export function ExercisesCanvas({ projectId: propProjectId }: ExercisesCanvasPro
                                     <h3 className="text-stone-800 font-medium flex-1">{item.question}</h3>
                                 </div>
                                 <div className="space-y-2 pl-2 border-l-2 border-stone-100 ml-2">
-                                    {item.options.map((opt, optIdx) => {
+                                    {item.options.map((opt: string, optIdx: number) => {
                                         const isCorrect = opt === item.correctAnswer;
                                         // Highlight user selected answer if available? 
                                         // Ideally we check `item.userAnswer` if existing.

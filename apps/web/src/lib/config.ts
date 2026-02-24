@@ -8,7 +8,7 @@ function computeApiBaseUrl(): string {
     // configured URL (or fall back to the default backend port).
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     if ((window as any).electronAPI?.isElectron) {
-      return publicBaseUrl || "http://localhost:8000";
+      return publicBaseUrl || "http://127.0.0.1:8000";
     }
 
     // In a regular browser, prefer same-origin requests so Next.js rewrites

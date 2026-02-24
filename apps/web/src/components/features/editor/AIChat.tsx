@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Send, Plus, MessageSquare, Loader2, Bot, User } from "lucide-react";
 import { useChatSessions, useSessionMessages, useChatStream } from "@/hooks/useAI";
 import { queryKeys } from "@/lib/api/queryKeys";
+import MarkdownRenderer from "@/components/shared/MarkdownRenderer";
 
 export function AIChat() {
     const params = useParams();
@@ -15,6 +16,7 @@ export function AIChat() {
     const [isStreaming, setIsStreaming] = useState(false);
     const [streamedContent, setStreamedContent] = useState("");
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+    const [pendingUserMessage, setPendingUserMessage] = useState<string | null>(null);
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const { url: chatUrl } = useChatStream();
@@ -49,6 +51,13 @@ export function AIChat() {
         }
     }, [sessions, activeSessionId]);
 
+    // Clear optimistic user message once it appears in the persisted messages
+    useEffect(() => {
+        if (pendingUserMessage && messages?.some(m => m.role === "user" && m.content === pendingUserMessage)) {
+            setPendingUserMessage(null);
+        }
+    }, [messages, pendingUserMessage]);
+
     // Scroll to bottom
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -66,6 +75,7 @@ export function AIChat() {
         setInput("");
         setIsStreaming(true);
         setStreamedContent("");
+        setPendingUserMessage(userMessage);
 
         // Optimistic update (optional, but good for UX)
         // For simplicity, we'll let the stream handle the display of the new state eventually
@@ -137,6 +147,7 @@ export function AIChat() {
             setStreamedContent(prev => prev + "\n[Error: Failed to send message]");
         } finally {
             setIsStreaming(false);
+            setPendingUserMessage(null);
             // Refresh messages to get persisted user+assistant messages.
             if (currentSessionId) {
                 queryClient.invalidateQueries({ queryKey: queryKeys.chatMessages(currentSessionId) });
@@ -229,7 +240,9 @@ export function AIChat() {
                 </div>
 
                 {/* Messages */}
-                <div className="flex-1 overflow-y-auto p-4 space-y-6">
+                <div
+                    className="flex-1 overflow-y-auto p-4 space-y-6 no-scrollbar"
+                >
                     {messages?.length === 0 && !streamedContent && (
                         <div className="flex flex-col items-center justify-center h-full text-stone-400 opacity-50">
                             <Bot size={48} className="mb-4" />
@@ -244,11 +257,15 @@ export function AIChat() {
                                     <Bot size={16} className="text-orange-600" />
                                 </div>
                             )}
-                            <div className={`max-w-[85%] rounded-2xl px-5 py-3 text-sm leading-relaxed whitespace-pre-wrap shadow-sm ${msg.role === "user"
+                            <div className={`max-w-[85%] rounded-2xl px-5 py-3 text-sm leading-relaxed shadow-sm ${msg.role === "user"
                                 ? "bg-stone-900 text-white rounded-br-none"
                                 : "bg-white border border-stone-200 text-stone-800 rounded-bl-none"
                                 }`}>
-                                {msg.content}
+                                {msg.role === "user" ? (
+                                    <div className="whitespace-pre-wrap">{msg.content}</div>
+                                ) : (
+                                    <MarkdownRenderer content={msg.content} />
+                                )}
                             </div>
                             {msg.role === "user" && (
                                 <div className="w-8 h-8 rounded-full bg-stone-200 flex items-center justify-center shrink-0 mt-1">
@@ -258,15 +275,26 @@ export function AIChat() {
                         </div>
                     ))}
 
+                    {/* Optimistic User Message */}
+                    {pendingUserMessage && (
+                        <div className="flex gap-3 justify-end">
+                            <div className="max-w-[85%] rounded-2xl px-5 py-3 text-sm leading-relaxed shadow-sm bg-stone-900 text-white rounded-br-none">
+                                <div className="whitespace-pre-wrap">{pendingUserMessage}</div>
+                            </div>
+                            <div className="w-8 h-8 rounded-full bg-stone-200 flex items-center justify-center shrink-0 mt-1">
+                                <User size={16} className="text-stone-500" />
+                            </div>
+                        </div>
+                    )}
+
                     {/* Streaming Content Bubble */}
                     {(streamedContent || (isStreaming && !streamedContent)) && (
                         <div className="flex gap-3 justify-start">
                             <div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center shrink-0 mt-1">
                                 <Bot size={16} className="text-orange-600" />
                             </div>
-                            <div className="max-w-[85%] rounded-2xl rounded-bl-none px-5 py-3 text-sm leading-relaxed whitespace-pre-wrap bg-white border border-stone-200 text-stone-800 shadow-sm">
-                                {streamedContent}
-                                {isStreaming && <span className="inline-block w-2 h-4 ml-1 align-middle bg-stone-400 animate-pulse" />}
+                            <div className="max-w-[85%] rounded-2xl rounded-bl-none px-5 py-3 text-sm leading-relaxed bg-white border border-stone-200 text-stone-800 shadow-sm">
+                                <MarkdownRenderer content={streamedContent} isStreaming={isStreaming} />
                             </div>
                         </div>
                     )}

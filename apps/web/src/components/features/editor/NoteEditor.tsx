@@ -91,9 +91,9 @@ const NavigationExtension = Extension.create({
     addCommands() {
         return {
             navigateToTime: (timeMs: number) => ({ editor }: { editor: Editor }) => {
-                // @ts-ignore
-                if (editor.storage.navigation?.onNavigate) {
-                    editor.storage.navigation.onNavigate(timeMs);
+                const navStorage = (editor.storage as any).navigation;
+                if (navStorage?.onNavigate) {
+                    navStorage.onNavigate(timeMs);
                     return true;
                 }
                 return false;
@@ -223,7 +223,7 @@ const ParagraphBlock = ({ node, updateAttributes, editor, getPos }: { node: any,
                     {/* Render Keyframes List */}
                     {keyframes.length > 0 && (
                         <div contentEditable={false} className="mb-4 flex flex-col gap-4 select-none">
-                            {keyframes.map((kf, idx) => (
+                            {keyframes.map((kf: Keyframe, idx: number) => (
                                 <div key={kf.assetId || idx} className="relative group/image w-full">
                                     <img
                                         src={kf.contentUrl}
@@ -284,14 +284,14 @@ const CustomParagraph = Paragraph.extend({
 function blocksToTiptap(blocks: ContentBlock[]): JSONContent {
     const content: JSONContent[] = [];
 
-    (blocks || []).forEach(block => {
+    (blocks || []).forEach((block: ContentBlock) => {
         content.push({
             type: 'heading',
             attrs: { level: 2, blockId: block.blockId, startMs: block.startMs, endMs: block.endMs },
             content: [{ type: 'text', text: block.title }]
         });
 
-        block.highlights.forEach(h => {
+        block.highlights.forEach((h: Highlight) => {
             const paragraphContent: JSONContent[] = [];
             paragraphContent.push({ type: 'text', text: h.text });
 
@@ -377,7 +377,7 @@ export const NoteEditor = forwardRef<NoteEditorRef, NoteEditorProps>(({
     const uploadAssetRef = useRef(uploadAsset);
     useEffect(() => { uploadAssetRef.current = uploadAsset; }, [uploadAsset]);
 
-    const saveHandlerRef = useRef<() => Promise<void>>();
+    const saveHandlerRef = useRef<(() => Promise<void>) | undefined>(undefined);
 
     const handleSave = useCallback(async () => {
         if (!editor || !hasPendingChangesRef.current) return;
@@ -416,7 +416,7 @@ export const NoteEditor = forwardRef<NoteEditorRef, NoteEditorProps>(({
             return {
                 uploadKeyframes: (files: File[], callback: (results: Array<{ url: string, assetId: string }>) => void) => async () => {
                     try {
-                        const promises = files.map(file => uploadAsset({ file, kind: 'user_image' }));
+                        const promises = files.map((file: File) => uploadAsset({ file, kind: 'user_image' }));
                         const results = await Promise.all(promises);
                         const mapped = results.map(r => ({ url: r.contentUrl, assetId: r.assetId }));
                         callback(mapped);
@@ -483,9 +483,9 @@ export const NoteEditor = forwardRef<NoteEditorRef, NoteEditorProps>(({
 
                     if (targetNode && targetPos !== -1) {
                         // Perform upload batch
-                        const promises = files.map(file => uploadAssetRef.current({ file, kind: 'user_image' }));
+                        const promises = files.map((file: File) => uploadAssetRef.current({ file, kind: 'user_image' }));
                         Promise.all(promises)
-                            .then((results) => {
+                            .then((results: Array<{ assetId: string; contentUrl: string }>) => {
                                 // Get FRESH node from state to avoid stale attrs if user typed fast
                                 const freshNode = view.state.doc.nodeAt(targetPos);
                                 if (!freshNode) return;
@@ -517,7 +517,7 @@ export const NoteEditor = forwardRef<NoteEditorRef, NoteEditorProps>(({
 
     useEffect(() => {
         if (editor && onBlockNavigation) {
-            editor.storage.navigation.onNavigate = onBlockNavigation;
+            (editor.storage as any).navigation.onNavigate = onBlockNavigation;
         }
     }, [editor, onBlockNavigation]);
 
