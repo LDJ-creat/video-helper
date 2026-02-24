@@ -4,7 +4,7 @@ import asyncio
 import time
 import uuid
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlencode, urlparse, urlsplit, urlunsplit
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
@@ -49,22 +49,50 @@ def _canonical_source_url(source_type: str, source_url: str) -> str:
 	query/fragment noise and normalize host casing.
 	"""
 
+	# NOTE: This value is persisted as Project.source_url and later used by the
+	# worker to download the media. Therefore canonicalization MUST preserve
+	# any query params required to address the content (e.g., YouTube watch?v=...).
 	try:
-		p = urlparse(source_url)
+		parts = urlsplit(source_url)
 	except Exception:
 		return source_url
 
-	scheme = (p.scheme or "").lower()
-	host = (p.netloc or "").lower()
-	path = p.path or ""
+	scheme = (parts.scheme or "").lower()
+	host = (parts.netloc or "").lower()
+	path = parts.path or ""
 	if path != "/":
 		path = path.rstrip("/")
 	if not path:
 		path = "/"
 
-	# Keep only stable identity components.
+	query = ""
+	# Keep only the minimal, content-identifying query params for known sources.
+	if source_type == "youtube":
+		# YouTube watch URLs require the v= video id.
+		if host.endswith("youtube.com") and path == "/watch":
+			q = dict(parse_qsl(parts.query or "", keep_blank_values=True))
+			v = (q.get("v") or "").strip()
+			if v:
+				query = urlencode({"v": v})
+			else:
+				query = ""
+		else:
+			# shorts/live/youtu.be encode the id in the path; query is noise.
+			query = ""
+	elif source_type == "bilibili":
+		# Multi-part bilibili videos use ?p=2, which changes the addressed content.
+		q = dict(parse_qsl(parts.query or "", keep_blank_values=True))
+		p = (q.get("p") or "").strip()
+		if p:
+			query = urlencode({"p": p})
+		else:
+			query = ""
+	else:
+		# Generic URLs: keep query to avoid losing content-identifying parameters.
+		query = parts.query or ""
+
 	if scheme and host:
-		return f"{scheme}://{host}{path}"
+		return urlunsplit((scheme, host, path, query, ""))
 	return source_url
 
 
@@ -118,7 +146,7 @@ def _infer_source_type_from_url(source_url: str) -> str:
 
 def _is_valid_source_url(source_type: str, source_url: str) -> bool:
 	try:
-		parsed = urlparse(source_url)
+		parsed = urlsplit(source_url)
 	except Exception:
 		return False
 
@@ -134,7 +162,17 @@ def _is_valid_source_url(source_type: str, source_url: str) -> bool:
 		return True
 
 	if source_type == "youtube":
-		return host.endswith("youtube.com") or host == "youtu.be" or host.endswith("youtu.be")
+		if host == "youtu.be" or host.endswith("youtu.be"):
+			# Short links carry the id in the path.
+			return bool((parsed.path or "").strip("/"))
+		if host.endswith("youtube.com"):
+			p = (parsed.path or "")
+			if p.rstrip("/") == "/watch":
+				q = dict(parse_qsl(parsed.query or "", keep_blank_values=True))
+				return bool((q.get("v") or "").strip())
+			# Accept other stable content paths (shorts/live/embed, etc.).
+			return bool(p)
+		return False
 
 	if source_type == "bilibili":
 		return host.endswith("bilibili.com") or host == "b23.tv" or host.endswith("b23.tv")
