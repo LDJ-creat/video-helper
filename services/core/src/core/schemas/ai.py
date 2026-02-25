@@ -79,6 +79,15 @@ class QuizSaveResponse(BaseModel):
     session_id: str
 
 
+class QuizItemUpdateRequest(BaseModel):
+    user_answer: str
+    is_correct: bool
+
+
+class QuizItemUpdateResponse(BaseModel):
+    success: bool
+
+
 class QuizSessionDTO(BaseModel):
     id: str
     projectId: str

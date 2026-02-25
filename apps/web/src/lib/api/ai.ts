@@ -44,7 +44,7 @@ export interface QuizAnswerItem {
 export interface QuizSession {
     id: string;
     projectId: string;
-    score: number | null;
+    score: number | null;  // null means in-progress
     createdAtMs: number;
     updatedAtMs: number;
 }
@@ -77,7 +77,6 @@ export async function saveQuizV1(
     projectId: string,
     sessionId: string,
     score: number,
-    items: QuizAnswerItem[]
 ): Promise<{ success: boolean }> {
     return apiFetch<{ success: boolean }>(endpoints.quizSave(), {
         method: "POST",
@@ -86,15 +85,24 @@ export async function saveQuizV1(
             project_id: projectId,
             session_id: sessionId,
             score,
-            items: items.map(i => ({
-                question_hash: i.questionHash,
-                user_answer: i.userAnswer,
-                is_correct: i.isCorrect,
-                question: i.question,
-                options: i.options,
-                correctAnswer: i.correctAnswer,
-                explanation: i.explanation
-            }))
+            // items are already persisted on generate; no need to send them again
+            items: []
+        }),
+    });
+}
+
+export async function updateQuizItem(
+    sessionId: string,
+    questionHash: string,
+    userAnswer: string,
+    isCorrect: boolean
+): Promise<{ success: boolean }> {
+    return apiFetch<{ success: boolean }>(endpoints.quizSessionItem(sessionId, questionHash), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            user_answer: userAnswer,
+            is_correct: isCorrect
         }),
     });
 }

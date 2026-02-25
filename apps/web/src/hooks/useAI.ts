@@ -4,12 +4,13 @@ import {
     fetchSessionMessages,
     generateQuiz,
     saveQuizV1,
+    updateQuizItem,
     getChatCompletionUrl,
     fetchQuizSessions,
     fetchQuizSessionDetail
 } from "../lib/api/ai";
 import { queryKeys } from "../lib/api/queryKeys";
-import type { ChatSession, ChatMessage, Quiz, QuizAnswerItem, QuizSession, QuizDetail } from "../lib/api/ai";
+import type { ChatSession, ChatMessage, Quiz, QuizSession, QuizDetail } from "../lib/api/ai";
 
 // --- Chat Hooks ---
 
@@ -59,11 +60,21 @@ export function useQuizSave() {
             projectId: string;
             sessionId: string;
             score: number;
-            items: QuizAnswerItem[]
-        }) => saveQuizV1(vars.projectId, vars.sessionId, vars.score, vars.items),
+        }) => saveQuizV1(vars.projectId, vars.sessionId, vars.score),
         onSuccess: (_, vars) => {
             queryClient.invalidateQueries({ queryKey: queryKeys.quizSessions(vars.projectId) });
         }
+    });
+}
+
+export function useQuizItemUpdate() {
+    return useMutation({
+        mutationFn: (vars: {
+            sessionId: string;
+            questionHash: string;
+            userAnswer: string;
+            isCorrect: boolean;
+        }) => updateQuizItem(vars.sessionId, vars.questionHash, vars.userAnswer, vars.isCorrect),
     });
 }
 

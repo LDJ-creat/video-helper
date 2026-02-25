@@ -26,7 +26,9 @@ from core.schemas.ai import (
     QuizDetailDTO,
     QuizSessionDTO,
     QuizSaveRequest,
-    QuizSaveResponse
+    QuizSaveResponse,
+    QuizItemUpdateRequest,
+    QuizItemUpdateResponse
 )
 
 logger = logging.getLogger(__name__)
@@ -181,11 +183,41 @@ def generate_quiz_endpoint(
         )
     
     # Get context from result
-    # Simplified: just use a placeholder or wait for "content_blocks" implementation
     context = f"Video Title: {project.title or 'Unknown'}"
     
     try:
         quiz = generate_quiz(context, req.project_id, req.topic_focus)
+
+        # --- Persist quiz session and items immediately after generation ---
+        now = _now_ms()
+        quiz_session = QuizSession(
+            id=quiz.session_id,
+            project_id=req.project_id,
+            score=None,  # Not finished yet
+            topics={},
+            created_at_ms=now,
+            updated_at_ms=now
+        )
+        session.add(quiz_session)
+
+        for item in quiz.items:
+            q_item = QuizItem(
+                id=str(uuid.uuid4()),
+                session_id=quiz.session_id,
+                question_hash=item.questionHash,
+                user_answer=None,   # Not answered yet
+                is_correct=None,    # Not answered yet
+                content={
+                    "question": item.question,
+                    "options": item.options,
+                    "correctAnswer": item.correctAnswer,
+                    "explanation": item.explanation,
+                },
+                created_at_ms=now
+            )
+            session.add(q_item)
+
+        session.commit()
         return quiz
     except Exception as e:
          return JSONResponse(
@@ -202,36 +234,22 @@ def save_quiz(
     request: Request,
     session: Session = Depends(get_db_session)
 ):
+    """Finalize a quiz session by updating its score. Items were already persisted on generate."""
     try:
-        # Create session record
-        quiz_session = QuizSession(
-            id=req.session_id,
-            project_id=req.project_id,
-            score=req.score,
-            topics={}, # TODO: extract topics
-            created_at_ms=_now_ms(),
-            updated_at_ms=_now_ms()
-        )
-        session.add(quiz_session)
-        
-        # Save items
-        for item in req.items:
-            q_item = QuizItem(
-                id=str(uuid.uuid4()),
-                session_id=req.session_id,
-                question_hash=item.question_hash,
-                user_answer=item.user_answer,
-                is_correct=item.is_correct,
-                content={
-                    "question": item.question or "",
-                    "options": item.options or [],
-                    "correctAnswer": item.correctAnswer or "",
-                    "explanation": item.explanation or "",
-                },
-                created_at_ms=_now_ms()
+        quiz_session = session.query(QuizSession).filter(QuizSession.id == req.session_id).first()
+        if not quiz_session:
+            return JSONResponse(
+                status_code=404,
+                content=build_error_envelope(
+                    code=ErrorCode.RESOURCE_NOT_FOUND,
+                    message="Quiz session not found",
+                ),
             )
-            session.add(q_item)
-            
+
+        # Update session score and timestamp
+        quiz_session.score = req.score
+        quiz_session.updated_at_ms = _now_ms()
+        session.add(quiz_session)
         session.commit()
         return QuizSaveResponse(success=True, session_id=req.session_id)
     except Exception as e:
@@ -240,7 +258,56 @@ def save_quiz(
             status_code=500,
             content=build_error_envelope(
                 code=ErrorCode.INTERNAL_ERROR,
-                message="Failed to save quiz",
+                message="Failed to finalize quiz",
+            ),
+        )
+
+
+@router.patch("/quiz/sessions/{sessionId}/items/{questionHash}", response_model=QuizItemUpdateResponse)
+def update_quiz_item(
+    sessionId: str,
+    questionHash: str,
+    req: QuizItemUpdateRequest,
+    session: Session = Depends(get_db_session)
+):
+    """Update user answer for a single quiz item. Called after each question is answered."""
+    try:
+        q_item = (
+            session.query(QuizItem)
+            .filter(
+                QuizItem.session_id == sessionId,
+                QuizItem.question_hash == questionHash
+            )
+            .first()
+        )
+        if not q_item:
+            return JSONResponse(
+                status_code=404,
+                content=build_error_envelope(
+                    code=ErrorCode.RESOURCE_NOT_FOUND,
+                    message="Quiz item not found",
+                ),
+            )
+
+        q_item.user_answer = req.user_answer
+        q_item.is_correct = req.is_correct
+        session.add(q_item)
+
+        # Update session timestamp
+        quiz_session = session.query(QuizSession).filter(QuizSession.id == sessionId).first()
+        if quiz_session:
+            quiz_session.updated_at_ms = _now_ms()
+            session.add(quiz_session)
+
+        session.commit()
+        return QuizItemUpdateResponse(success=True)
+    except Exception as e:
+        logger.error(f"Failed to update quiz item: {e}")
+        return JSONResponse(
+            status_code=500,
+            content=build_error_envelope(
+                code=ErrorCode.INTERNAL_ERROR,
+                message="Failed to update quiz item",
             ),
         )
 

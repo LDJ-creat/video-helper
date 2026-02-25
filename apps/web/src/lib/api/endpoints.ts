@@ -45,6 +45,8 @@ export const endpoints = {
     quizSave: () => `${API_V1}/quiz/save`,
     quizSessions: (projectId: string) => `${API_V1}/quiz/sessions?projectId=${projectId}`,
     quizSession: (sessionId: string) => `${API_V1}/quiz/sessions/${sessionId}`,
+    quizSessionItem: (sessionId: string, questionHash: string) =>
+        `${API_V1}/quiz/sessions/${sessionId}/items/${encodeURIComponent(questionHash)}`,
     // yt-dlp Cookies
     ytdlpCookiesUpload: () => `${API_V1}/settings/ytdlp/cookies`,
     ytdlpCookiesStatus: () => `${API_V1}/settings/ytdlp/cookies/status`,

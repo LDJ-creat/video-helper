@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useParams } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
-import { useQuizGenerator, useQuizSave, useQuizSessions, useQuizDetail } from "@/hooks/useAI";
+import { useQuizGenerator, useQuizSave, useQuizSessions, useQuizDetail, useQuizItemUpdate } from "@/hooks/useAI";
 import { Loader2, CheckCircle2, XCircle, BrainCircuit, RefreshCw, Save, History, ChevronLeft, ChevronRight, Calendar, BookOpen } from "lucide-react";
 import type { Quiz, QuizItem, QuizSession } from "@/lib/api/ai";
 import { fetchQuizSessionDetail } from "@/lib/api/ai";
@@ -19,6 +19,7 @@ export function ExercisesCanvas({ projectId: propProjectId }: ExercisesCanvasPro
     // Hooks
     const generateMutation = useQuizGenerator();
     const saveMutation = useQuizSave();
+    const updateItemMutation = useQuizItemUpdate();
     const { data: historySessions, isLoading: isLoadingHistory, error: historyError } = useQuizSessions(projectId);
 
     // State
@@ -52,6 +53,8 @@ export function ExercisesCanvas({ projectId: propProjectId }: ExercisesCanvasPro
             {
                 onSuccess: (data: Quiz) => {
                     setQuiz(data);
+                    // Refresh the sidebar to show the newly-created (in-progress) session
+                    queryClient.invalidateQueries({ queryKey: queryKeys.quizSessions(projectId) });
                 }
             }
         );
@@ -72,6 +75,14 @@ export function ExercisesCanvas({ projectId: propProjectId }: ExercisesCanvasPro
             ...prev,
             [currentQ.questionHash]: { userAnswer: selectedOption, isCorrect }
         }));
+
+        // Immediately persist the answer to the database
+        updateItemMutation.mutate({
+            sessionId: quiz.sessionId,
+            questionHash: currentQ.questionHash,
+            userAnswer: selectedOption,
+            isCorrect
+        });
 
         setShowFeedback(true);
     };
@@ -94,24 +105,11 @@ export function ExercisesCanvas({ projectId: propProjectId }: ExercisesCanvasPro
             const correctCount = Object.values(answers).filter(a => a.isCorrect).length;
             const score = Math.round((correctCount / quiz.items.length) * 100);
 
-            const itemsToSave = quiz.items.map(item => {
-                const ans = answers[item.questionHash];
-                return {
-                    questionHash: item.questionHash,
-                    userAnswer: ans?.userAnswer || "",
-                    isCorrect: ans?.isCorrect || false,
-                    question: item.question,
-                    options: item.options,
-                    correctAnswer: item.correctAnswer,
-                    explanation: item.explanation
-                };
-            });
-
+            // Items are already persisted per-answer; only update the session score
             saveMutation.mutate({
                 projectId,
                 sessionId: quiz.sessionId,
-                score,
-                items: itemsToSave
+                score
             });
         }
     };
@@ -195,12 +193,16 @@ export function ExercisesCanvas({ projectId: propProjectId }: ExercisesCanvasPro
                                     <span className={`text-sm font-medium ${viewingSessionId === session.id ? "text-orange-700" : "text-stone-700"}`}>
                                         {new Date(session.updatedAtMs).toLocaleDateString()}
                                     </span>
-                                    {session.score !== null && (
+                                    {session.score !== null ? (
                                         <span className={`text-xs px-1.5 py-0.5 rounded ${session.score >= 80 ? "bg-green-100 text-green-700" :
                                             session.score >= 60 ? "bg-yellow-100 text-yellow-700" :
                                                 "bg-red-100 text-red-700"
                                             }`}>
                                             {session.score}分
+                                        </span>
+                                    ) : (
+                                        <span className="text-xs px-1.5 py-0.5 rounded bg-orange-50 text-orange-500 border border-orange-200">
+                                            进行中
                                         </span>
                                     )}
                                 </div>
