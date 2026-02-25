@@ -106,6 +106,22 @@ jobs:
         shell: bash
         run: pnpm -C apps/web build
 
+      # Next standalone output + pnpm workspace can end up with a non-resolvable
+      # node_modules layout (only `.pnpm/` is present). Hydrate a classic
+      # node_modules in the standalone app directory so runtime `require()`
+      # works in packaged installers (e.g. styled-jsx).
+      - name: Hydrate Next standalone node_modules (npm)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd apps/web/.next/standalone/apps/web
+          npm config set progress false
+          npm install --omit=dev --no-package-lock --loglevel=error
+          # The root standalone node_modules is a pnpm virtual store only and is
+          # not used at runtime (server.js chdir's into apps/web). Remove it to
+          # avoid shipping a large, non-resolvable tree.
+          rm -rf ../../node_modules || true
+
       - name: Package backend (PyInstaller)
         shell: bash
         run: |

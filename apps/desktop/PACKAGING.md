@@ -48,6 +48,20 @@ $env:BUILD_STANDALONE="1"
 pnpm build
 ```
 
+> [!IMPORTANT]
+> **如果你使用 pnpm workspace（本项目默认如此），Next 的 standalone 产物里可能只包含 `node_modules/.pnpm/`，
+> 但缺少可被 Node.js 解析的包目录，从而在安装后运行时报错（例如 `Cannot find module 'styled-jsx/package.json'`）并导致白屏。**
+>
+> 需要在 standalone 目录里补齐生产依赖：
+>
+> ```powershell
+> cd apps\web\.next\standalone\apps\web
+> $env:npm_config_progress="false"
+> npm install --omit=dev --no-package-lock --loglevel=error
+> ```
+>
+> （一键脚本 `apps\desktop\scripts\build-all.ps1` 已自动包含此步骤。）
+
 产物（三个目录，缺一不可）：
 - `apps/web/.next/standalone/` — 独立 Node.js 服务器
 - `apps/web/.next/static/`    — 静态资源
@@ -103,6 +117,72 @@ pnpm build
 ```
 
 产物：`apps/desktop/release/Video Helper Setup <version>.exe`（NSIS 安装包）
+
+---
+
+## 🚀 发布新版本（自动更新）
+
+> [!IMPORTANT]
+> 完成此步骤需要：
+> 1. 在 `package.json` 中的 `build.publish.owner` 填入你的 **GitHub 用户名**。
+> 2. 在 GitHub → Settings → Developer settings → Personal access tokens 生成一个具有 **`repo` 权限** 的 Token。
+
+### 发布步骤
+
+#### Step A：修改版本号
+
+打开 `apps/desktop/package.json`，将 `version` 字段从旧版本号改为新版本号：
+
+```json
+{
+  "version": "0.1.1"
+}
+```
+
+#### Step B：执行一键打包并推送到 GitHub Release
+
+```powershell
+# 设置 GitHub Token（每次发布前设置，或加入系统环境变量）
+$env:GH_TOKEN = "ghp_你的Token"
+
+# 从项目根目录执行完整打包 + 发布
+powershell -ExecutionPolicy Bypass -File apps\desktop\scripts\build-all.ps1
+```
+
+> [!NOTE]
+> 如需手动仅执行 electron-builder 发布步骤（前置产物已就绪时）：
+> ```powershell
+> cd apps\desktop
+> pnpm compile && npx electron-builder --publish always
+> ```
+> `--publish always` 会自动在 GitHub 仓库创建 Draft Release，并上传以下文件：
+> - `Video Helper Setup <version>.exe`（安装包）
+> - `Video Helper Setup <version>.exe.blockmap`（差量更新元数据）
+> - `latest.yml`（客户端更新索引，最关键）
+
+#### Step C：在 GitHub 发布 Release
+
+1. 访问你的 GitHub 仓库 → Releases 页面。
+2. 找到刚创建的 **Draft Release**。
+3. 填写 Release Notes，点击 **Publish release**。
+
+发布后，所有已安装旧版本的用户，在下次启动应用时会自动检测到新版本并开始下载。
+
+---
+
+## 🔄 自动更新机制说明
+
+应用内置了基于 `electron-updater` 的自动更新功能，工作流程如下：
+
+1. **检测**：应用启动后 5 秒，自动向 GitHub Releases 请求 `latest.yml`。
+2. **对比**：将 `latest.yml` 中的版本号与当前安装版本对比。
+3. **通知**：若发现新版本，应用界面会显示更新提示横幅。
+4. **下载**：后台利用 `.blockmap` 进行差量下载（仅下载变化的数据块，体积远小于完整安装包）。
+5. **安装**：用户点击"立即重启安装"，应用退出并自动执行新版本安装程序完成升级。
+
+| 事件 | 日志位置 |
+|------|---------|
+| 更新检测 / 下载进度 | `%APPDATA%\video-helper\logs\desktop.log` |
 
 ---
 

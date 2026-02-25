@@ -246,6 +246,43 @@ $env:BUILD_STANDALONE = "1"
 Invoke-Step "pnpm build" $WEB
 Remove-Item Env:BUILD_STANDALONE -ErrorAction SilentlyContinue
 
+# Next standalone output + pnpm workspace may produce a non-resolvable node_modules
+# layout under `.next/standalone` (only `.pnpm/` is present). For packaged desktop
+# apps we need a classic node_modules inside `.next/standalone/apps/web`.
+Write-Host "Hydrating Next standalone node_modules (npm)" -ForegroundColor Cyan
+$standaloneWeb = Join-Path $WEB ".next\standalone\apps\web"
+if (-not (Test-Path $standaloneWeb)) {
+    throw "Next standalone output not found at: $standaloneWeb. Did Step 2 (pnpm build) succeed?"
+}
+
+Push-Location $standaloneWeb
+try {
+    $env:npm_config_progress = "false"
+    & npm install --omit=dev --no-package-lock --loglevel=error
+    if ($LASTEXITCODE -ne 0) { throw "npm install failed in $standaloneWeb" }
+}
+finally {
+    Pop-Location
+    Remove-Item Env:npm_config_progress -ErrorAction SilentlyContinue
+}
+
+# Remove root standalone node_modules (pnpm virtual store) to avoid shipping a large,
+# non-resolvable tree. Runtime starts from `apps/web/server.js` so it is not needed.
+$rootStandaloneNodeModules = Join-Path $WEB ".next\standalone\node_modules"
+if (Test-Path $rootStandaloneNodeModules) {
+    try {
+        Remove-Item -Recurse -Force $rootStandaloneNodeModules -ErrorAction Stop
+    }
+    catch {
+        try {
+            & cmd.exe /c "rmdir /s /q \"$rootStandaloneNodeModules\"" 2>$null | Out-Null
+        }
+        catch {
+            # ignore
+        }
+    }
+}
+
 # ─── Step 3: PyInstaller Backend ──────────────────────────────────────────────
 Write-Step 3 "Packaging FastAPI backend (PyInstaller)"
 Invoke-Step "uv run python scripts\build_backend.py" $CORE
