@@ -133,6 +133,10 @@ video-helper/
 └── README.md               # Project Documentation
 ```
 
+## License
+
+This project is licensed under the MIT License – see the [LICENSE](LICENSE) file for details.
+
 ## 🤝 Contribution
 
 Issues and Pull Requests are welcome! Before submitting code, please ensure it passes the project's Smoke Tests and adheres to code standards.
