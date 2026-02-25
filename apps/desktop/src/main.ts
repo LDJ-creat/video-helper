@@ -2,7 +2,8 @@ import { app, BrowserWindow, shell, Menu, ipcMain, utilityProcess } from 'electr
 import { spawn, ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as http from 'http';
-import { accessSync, appendFileSync, mkdirSync, existsSync, renameSync, cpSync } from 'fs';
+import { accessSync, appendFileSync, mkdirSync, existsSync, renameSync, cpSync, readdirSync } from 'fs';
+import { autoUpdater } from 'electron-updater';
 
 // ─── State ──────────────────────────────────────────────────────────────────
 let mainWindow: BrowserWindow | null = null;
@@ -95,9 +96,11 @@ if (!gotTheLock) {
             safeLog('main', `✅ Frontend ready on port ${FRONTEND_PORT}`);
 
             createWindow();
+            initAutoUpdater();
         } catch (error: any) {
             safeLog('main', `Failed to start services: ${error.message}`, true);
             createWindow();
+            initAutoUpdater();
         }
     });
 
@@ -176,11 +179,11 @@ function waitForService(port: number, maxAttempts = 30, urlPath = '/'): Promise<
                     timeout: 2000,
                 },
                 (res) => {
-                if (res.statusCode && res.statusCode < 500) {
-                    resolve();
-                } else {
-                    retry();
-                }
+                    if (res.statusCode && res.statusCode < 500) {
+                        resolve();
+                    } else {
+                        retry();
+                    }
                 }
             );
             req.on('error', retry);
@@ -214,7 +217,7 @@ function startBackend(): Promise<void> {
         const exePath = getBackendExePath();
         const backendDir = path.dirname(exePath);
         const internalDir = path.join(backendDir, '_internal');
-		const dataDir = path.join(app.getPath('userData'), 'data');
+        const dataDir = path.join(app.getPath('userData'), 'data');
 
         // PyInstaller bootloader can be confused by externally-set Python env vars
         // (common on dev machines with Conda/Python tooling). Ensure the packaged
@@ -297,6 +300,35 @@ function startFrontend(): Promise<void> {
         if (!standaloneServer) {
             reject(new Error(`Next standalone server not found. Tried: ${standaloneServerCandidates.join(', ')}`));
             return;
+        }
+
+        // Sanity check: ensure transitive deps that Next expects are actually present
+        // in the packaged standalone output (common failure mode with pnpm layouts).
+        try {
+            const serverDir = path.dirname(standaloneServer);
+            const styledJsxPkg = path.join(serverDir, 'node_modules', 'styled-jsx', 'package.json');
+            if (!existsSync(styledJsxPkg)) {
+                let nodeModulesPreview = '';
+                try {
+                    const nmDir = path.join(serverDir, 'node_modules');
+                    const entries = readdirSync(nmDir, { withFileTypes: true })
+                        .filter((e) => e.isDirectory())
+                        .map((e) => e.name)
+                        .slice(0, 50);
+                    nodeModulesPreview = entries.join(', ');
+                } catch {
+                    // ignore
+                }
+                reject(
+                    new Error(
+                        `Next standalone is missing styled-jsx at runtime: ${styledJsxPkg}. ` +
+                        `node_modules preview: [${nodeModulesPreview}]`
+                    )
+                );
+                return;
+            }
+        } catch {
+            // ignore
         }
 
         nextProcess = utilityProcess.fork(standaloneServer, [], {
@@ -441,3 +473,54 @@ function shutdownSubprocesses(): void {
 
 // ─── IPC ─────────────────────────────────────────────────────────────────────
 ipcMain.handle('get-backend-url', () => `http://${LOOPBACK_HOST}:${BACKEND_PORT}`);
+ipcMain.handle('install-update', () => autoUpdater.quitAndInstall());
+
+// ─── Auto Updater ─────────────────────────────────────────────────────────────
+function initAutoUpdater(): void {
+    if (isDev) {
+        safeLog('updater', 'Dev mode: skipping auto-update check');
+        return;
+    }
+
+    // Configure logging
+    autoUpdater.autoDownload = false;
+    autoUpdater.autoInstallOnAppQuit = true;
+
+    autoUpdater.on('checking-for-update', () => {
+        safeLog('updater', 'Checking for updates...');
+    });
+
+    autoUpdater.on('update-available', (info) => {
+        safeLog('updater', `Update available: ${info.version}`);
+        mainWindow?.webContents.send('update-available', info.version);
+        // Start download automatically after notifying the renderer
+        autoUpdater.downloadUpdate();
+    });
+
+    autoUpdater.on('update-not-available', (info) => {
+        safeLog('updater', `No update available. Current version: ${info.version}`);
+    });
+
+    autoUpdater.on('download-progress', (progress) => {
+        const percent = Math.round(progress.percent);
+        safeLog('updater', `Download progress: ${percent}% (${Math.round(progress.transferred / 1024)}KB / ${Math.round(progress.total / 1024)}KB)`);
+        mainWindow?.webContents.send('update-progress', percent);
+    });
+
+    autoUpdater.on('update-downloaded', (info) => {
+        safeLog('updater', `Update downloaded: ${info.version}. Ready to install.`);
+        mainWindow?.webContents.send('update-downloaded', info.version);
+    });
+
+    autoUpdater.on('error', (err) => {
+        safeLog('updater', `Update error: ${err.message}`, true);
+        mainWindow?.webContents.send('update-error', err.message);
+    });
+
+    // Delay check by 5 seconds so it doesn't interfere with app startup
+    setTimeout(() => {
+        autoUpdater.checkForUpdates().catch((err) => {
+            safeLog('updater', `checkForUpdates failed: ${err.message}`, true);
+        });
+    }, 5000);
+}

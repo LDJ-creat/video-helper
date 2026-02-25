@@ -27,6 +27,7 @@
         "typescript": "^5.3.0"
     },
     "build": {
+        "beforePack": "scripts/beforePack.cjs",
         "appId": "com.videohelper.desktop",
         "publish": [
             {

@@ -117,6 +117,7 @@ jobs:
           cd apps/web/.next/standalone/apps/web
           npm config set progress false
           npm install --omit=dev --no-package-lock --loglevel=error
+          test -f node_modules/styled-jsx/package.json
           # The root standalone node_modules is a pnpm virtual store only and is
           # not used at runtime (server.js chdir's into apps/web). Remove it to
           # avoid shipping a large, non-resolvable tree.

@@ -260,6 +260,11 @@ try {
     $env:npm_config_progress = "false"
     & npm install --omit=dev --no-package-lock --loglevel=error
     if ($LASTEXITCODE -ne 0) { throw "npm install failed in $standaloneWeb" }
+
+    $styledJsxPkg = Join-Path $standaloneWeb "node_modules\styled-jsx\package.json"
+    if (-not (Test-Path $styledJsxPkg)) {
+        throw "Sanity check failed: styled-jsx was not installed into standalone node_modules. Expected: $styledJsxPkg"
+    }
 }
 finally {
     Pop-Location
