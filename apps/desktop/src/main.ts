@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell, Menu, ipcMain, utilityProcess } from 'electron';
+import { app, BrowserWindow, shell, Menu, ipcMain, utilityProcess, dialog } from 'electron';
 import { spawn, ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as http from 'http';
@@ -483,6 +483,9 @@ function initAutoUpdater(): void {
     }
 
     // Configure logging
+    // Our CI currently creates GitHub prereleases. Allow prerelease updates so
+    // users can receive fixes without manual uninstall/reinstall.
+    autoUpdater.allowPrerelease = true;
     autoUpdater.autoDownload = false;
     autoUpdater.autoInstallOnAppQuit = true;
 
@@ -510,6 +513,28 @@ function initAutoUpdater(): void {
     autoUpdater.on('update-downloaded', (info) => {
         safeLog('updater', `Update downloaded: ${info.version}. Ready to install.`);
         mainWindow?.webContents.send('update-downloaded', info.version);
+
+        // If the renderer is blank/crashed, still allow the user to finish update.
+        // Use a native dialog from the main process.
+        dialog
+            .showMessageBox({
+                type: 'info',
+                title: 'Video Helper 更新已就绪',
+                message: `已下载更新版本 ${info.version}`,
+                detail: '是否现在重启并安装更新？',
+                buttons: ['立即重启安装', '稍后'],
+                defaultId: 0,
+                cancelId: 1,
+                noLink: true,
+            })
+            .then((r) => {
+                if (r.response === 0) {
+                    autoUpdater.quitAndInstall();
+                }
+            })
+            .catch(() => {
+                // ignore dialog failures
+            });
     });
 
     autoUpdater.on('error', (err) => {
