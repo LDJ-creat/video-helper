@@ -23,6 +23,10 @@ jobs:
       CSC_IDENTITY_AUTO_DISCOVERY: "false"
       # Avoid accidental auto-publish behavior in some environments.
       ELECTRON_BUILDER_ALLOW_UNRESOLVED_DEPENDENCIES: "true"
+      # Some tools still look for GH_TOKEN even when publish is disabled.
+      GH_TOKEN: ${{ github.token }}
+      # Ensure Python uses UTF-8 where possible (Windows runners may default to legacy codepages).
+      PYTHONUTF8: "1"
 
     steps:
       - name: Checkout
@@ -51,7 +55,16 @@ jobs:
         shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg libfuse2 libarchive-tools
+          sudo apt-get install -y ffmpeg libfuse2 libarchive-tools imagemagick
+
+      - name: Prepare Linux icon (>=256x256)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f apps/desktop/resources/icon.ico
+          convert apps/desktop/resources/icon.ico -resize 512x512 apps/desktop/resources/icon.png
+          identify apps/desktop/resources/icon.png
 
       - name: Install macOS ffmpeg
         if: runner.os == 'macOS'
@@ -100,8 +113,14 @@ jobs:
           uv run python scripts/build_backend.py
 
       - name: Build Desktop installer (electron-builder)
+        if: runner.os != 'Linux'
         shell: bash
-        run: pnpm -C apps/desktop exec electron-builder -- --publish never
+        run: pnpm -C apps/desktop exec -- electron-builder --publish=never
+
+      - name: Build Desktop installer (electron-builder) [Linux]
+        if: runner.os == 'Linux'
+        shell: bash
+        run: pnpm -C apps/desktop exec -- electron-builder --publish=never --config.linux.icon=resources/icon.png
 
       - name: Upload installers
         uses: actions/upload-artifact@v4

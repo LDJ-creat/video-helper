@@ -180,7 +180,7 @@ def main() -> None:
     # Best-effort: bundle external executables when present on build machine.
     maybe_bundle_external_executables(RESOURCES_DIR)
 
-    print("\n✅ Backend packaged successfully!")
+    print("\n[ok] Backend packaged successfully!")
     print(f"   Output: {RESOURCES_DIR}")
     exe_name = "backend.exe" if os.name == "nt" else "backend"
     print("\n   Run the backend executable to test:")
