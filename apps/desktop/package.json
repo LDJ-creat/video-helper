@@ -3,6 +3,10 @@
     "version": "0.1.0",
     "private": true,
     "description": "Video Helper Desktop Application",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/LDJ-creat/video-helper.git"
+    },
     "main": "dist/main.js",
     "scripts": {
         "dev": "concurrently \"pnpm compile:watch\" \"electron .\"",
@@ -79,18 +83,17 @@
                     ]
                 }
             ],
-            "publish": [
-                "github"
-            ],
             "icon": "resources/icon.ico"
         },
         "mac": {
+            "icon": "resources/icon.icns",
             "target": [
                 "dmg",
                 "zip"
             ]
         },
         "linux": {
+            "icon": "resources/icon.png",
             "target": [
                 "AppImage",
                 "tar.gz"
