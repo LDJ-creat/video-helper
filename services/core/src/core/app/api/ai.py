@@ -191,7 +191,7 @@ def generate_quiz_endpoint(
         # --- Persist quiz session and items immediately after generation ---
         now = _now_ms()
         quiz_session = QuizSession(
-            id=quiz.session_id,
+            id=quiz.sessionId,
             project_id=req.project_id,
             score=None,  # Not finished yet
             topics={},
@@ -203,7 +203,7 @@ def generate_quiz_endpoint(
         for item in quiz.items:
             q_item = QuizItem(
                 id=str(uuid.uuid4()),
-                session_id=quiz.session_id,
+                session_id=quiz.sessionId,
                 question_hash=item.questionHash,
                 user_answer=None,   # Not answered yet
                 is_correct=None,    # Not answered yet

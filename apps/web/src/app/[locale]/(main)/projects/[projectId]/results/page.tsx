@@ -122,6 +122,7 @@ function JobProgress({ jobId, projectId }: { jobId: string; projectId: string })
 export default function ResultPage() {
     const params = useParams();
     const searchParams = useSearchParams();
+    const router = useRouter();
     const projectId = params?.projectId as string;
     const jobId = searchParams?.get("jobId");
 
@@ -142,6 +143,32 @@ export default function ResultPage() {
     const [isFloatingVisible, setIsFloatingVisible] = useState(false);
     const [isDismissed, setIsDismissed] = useState(false); // Track if user dismissed the floating player
     const [activeTab, setActiveTab] = useState<"mindmap" | "chat" | "exercises">("mindmap");
+
+    // Sync activeTab from URL on initial load or change
+    useEffect(() => {
+        const tab = searchParams?.get("tab");
+        if (tab === "chat" || tab === "exercises" || tab === "mindmap") {
+            setActiveTab(tab);
+        }
+    }, [searchParams]);
+
+    // Handle Tab change with URL updates
+    const handleTabChange = (tab: "mindmap" | "chat" | "exercises") => {
+        setActiveTab(tab);
+
+        // Update URL
+        const params = new URLSearchParams(searchParams?.toString() || "");
+        params.set("tab", tab);
+        router.replace(`${window.location.pathname}?${params.toString()}`, { scroll: false });
+
+        // Prefetch for exercises
+        if (tab === "exercises" && projectId) {
+            queryClient.prefetchQuery({
+                queryKey: queryKeys.quizSessions(projectId),
+                queryFn: () => fetchQuizSessions(projectId),
+            });
+        }
+    };
 
     // Callback ref for player container - sets up observer when element is attached
     const playerContainerCallbackRef = useCallback((element: HTMLDivElement | null) => {
@@ -224,7 +251,7 @@ export default function ResultPage() {
                         {/* Tab Header */}
                         <div className="flex border-b border-stone-200 bg-stone-50/50">
                             <button
-                                onClick={() => setActiveTab("mindmap")}
+                                onClick={() => handleTabChange("mindmap")}
                                 className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 border-b-2 transition-colors ${activeTab === "mindmap"
                                     ? "border-orange-500 text-orange-700 bg-white"
                                     : "border-transparent text-stone-600 hover:text-stone-900 hover:bg-stone-100"
@@ -234,7 +261,7 @@ export default function ResultPage() {
                                 {t("tabs.mindmap")}
                             </button>
                             <button
-                                onClick={() => setActiveTab("chat")}
+                                onClick={() => handleTabChange("chat")}
                                 className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 border-b-2 transition-colors ${activeTab === "chat"
                                     ? "border-orange-500 text-orange-700 bg-white"
                                     : "border-transparent text-stone-600 hover:text-stone-900 hover:bg-stone-100"
@@ -244,16 +271,7 @@ export default function ResultPage() {
                                 {t("tabs.chat")}
                             </button>
                             <button
-                                onClick={() => {
-                                    // Prefetch so backend logs show the request immediately when user opens the tab.
-                                    if (projectId) {
-                                        queryClient.prefetchQuery({
-                                            queryKey: queryKeys.quizSessions(projectId),
-                                            queryFn: () => fetchQuizSessions(projectId),
-                                        });
-                                    }
-                                    setActiveTab("exercises");
-                                }}
+                                onClick={() => handleTabChange("exercises")}
                                 className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 border-b-2 transition-colors ${activeTab === "exercises"
                                     ? "border-orange-500 text-orange-700 bg-white"
                                     : "border-transparent text-stone-600 hover:text-stone-900 hover:bg-stone-100"

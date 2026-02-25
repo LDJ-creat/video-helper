@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocale, useTranslations } from "next-intl";
 import { useQuizGenerator, useQuizSave, useQuizSessions, useQuizDetail, useQuizItemUpdate } from "@/hooks/useAI";
-import { Loader2, CheckCircle2, XCircle, BrainCircuit, RefreshCw, Save, History, ChevronLeft, ChevronRight, Calendar, BookOpen, Languages } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, BrainCircuit, RefreshCw, Save, History, ChevronLeft, ChevronRight, Calendar, BookOpen, Languages, PlusCircle } from "lucide-react";
 import type { Quiz, QuizItem, QuizSession } from "@/lib/api/ai";
 import { fetchQuizSessionDetail } from "@/lib/api/ai";
 import { queryKeys } from "@/lib/api/queryKeys";
@@ -16,6 +16,8 @@ export function ExercisesCanvas({ projectId: propProjectId }: ExercisesCanvasPro
     const params = useParams();
     const projectId = propProjectId || (params?.projectId as string);
     const queryClient = useQueryClient();
+    const t = useTranslations("Exercises");
+    const tLang = useTranslations("Ingest.urlForm");
 
     // Hooks
     const generateMutation = useQuizGenerator();
@@ -34,15 +36,64 @@ export function ExercisesCanvas({ projectId: propProjectId }: ExercisesCanvasPro
 
     // Language support
     const locale = useLocale();
-    const t = useTranslations("Ingest.urlForm"); // Reuse ingest translations for language options
     const [outputLanguage, setOutputLanguage] = useState(locale === "zh" ? "zh-Hans" : "en");
 
     // History & Sidebar State
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const [viewingSessionId, setViewingSessionId] = useState<string | null>(null);
+    const [hasDismissedAutoResume, setHasDismissedAutoResume] = useState(false);
 
     // Fetch Detail
     const { data: historyDetail, isLoading: isLoadingDetail } = useQuizDetail(viewingSessionId);
+
+    // Auto-resume logic: 
+    // 1. On mount/history load, find latest in-progress session if nothing is active
+    useEffect(() => {
+        if (!isLoadingHistory && historySessions && !quiz && !viewingSessionId && !quizFinished && !hasDismissedAutoResume) {
+            const latestInProgress = historySessions.find(s => s.score === null);
+            if (latestInProgress) {
+                setViewingSessionId(latestInProgress.id);
+            }
+        }
+    }, [historySessions, isLoadingHistory, quiz, viewingSessionId, quizFinished, hasDismissedAutoResume]);
+
+    // 2. When a detail is loaded, if it's in-progress (score is null), 
+    // "consume" it into the active quiz state instead of just viewing it.
+    useEffect(() => {
+        if (historyDetail && historyDetail.score === null && viewingSessionId === historyDetail.sessionId) {
+            // Find progress
+            const newAnswers: Record<string, { userAnswer: string; isCorrect: boolean }> = {};
+            let firstUnansweredIndex = 0;
+            let foundUnanswered = false;
+
+            historyDetail.items.forEach((item, idx) => {
+                if (item.userAnswer) {
+                    newAnswers[item.questionHash] = {
+                        userAnswer: item.userAnswer,
+                        isCorrect: item.userAnswer === item.correctAnswer
+                    };
+                } else if (!foundUnanswered) {
+                    firstUnansweredIndex = idx;
+                    foundUnanswered = true;
+                }
+            });
+
+            // Initialize active quiz state
+            setQuiz({
+                sessionId: historyDetail.sessionId,
+                items: historyDetail.items
+            });
+            setAnswers(newAnswers);
+            setCurrentQuestionIndex(firstUnansweredIndex);
+
+            // Clear feedback state for the current question
+            setSelectedOption(null);
+            setShowFeedback(false);
+
+            // Clear viewing state so we switch from detail view to active view
+            setViewingSessionId(null);
+        }
+    }, [historyDetail, viewingSessionId]);
 
     // Handlers
     const handleGenerate = () => {
@@ -127,6 +178,7 @@ export function ExercisesCanvas({ projectId: propProjectId }: ExercisesCanvasPro
     const handleSelectHistorySession = (sessionId: string) => {
         setQuiz(null); // Clear active quiz
         setViewingSessionId(sessionId);
+        setHasDismissedAutoResume(false); // Reset opt-out if user clicks a history item manually
 
         // Prefetch detail so the backend request is triggered immediately on click.
         void queryClient.prefetchQuery({
@@ -145,10 +197,25 @@ export function ExercisesCanvas({ projectId: propProjectId }: ExercisesCanvasPro
         setCurrentQuestionIndex(0);
         setSelectedOption(null);
         setShowFeedback(false);
+        setHasDismissedAutoResume(true); // User explicitly wants to start fresh
     };
 
 
     // -- Renders --
+
+    const renderHeaderToggle = () => {
+        if (isSidebarOpen) return null;
+        return (
+            <button
+                type="button"
+                onClick={() => setIsSidebarOpen(true)}
+                className="mr-3 p-2 bg-stone-50 hover:bg-stone-100 rounded-lg text-stone-500 hover:text-orange-600 transition-all border border-stone-200"
+                title={t("expandHistory")}
+            >
+                <History size={18} />
+            </button>
+        );
+    };
 
     const renderSidebar = () => (
         <div className={`
@@ -161,12 +228,13 @@ export function ExercisesCanvas({ projectId: propProjectId }: ExercisesCanvasPro
                 <div className="p-4 border-b border-stone-200 flex items-center justify-between">
                     <h3 className="font-semibold text-stone-700 flex items-center gap-2">
                         <History size={18} />
-                        练习记录
+                        {t("historyTitle")}
                     </h3>
                     <button
+                        type="button"
                         onClick={() => setIsSidebarOpen(false)}
                         className="p-1 hover:bg-stone-200 rounded text-stone-500 hover:text-stone-700"
-                        title="收起侧边栏"
+                        title={t("collapseSidebar")}
                     >
                         <ChevronLeft size={20} />
                     </button>
@@ -174,25 +242,27 @@ export function ExercisesCanvas({ projectId: propProjectId }: ExercisesCanvasPro
 
                 <div className="flex-1 overflow-y-auto p-2 space-y-2">
                     <button
+                        type="button"
                         onClick={startNewQuiz}
                         className="w-full text-left p-3 rounded-lg border border-dashed border-stone-300 hover:border-orange-500 hover:bg-orange-50 text-stone-600 hover:text-orange-600 transition-all flex items-center gap-2 mb-4 group"
                     >
                         <div className="bg-stone-100 group-hover:bg-orange-100 p-1.5 rounded-md">
                             <BrainCircuit size={16} />
                         </div>
-                        <span>开始新练习</span>
+                        <span>{t("startNew")}</span>
                     </button>
 
                     {isLoadingHistory ? (
                         <div className="flex justify-center p-4"><Loader2 className="animate-spin text-stone-400" /></div>
                     ) : historyError ? (
                         <div className="text-center py-8 text-stone-400 text-sm">
-                            无法加载练习记录
+                            {t("loadHistoryFailed")}
                         </div>
                     ) : historySessions?.length ? (
                         historySessions.map((session: QuizSession) => (
                             <button
                                 key={session.id}
+                                type="button"
                                 onClick={() => handleSelectHistorySession(session.id)}
                                 className={`w-full text-left p-3 rounded-lg border transition-all ${viewingSessionId === session.id
                                     ? "bg-white border-orange-500 shadow-sm"
@@ -208,11 +278,11 @@ export function ExercisesCanvas({ projectId: propProjectId }: ExercisesCanvasPro
                                             session.score >= 60 ? "bg-yellow-100 text-yellow-700" :
                                                 "bg-red-100 text-red-700"
                                             }`}>
-                                            {session.score}分
+                                            {session.score}{t("scoreUnit")}
                                         </span>
                                     ) : (
                                         <span className="text-xs px-1.5 py-0.5 rounded bg-orange-50 text-orange-500 border border-orange-200">
-                                            进行中
+                                            {t("inProgress")}
                                         </span>
                                     )}
                                 </div>
@@ -224,7 +294,7 @@ export function ExercisesCanvas({ projectId: propProjectId }: ExercisesCanvasPro
                         ))
                     ) : (
                         <div className="text-center py-8 text-stone-400 text-sm">
-                            暂无练习记录
+                            {t("noHistory")}
                         </div>
                     )}
                 </div>
@@ -234,23 +304,37 @@ export function ExercisesCanvas({ projectId: propProjectId }: ExercisesCanvasPro
 
     const renderDetailView = () => {
         if (isLoadingDetail) return <div className="flex justify-center items-center h-full"><Loader2 className="animate-spin text-orange-500" /></div>;
-        if (!historyDetail) return <div className="flex justify-center items-center h-full text-stone-400">无法加载练习详情</div>;
+        if (!historyDetail) return <div className="flex justify-center items-center h-full text-stone-400">{t("loadDetailFailed")}</div>;
+
+        // If this is an in-progress session, don't render the static detail view
+        // The useEffect will soon clear viewingSessionId and transition to interactive view
+        if (historyDetail.score === null) {
+            return (
+                <div className="flex flex-col items-center justify-center h-full bg-stone-50">
+                    <Loader2 size={32} className="animate-spin text-orange-500 mb-4" />
+                    <p className="text-stone-500 font-medium">{t("resuming")}</p>
+                </div>
+            );
+        }
 
         return (
             <div className="h-full flex flex-col bg-stone-50">
                 <div className="bg-white border-b border-stone-200 px-6 py-4 flex justify-between items-center shadow-sm">
-                    <div>
-                        <h2 className="text-lg font-bold text-stone-800">练习回顾</h2>
-                        <p className="text-sm text-stone-500">
-                            完成于 {new Date(historyDetail.createdAtMs).toLocaleString()}
-                        </p>
+                    <div className="flex items-center">
+                        {renderHeaderToggle()}
+                        <div>
+                            <h2 className="text-lg font-bold text-stone-800">{t("review")}</h2>
+                            <p className="text-sm text-stone-500">
+                                {t("completedAt")} {new Date(historyDetail.createdAtMs).toLocaleString()}
+                            </p>
+                        </div>
                     </div>
                     <div className="text-right">
-                        <div className="text-2xl font-black text-orange-600">{historyDetail.score}分</div>
+                        <div className="text-2xl font-black text-orange-600">{historyDetail.score}{t("scoreUnit")}</div>
                     </div>
                 </div>
 
-                <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                <div className="flex-1 overflow-y-auto p-6 space-y-6 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
                     {historyDetail.items.map((item: QuizItem, idx: number) => {
                         // Assuming quiz items in history match standard format. 
                         // We need to infer user's answer from backend persistence or just show question?
@@ -286,7 +370,7 @@ export function ExercisesCanvas({ projectId: propProjectId }: ExercisesCanvasPro
                                 </div>
                                 {item.explanation && (
                                     <div className="mt-3 text-sm text-stone-500 bg-stone-50 p-3 rounded-lg">
-                                        <span className="font-semibold text-stone-700">解析：</span>{item.explanation}
+                                        <span className="font-semibold text-stone-700">{t("explanation")}</span>{item.explanation}
                                     </div>
                                 )}
                             </div>
@@ -309,19 +393,20 @@ export function ExercisesCanvas({ projectId: propProjectId }: ExercisesCanvasPro
                     <div className="w-20 h-20 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-6">
                         <CheckCircle2 size={40} className="text-orange-600" />
                     </div>
-                    <h3 className="text-2xl font-bold text-stone-900 mb-2">练习完成!</h3>
-                    <div className="text-5xl font-black text-stone-900 mb-2">{score}<span className="text-2xl text-stone-400 font-normal">分</span></div>
+                    <h3 className="text-2xl font-bold text-stone-900 mb-2">{t("finished")}</h3>
+                    <div className="text-5xl font-black text-stone-900 mb-2">{score}<span className="text-2xl text-stone-400 font-normal">{t("scoreUnit")}</span></div>
                     <p className="text-stone-500 mb-8">
-                        答对 <span className="text-stone-900 font-bold">{correctCount}</span> / {total} 题
+                        {t("correctCount")} <span className="text-stone-900 font-bold">{correctCount}</span> / {total} {t("questionUnit")}
                     </p>
 
                     <div className="space-y-3">
                         <button
+                            type="button"
                             onClick={handleGenerate}
                             className="w-full py-3 bg-stone-900 text-white rounded-xl font-medium hover:bg-stone-800 transition-all flex items-center justify-center gap-2"
                         >
                             <RefreshCw size={18} />
-                            练习新的一组
+                            {t("generateNew")}
                         </button>
                     </div>
                 </div>
@@ -332,36 +417,25 @@ export function ExercisesCanvas({ projectId: propProjectId }: ExercisesCanvasPro
     const renderLoading = () => (
         <div className="flex flex-col items-center justify-center h-full bg-stone-50">
             <Loader2 size={32} className="animate-spin text-orange-500 mb-4" />
-            <p className="text-stone-500 animate-pulse font-medium">AI 正在为您的视频生成专属练习...</p>
+            <p className="text-stone-500 animate-pulse font-medium">{t("generating")}</p>
         </div>
     );
 
     const renderStartScreen = () => (
         <div className="flex flex-col items-center justify-center p-8 h-full text-center bg-stone-50">
-            {/* Header Toggle - visible on both mobile and desktop if sidebar is closed */}
-            {!isSidebarOpen && (
-                <button
-                    onClick={() => setIsSidebarOpen(true)}
-                    className="absolute top-4 left-4 p-2 bg-white rounded-md shadow-sm border border-stone-200 text-stone-600 hover:text-orange-600"
-                    title="展开练习记录"
-                >
-                    <History size={20} />
-                </button>
-            )}
-
             <div className="w-16 h-16 bg-white rounded-2xl shadow-sm border border-stone-100 flex items-center justify-center mb-6 text-orange-600">
                 <BrainCircuit size={32} />
             </div>
-            <h3 className="text-xl font-bold text-stone-900 mb-2">知识点巩固练习</h3>
+            <h3 className="text-xl font-bold text-stone-900 mb-2">{t("title")}</h3>
             <p className="text-stone-500 max-w-sm mb-8 leading-relaxed">
-                AI 将智能分析视频内容，为您生成个性化练习题，帮助您快速掌握关键知识点。
+                {t("description")}
             </p>
 
             <div className="w-full max-w-xs space-y-4">
                 <div className="relative">
                     <input
                         type="text"
-                        placeholder="可选：侧重主题 (例如 'React Hooks')"
+                        placeholder={t("topicPlaceholder")}
                         value={topic}
                         onChange={e => setTopic(e.target.value)}
                         className="w-full px-4 py-3 border border-stone-200 bg-white rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all shadow-sm"
@@ -377,19 +451,20 @@ export function ExercisesCanvas({ projectId: propProjectId }: ExercisesCanvasPro
                         onChange={(e) => setOutputLanguage(e.target.value)}
                         className="w-full pl-10 pr-4 py-3 border border-stone-200 bg-white rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all shadow-sm appearance-none cursor-pointer"
                     >
-                        <option value="zh-Hans">{t("options.zhHans")}</option>
-                        <option value="en">{t("options.en")}</option>
-                        <option value="auto">{t("options.auto")}</option>
+                        <option value="zh-Hans">{tLang("options.zhHans")}</option>
+                        <option value="en">{tLang("options.en")}</option>
+                        <option value="auto">{tLang("options.auto")}</option>
                     </select>
                 </div>
 
                 <button
+                    type="button"
                     onClick={handleGenerate}
                     disabled={generateMutation.isPending}
                     className="w-full py-3 bg-stone-900 text-white rounded-xl font-medium hover:bg-stone-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-stone-900/10"
                 >
                     {generateMutation.isPending ? <Loader2 className="animate-spin" /> : <RefreshCw size={18} />}
-                    生成练习
+                    {t("generateBtn")}
                 </button>
             </div>
         </div>
@@ -411,22 +486,32 @@ export function ExercisesCanvas({ projectId: propProjectId }: ExercisesCanvasPro
             <div className="h-full flex flex-col bg-stone-50 overflow-hidden">
                 <div className="bg-white border-b border-stone-200 px-6 py-4 flex justify-between items-center shadow-sm z-10">
                     <div className="flex items-center gap-4">
-                        <button onClick={startNewQuiz} className="text-stone-400 hover:text-stone-600 transition-colors">
-                            <XCircle size={20} />
+                        {renderHeaderToggle()}
+                        <button
+                            type="button"
+                            onClick={startNewQuiz}
+                            className="text-stone-400 hover:text-orange-600 transition-colors flex items-center gap-1 text-xs font-medium"
+                            title={tLang("placeholderTitle")}
+                        >
+                            <PlusCircle size={18} />
+                            <span>{t("startNew")}</span>
                         </button>
-                        <span className="text-sm font-bold text-stone-400">
-                            QUESTION <span className="text-stone-900">{currentQuestionIndex + 1}</span> / {quiz.items.length}
+                        <div className="w-px h-4 bg-stone-200" />
+                        <span className="text-sm font-bold text-stone-400 uppercase tracking-wider">
+                            Q<span className="text-stone-900">{currentQuestionIndex + 1}</span> / {quiz.items.length}
                         </span>
                     </div>
-                    <div className="w-32 h-2 bg-stone-100 rounded-full overflow-hidden">
-                        <div
-                            className="h-full bg-gradient-to-r from-orange-400 to-orange-600 transition-all duration-500 ease-out"
-                            style={{ width: `${((currentQuestionIndex + 1) / quiz.items.length) * 100}%` }}
-                        />
+                    <div className="flex items-center gap-3">
+                        <div className="w-24 h-1.5 bg-stone-100 rounded-full overflow-hidden hidden sm:block">
+                            <div
+                                className="h-full bg-gradient-to-r from-orange-400 to-orange-600 transition-all duration-500 ease-out"
+                                style={{ width: `${((currentQuestionIndex + 1) / quiz.items.length) * 100}%` }}
+                            />
+                        </div>
                     </div>
                 </div>
 
-                <div className="flex-1 overflow-y-auto p-6 md:p-8 lg:p-12">
+                <div className="flex-1 overflow-y-auto p-6 md:p-8 lg:p-12 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
                     <div className="max-w-3xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
                         <h2 className="text-2xl font-semibold text-stone-900 leading-relaxed">
                             {currentQ.question}
@@ -488,7 +573,7 @@ export function ExercisesCanvas({ projectId: propProjectId }: ExercisesCanvasPro
                             <div className="p-6 bg-blue-50/80 border border-blue-100 rounded-2xl text-blue-900 text-sm leading-relaxed animate-in fade-in slide-in-from-bottom-2 duration-300 flex gap-4">
                                 <BookOpen size={24} className="shrink-0 text-blue-600" />
                                 <div>
-                                    <span className="font-bold block mb-1 text-blue-700">解析</span>
+                                    <span className="font-bold block mb-1 text-blue-700">{t("explanationTitle")}</span>
                                     {currentQ.explanation}
                                 </div>
                             </div>
@@ -496,22 +581,24 @@ export function ExercisesCanvas({ projectId: propProjectId }: ExercisesCanvasPro
                     </div>
                 </div>
 
-                <div className="p-6 border-t border-stone-200 bg-white flex justify-between items-center z-10">
-                    <div /> {/* Spacer */}
+                <div className="p-6 border-t border-stone-200 bg-white flex justify-end items-center z-10">
+
                     {!showFeedback ? (
                         <button
+                            type="button"
                             onClick={handleSubmitAnswer}
                             disabled={!selectedOption}
                             className="px-8 py-3 bg-stone-900 text-white rounded-xl font-medium hover:bg-stone-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-stone-900/10"
                         >
-                            提交答案
+                            {t("submit")}
                         </button>
                     ) : (
                         <button
+                            type="button"
                             onClick={handleNext}
                             className="px-8 py-3 bg-orange-600 text-white rounded-xl font-medium hover:bg-orange-700 transition-all flex items-center gap-2 shadow-lg shadow-orange-600/20"
                         >
-                            {isLastQuestion ? "完成练习" : "下一题"}
+                            {isLastQuestion ? t("complete") : t("next")}
                             <span className="bg-white/20 p-1 rounded-md"><ChevronRight size={16} /></span>
                         </button>
                     )}
@@ -523,21 +610,24 @@ export function ExercisesCanvas({ projectId: propProjectId }: ExercisesCanvasPro
     }
 
     return (
-        <div className="flex h-full bg-stone-100 overflow-hidden relative">
-            {/* Mobile Sidebar Toggle - only visible when sidebar is closed and we are not in start screen (which has its own) */}
-            {!isSidebarOpen && !viewingSessionId && quiz && (
-                <button
-                    onClick={() => setIsSidebarOpen(true)}
-                    className="absolute top-4 left-4 z-20 lg:hidden p-2 bg-white rounded-md shadow-sm border border-stone-200 text-stone-600"
-                >
-                    <History size={20} />
-                </button>
-            )}
-
+        <div className="flex h-full bg-stone-50 overflow-hidden relative">
             {renderSidebar()}
 
-            <div className="flex-1 w-full relative">
-                {mainContent}
+            <div className="flex-1 w-full relative flex flex-col overflow-hidden">
+                {/* Global Sidebar Toggle for full-screen states without headers */}
+                {!isSidebarOpen && !viewingSessionId && !quiz && (
+                    <button
+                        type="button"
+                        onClick={() => setIsSidebarOpen(true)}
+                        className="absolute top-4 left-4 z-30 p-2 bg-white/80 backdrop-blur-sm rounded-lg shadow-sm border border-stone-200 text-stone-600 hover:text-orange-600 transition-all"
+                        title={t("expandHistory")}
+                    >
+                        <History size={18} />
+                    </button>
+                )}
+                <div className="flex-1 overscroll-none overflow-hidden h-full">
+                    {mainContent}
+                </div>
             </div>
         </div>
     );

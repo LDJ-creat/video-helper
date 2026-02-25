@@ -15,6 +15,7 @@ import { Placeholder } from '@tiptap/extension-placeholder';
 import { TextAlign } from '@tiptap/extension-text-align';
 import { Extension, Editor } from '@tiptap/react';
 import { useEffect, useRef, useState, useCallback, useImperativeHandle, forwardRef } from "react";
+import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { useSaveContentBlocks, useUploadAsset } from "@/lib/api/resultQueries";
 import { ContentBlock, Highlight, Keyframe } from "@/lib/contracts/resultTypes";
@@ -105,6 +106,7 @@ const NavigationExtension = Extension.create({
 /* ── React Node Views ── */
 
 const HeadingBlock = ({ node, editor }: { node: any, editor: any }) => {
+    const t = useTranslations("Notes");
     const hasTime = node.attrs.startMs !== null && node.attrs.startMs !== undefined;
 
     return (
@@ -115,7 +117,7 @@ const HeadingBlock = ({ node, editor }: { node: any, editor: any }) => {
                 onClick={hasTime ? () => editor.commands.navigateToTime(node.attrs.startMs) : undefined}
             >
                 {hasTime && (
-                    <div className="p-1.5 rounded-full text-stone-300 hover:text-blue-600 hover:bg-blue-50 transition-all opacity-0 group-hover:opacity-100" title="点击跳转视频">
+                    <div className="p-1.5 rounded-full text-stone-300 hover:text-blue-600 hover:bg-blue-50 transition-all opacity-0 group-hover:opacity-100" title={t("jumpToVideo")}>
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
                     </div>
                 )}
@@ -126,6 +128,7 @@ const HeadingBlock = ({ node, editor }: { node: any, editor: any }) => {
 };
 
 const ParagraphBlock = ({ node, updateAttributes, editor, getPos }: { node: any, updateAttributes: any, editor: any, getPos: any }) => {
+    const t = useTranslations("Notes");
     // Calculate highlight index within current block (top-level nodes only)
     const highlightIndex = (() => {
         if (!editor || typeof getPos !== 'function') return null;
@@ -201,7 +204,7 @@ const ParagraphBlock = ({ node, updateAttributes, editor, getPos }: { node: any,
                         onClick={hasTime ? () => editor.commands.navigateToTime(node.attrs.timeMs) : undefined}
                     >
                         {hasTime && (
-                            <div className="p-1 rounded-full text-stone-300 hover:text-blue-600 hover:bg-blue-50 transition-all opacity-0 group-hover:opacity-100" title="点击跳转视频">
+                            <div className="p-1 rounded-full text-stone-300 hover:text-blue-600 hover:bg-blue-50 transition-all opacity-0 group-hover:opacity-100" title={t("jumpToVideo")}>
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
                             </div>
                         )}
@@ -212,7 +215,7 @@ const ParagraphBlock = ({ node, updateAttributes, editor, getPos }: { node: any,
                         <button
                             onClick={handleAddKeyframeClick}
                             className="opacity-0 group-hover:opacity-100 text-xs text-stone-400 hover:text-orange-500 transition-opacity p-1"
-                            title="添加图片"
+                            title={t("addImage")}
                         >
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></svg>
                         </button>
@@ -227,7 +230,7 @@ const ParagraphBlock = ({ node, updateAttributes, editor, getPos }: { node: any,
                                 <div key={kf.assetId || idx} className="relative group/image w-full">
                                     <img
                                         src={kf.contentUrl}
-                                        alt="关键帧"
+                                        alt={t("keyframe")}
                                         className="rounded-lg border border-stone-200 shadow-sm w-full h-auto object-cover bg-stone-50 cursor-zoom-in hover:opacity-95 transition-opacity"
                                         draggable={false}
                                         onClick={() => setZoomedImage(kf.contentUrl)}
@@ -235,7 +238,7 @@ const ParagraphBlock = ({ node, updateAttributes, editor, getPos }: { node: any,
                                     <button
                                         onClick={() => handleDeleteKeyframe(kf.assetId)}
                                         className="absolute top-2 right-2 p-1.5 bg-black/60 hover:bg-red-500/80 text-white rounded-full opacity-0 group-hover/image:opacity-100 transition-all backdrop-blur-sm shadow-sm"
-                                        title="移除图片"
+                                        title={t("removeImage")}
                                     >
                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
                                     </button>
@@ -261,7 +264,7 @@ const ParagraphBlock = ({ node, updateAttributes, editor, getPos }: { node: any,
                 >
                     <img
                         src={zoomedImage}
-                        alt="关键帧截图（放大）"
+                        alt={t("zoomedAlt")}
                         className="max-w-full max-h-full object-contain rounded-lg shadow-2xl cursor-zoom-out"
                         onClick={(e) => { e.stopPropagation(); setZoomedImage(null); }}
                     />
@@ -366,6 +369,7 @@ export const NoteEditor = forwardRef<NoteEditorRef, NoteEditorProps>(({
     onSaveError,
     onBlockNavigation,
 }, ref) => {
+    const t = useTranslations("Notes");
     const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
     const saveTimerRef = useRef<NodeJS.Timeout | null>(null);
     const hasPendingChangesRef = useRef(false);
@@ -560,21 +564,21 @@ export const NoteEditor = forwardRef<NoteEditorRef, NoteEditorProps>(({
             if (hasPendingChangesRef.current && saveHandlerRef.current) {
                 saveHandlerRef.current();
             }
-        };
+        }
     }, []);
 
-    if (!editor) return <div>Loading...</div>;
+    if (!editor) return <div>{t("loading")}</div>;
 
     return (
         <div className="flex flex-col h-full bg-white relative rounded-xl">
             <div className="flex items-center justify-between border-b border-stone-100 px-4 py-3 bg-white sticky top-0 z-10 rounded-t-xl">
                 <div className="text-sm font-medium text-stone-600">
-                    笔记编辑器 ({editor.storage.characterCount?.words?.() || 0} words)
+                    {t("editorTitle")} ({editor.storage.characterCount?.words?.() || 0} {t("words")})
                 </div>
                 <div className="flex items-center gap-2 text-sm">
-                    {saveStatus === "saving" && <span className="text-stone-400">保存中...</span>}
-                    {saveStatus === "saved" && <span className="text-green-600 flex items-center gap-1">✔ 已保存</span>}
-                    {saveStatus === "error" && <span className="text-rose-600">保存失败</span>}
+                    {saveStatus === "saving" && <span className="text-stone-400">{t("saving")}</span>}
+                    {saveStatus === "saved" && <span className="text-green-600 flex items-center gap-1">{t("saved")}</span>}
+                    {saveStatus === "error" && <span className="text-rose-600">{t("saveFailed")}</span>}
                 </div>
             </div>
             <div className="flex-1 overflow-y-auto">

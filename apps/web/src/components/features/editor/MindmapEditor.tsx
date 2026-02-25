@@ -24,6 +24,7 @@ import ReactFlow, {
 } from "reactflow";
 import "reactflow/dist/style.css";
 import dagre from 'dagre';
+import { useTranslations } from "next-intl";
 import { useSaveMindmap } from "@/lib/api/resultQueries"; // UPDATED IMPORT
 import { Mindmap, MindmapNode } from "@/lib/contracts/resultTypes"; // UPDATED IMPORT
 
@@ -165,6 +166,7 @@ export function MindmapEditor({
 }: MindmapEditorProps) {
     const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
     const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
+    const t = useTranslations("Mindmap");
     const saveTimerRef = useRef<NodeJS.Timeout | null>(null);
     const hasPendingChangesRef = useRef(false);
     const router = useRouter();
@@ -292,7 +294,7 @@ export function MindmapEditor({
                 y: parentNode.position.y + 50
             },
             data: {
-                label: '新节点',
+                label: t("newNode"),
                 onLabelChange: handleLabelChange
             }
         };
@@ -332,7 +334,7 @@ export function MindmapEditor({
                 y: maxY + 200
             },
             data: {
-                label: '新根节点',
+                label: t("newRootNode"),
                 onLabelChange: handleLabelChange
             }
         };
@@ -510,16 +512,16 @@ export function MindmapEditor({
             <div className="flex items-center justify-between bg-white border-b border-stone-200 px-4 py-2">
                 {/* ... (Same headers) ... */}
                 <div className="flex items-center gap-4">
-                    <div className="text-sm text-stone-600">思维导图编辑器</div>
+                    <div className="text-sm text-stone-600">{t("editorTitle")}</div>
                     <div className="flex items-center gap-2">
-                        <button onClick={handleAddRootNode} className="px-3 py-1 text-sm bg-orange-500 text-white rounded hover:bg-orange-600 transition-colors">+ 添加根节点</button>
+                        <button onClick={handleAddRootNode} className="px-3 py-1 text-sm bg-orange-500 text-white rounded hover:bg-orange-600 transition-colors">{t("addRoot")}</button>
                     </div>
                 </div>
                 {/* Save Status */}
                 <div className="flex items-center gap-2 text-sm">
-                    {saveStatus === "saving" && <span className="text-stone-600">保存中...</span>}
-                    {saveStatus === "saved" && <span className="text-green-600">已保存</span>}
-                    {saveStatus === "error" && <span className="text-rose-600">保存失败</span>}
+                    {saveStatus === "saving" && <span className="text-stone-600">{t("saving")}</span>}
+                    {saveStatus === "saved" && <span className="text-green-600">{t("saved")}</span>}
+                    {saveStatus === "error" && <span className="text-rose-600">{t("saveFailed")}</span>}
                 </div>
             </div>
 
@@ -550,8 +552,8 @@ export function MindmapEditor({
                             style={{ position: 'fixed', top: contextMenu.y, left: contextMenu.x, zIndex: 50 }}
                             className="bg-white shadow-lg rounded-lg border border-stone-200 py-1 min-w-[160px]"
                         >
-                            <button onClick={() => handleAddChildNode(contextMenu.nodeId)} className="w-full text-left px-4 py-2 text-sm text-stone-700 hover:bg-stone-100">添加子节点</button>
-                            <button onClick={() => handleDeleteNode(contextMenu.nodeId)} className="w-full text-left px-4 py-2 text-sm text-rose-600 hover:bg-rose-50">删除节点</button>
+                            <button onClick={() => handleAddChildNode(contextMenu.nodeId)} className="w-full text-left px-4 py-2 text-sm text-stone-700 hover:bg-stone-100">{t("addChild")}</button>
+                            <button onClick={() => handleDeleteNode(contextMenu.nodeId)} className="w-full text-left px-4 py-2 text-sm text-rose-600 hover:bg-rose-50">{t("deleteNode")}</button>
                         </div>
                     </>
                 )}

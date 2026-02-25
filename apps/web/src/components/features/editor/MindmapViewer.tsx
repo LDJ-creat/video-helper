@@ -12,6 +12,7 @@ import ReactFlow, {
 } from "reactflow";
 import "reactflow/dist/style.css";
 import dagre from 'dagre';
+import { useTranslations } from "next-intl";
 import type { Mindmap, MindmapNode as MindmapNodeType } from "@/lib/contracts/resultTypes";
 
 type MindmapViewerProps = {
@@ -104,6 +105,7 @@ function getLayoutedElements(nodes: Node[], edges: Edge[]): Node[] {
 }
 
 export function MindmapViewer({ mindmap, isLoading = false, onNodeClick }: MindmapViewerProps) {
+    const t = useTranslations("Mindmap");
     // Build ReactFlow nodes from mindmap data
     const initialNodes: Node[] = mindmap.nodes.map((node) => {
         const nodeType = node.type || "topic";
@@ -159,7 +161,7 @@ export function MindmapViewer({ mindmap, isLoading = false, onNodeClick }: Mindm
     if (isLoading) {
         return (
             <div className="w-full h-[500px] bg-stone-100 rounded-lg animate-pulse flex items-center justify-center">
-                <p className="text-stone-500">加载中...</p>
+                <p className="text-stone-500">{t("loading")}</p>
             </div>
         );
     }
@@ -167,7 +169,7 @@ export function MindmapViewer({ mindmap, isLoading = false, onNodeClick }: Mindm
     if (layoutedNodes.length === 0) {
         return (
             <div className="w-full h-[500px] bg-white rounded-lg border border-stone-200 flex items-center justify-center">
-                <p className="text-stone-500">暂无思维导图</p>
+                <p className="text-stone-500">{t("noMindmap")}</p>
             </div>
         );
     }

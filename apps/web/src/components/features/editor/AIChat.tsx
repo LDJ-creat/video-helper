@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useParams } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { Send, Plus, MessageSquare, Loader2, Bot, User } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { useChatSessions, useSessionMessages, useChatStream } from "@/hooks/useAI";
 import { queryKeys } from "@/lib/api/queryKeys";
 import MarkdownRenderer from "@/components/shared/MarkdownRenderer";
@@ -10,6 +11,7 @@ export function AIChat() {
     const params = useParams();
     const projectId = params?.projectId as string;
     const queryClient = useQueryClient();
+    const t = useTranslations("AIChat");
 
     const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
     const [input, setInput] = useState("");
@@ -19,6 +21,9 @@ export function AIChat() {
     const [pendingUserMessage, setPendingUserMessage] = useState<string | null>(null);
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const scrollContainerRef = useRef<HTMLDivElement>(null);
+    const isInitialLoadRef = useRef(true);
+    const lastSessionIdRef = useRef<string | null>(null);
     const { url: chatUrl } = useChatStream();
 
     // Data Fetching
@@ -51,6 +56,14 @@ export function AIChat() {
         }
     }, [sessions, activeSessionId]);
 
+    // Reset initial load flag when session changes
+    useEffect(() => {
+        if (activeSessionId !== lastSessionIdRef.current) {
+            isInitialLoadRef.current = true;
+            lastSessionIdRef.current = activeSessionId;
+        }
+    }, [activeSessionId]);
+
     // Clear optimistic user message once it appears in the persisted messages
     useEffect(() => {
         if (pendingUserMessage && messages?.some(m => m.role === "user" && m.content === pendingUserMessage)) {
@@ -60,7 +73,22 @@ export function AIChat() {
 
     // Scroll to bottom
     useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+        if (!messages || messages.length === 0) return;
+
+        if (isInitialLoadRef.current) {
+            // Instant jump to bottom for initial load or session switch
+            if (scrollContainerRef.current) {
+                scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+                isInitialLoadRef.current = false;
+            }
+        } else {
+            // Smooth scroll only when streaming or after initial load
+            // Using a small timeout to ensure DOM has updated
+            const timer = setTimeout(() => {
+                messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+            }, 100);
+            return () => clearTimeout(timer);
+        }
     }, [messages, streamedContent]);
 
     const handleNewSession = () => {
@@ -144,7 +172,7 @@ export function AIChat() {
             }
         } catch (error) {
             console.error("Chat error:", error);
-            setStreamedContent(prev => prev + "\n[Error: Failed to send message]");
+            setStreamedContent(prev => prev + `\n${t("errorPrefix")}`);
         } finally {
             setIsStreaming(false);
             setPendingUserMessage(null);
@@ -185,8 +213,8 @@ export function AIChat() {
                     }`}
             >
                 <div className="p-4 border-b border-stone-200 flex justify-between items-center">
-                    <span className="text-sm font-semibold text-stone-500">历史会话</span>
-                    <button onClick={handleNewSession} className="p-1 hover:bg-stone-200 rounded text-stone-600" title="新会话">
+                    <span className="text-sm font-semibold text-stone-500">{t("sidebarTitle")}</span>
+                    <button onClick={handleNewSession} className="p-1 hover:bg-stone-200 rounded text-stone-600" title={t("newChat")}>
                         <Plus size={18} />
                     </button>
                 </div>
@@ -205,12 +233,12 @@ export function AIChat() {
                                 : "text-stone-600 hover:bg-stone-200"
                                 }`}
                         >
-                            {session.title || "未命名会话"}
+                            {session.title || t("newChat")}
                         </button>
                     ))}
                     {sessions?.length === 0 && (
                         <div className="text-center text-xs text-stone-400 py-8">
-                            暂无历史会话
+                            {t("noHistory")}
                         </div>
                     )}
                 </div>
@@ -224,29 +252,30 @@ export function AIChat() {
                         <button
                             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
                             className={`p-2 hover:bg-stone-100 rounded-lg text-stone-600 transition-colors ${isSidebarOpen ? 'bg-stone-100' : ''}`}
-                            title={isSidebarOpen ? "收起侧边栏" : "展开历史记录"}
+                            title={isSidebarOpen ? t("collapseSidebar") : t("expandHistory")}
                         >
                             <MessageSquare size={20} />
                         </button>
-                        <span className="font-medium text-stone-700">AI 助手</span>
+                        <span className="font-medium text-stone-700">{t("assistant")}</span>
                     </div>
                     <button
                         onClick={handleNewSession}
                         className="text-xs flex items-center gap-1 px-3 py-1.5 bg-stone-900 text-white rounded-md hover:bg-stone-800 transition-colors"
                     >
                         <Plus size={14} />
-                        新会话
+                        {t("newChat")}
                     </button>
                 </div>
 
                 {/* Messages */}
                 <div
+                    ref={scrollContainerRef}
                     className="flex-1 overflow-y-auto p-4 space-y-6 no-scrollbar"
                 >
                     {messages?.length === 0 && !streamedContent && (
                         <div className="flex flex-col items-center justify-center h-full text-stone-400 opacity-50">
                             <Bot size={48} className="mb-4" />
-                            <p>开始一个新的对话...</p>
+                            <p>{t("startPrompt")}</p>
                         </div>
                     )}
 
@@ -309,7 +338,7 @@ export function AIChat() {
                             value={input}
                             onChange={e => setInput(e.target.value)}
                             onKeyDown={handleKeyDown}
-                            placeholder="输入问题..."
+                            placeholder={t("inputPlaceholder")}
                             className="w-full pl-4 pr-12 py-3 rounded-xl border border-stone-300 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent resize-none shadow-sm text-sm"
                             rows={1}
                             style={{ minHeight: "44px", maxHeight: "120px" }}

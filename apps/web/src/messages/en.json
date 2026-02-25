@@ -175,5 +175,73 @@
         "connection": "Connection",
         "type": "Type",
         "notFound": "Job not found"
+    },
+    "AIChat": {
+        "sidebarTitle": "History",
+        "newChat": "New Chat",
+        "noHistory": "No history",
+        "assistant": "AI Assistant",
+        "collapseSidebar": "Collapse Sidebar",
+        "expandHistory": "Expand History",
+        "startPrompt": "Start a new conversation...",
+        "inputPlaceholder": "Type a message...",
+        "errorPrefix": "[Error: Failed to send message]"
+    },
+    "Exercises": {
+        "historyTitle": "Exercises History",
+        "collapseSidebar": "Collapse Sidebar",
+        "startNew": "Start New Exercise",
+        "loadHistoryFailed": "Failed to load history",
+        "scoreUnit": "pts",
+        "inProgress": "In Progress",
+        "noHistory": "No history records",
+        "loadDetailFailed": "Failed to load details",
+        "resuming": "Resuming your progress...",
+        "review": "Exercise Review",
+        "completedAt": "Completed at",
+        "explanation": "Explanation:",
+        "explanationTitle": "Explanation",
+        "finished": "Exercise Finished!",
+        "correctCount": "Correct",
+        "questionUnit": "questions",
+        "generateNew": "Generate New Set",
+        "generating": "AI is generating exercises for you...",
+        "title": "Knowledge Consolidation",
+        "description": "AI will analyze the video and generate personalized exercises to help you master key points.",
+        "topicPlaceholder": "Optional: Topic Focus (e.g. 'React Hooks')",
+        "generateBtn": "Generate",
+        "submit": "Submit Answer",
+        "next": "Next",
+        "complete": "Complete",
+        "expandHistory": "Expand History"
+    },
+    "Mindmap": {
+        "newNode": "New Node",
+        "newRootNode": "New Root Node",
+        "editorTitle": "Mind Map Editor",
+        "addRoot": "+ Add Root Node",
+        "saving": "Saving...",
+        "saved": "Saved",
+        "saveFailed": "Save Failed",
+        "addChild": "Add Child Node",
+        "deleteNode": "Delete Node",
+        "loading": "Loading...",
+        "noMindmap": "No mind map available"
+    },
+    "Notes": {
+        "jumpToVideo": "Jump to video",
+        "addImage": "Add image",
+        "keyframe": "Keyframe",
+        "removeImage": "Remove image",
+        "zoomedAlt": "Keyframe screenshot (zoomed)",
+        "loading": "Loading...",
+        "editorTitle": "Note Editor",
+        "words": "words",
+        "saving": "Saving...",
+        "saved": "✔ Saved",
+        "saveFailed": "Save Failed"
+    },
+    "Highlights": {
+        "noHighlights": "No highlights found"
     }
 }

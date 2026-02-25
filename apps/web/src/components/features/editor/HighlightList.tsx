@@ -2,6 +2,7 @@
 
 import type { Highlight } from "@/lib/contracts/resultTypes";
 import { formatTime, msToSeconds } from "@/lib/utils/timeUtils";
+import { useTranslations } from "next-intl";
 
 type HighlightListProps = {
     highlights: Highlight[];
@@ -10,6 +11,8 @@ type HighlightListProps = {
 };
 
 export function HighlightList({ highlights, onHighlightClick, isLoading = false }: HighlightListProps) {
+    const t = useTranslations("Highlights");
+
     if (isLoading) {
         return (
             <div className="space-y-3">
@@ -23,7 +26,7 @@ export function HighlightList({ highlights, onHighlightClick, isLoading = false 
     if (highlights.length === 0) {
         return (
             <div className="text-center py-8 text-stone-500">
-                暂无重点内容
+                {t("noHighlights")}
             </div>
         );
     }
@@ -44,18 +47,18 @@ export function HighlightList({ highlights, onHighlightClick, isLoading = false 
                             }`}
                     >
                         <div className="flex items-start gap-3">
-                            {/* 重点标记 */}
+                            {/* Highlight marker */}
                             <div className="flex-shrink-0 w-1 h-full bg-orange-400 rounded-full" />
 
                             <div className="flex-1 min-w-0">
-                                {/* 时间戳（如果有） */}
+                                {/* Timestamp (if available) */}
                                 {hasTimeMs && (
                                     <div className="text-xs font-mono text-stone-500 mb-1">
                                         {formatTime(msToSeconds(highlight.startMs))}
                                     </div>
                                 )}
 
-                                {/* 重点文本 */}
+                                {/* Highlight text */}
                                 <p className="text-base text-stone-800 leading-relaxed">
                                     {highlight.text}
                                 </p>

@@ -175,5 +175,73 @@
         "connection": "连接",
         "type": "类型",
         "notFound": "任务不存在"
+    },
+    "AIChat": {
+        "sidebarTitle": "历史会话",
+        "newChat": "新会话",
+        "noHistory": "暂无历史会话",
+        "assistant": "AI 助手",
+        "collapseSidebar": "收起侧边栏",
+        "expandHistory": "展开历史记录",
+        "startPrompt": "开始一个新的对话...",
+        "inputPlaceholder": "输入问题...",
+        "errorPrefix": "[错误: 发送消息失败]"
+    },
+    "Exercises": {
+        "historyTitle": "练习记录",
+        "collapseSidebar": "收起侧边栏",
+        "startNew": "开始新练习",
+        "loadHistoryFailed": "无法加载练习记录",
+        "scoreUnit": "分",
+        "inProgress": "进行中",
+        "noHistory": "暂无练习记录",
+        "loadDetailFailed": "无法加载练习详情",
+        "resuming": "正在恢复您的练习进度...",
+        "review": "练习回顾",
+        "completedAt": "完成于",
+        "explanation": "解析：",
+        "explanationTitle": "解析",
+        "finished": "练习完成!",
+        "correctCount": "答对",
+        "questionUnit": "题",
+        "generateNew": "生成新的一组",
+        "generating": "AI 正在为您的视频生成专属练习...",
+        "title": "知识点巩固练习",
+        "description": "AI 将智能分析视频内容，为您生成个性化练习题，帮助您快速掌握关键知识点。",
+        "topicPlaceholder": "可选：侧重主题 (例如 'React Hooks')",
+        "generateBtn": "生成练习",
+        "submit": "提交答案",
+        "next": "下一题",
+        "complete": "完成练习",
+        "expandHistory": "展开练习记录"
+    },
+    "Mindmap": {
+        "newNode": "新节点",
+        "newRootNode": "新根节点",
+        "editorTitle": "思维导图编辑器",
+        "addRoot": "+ 添加根节点",
+        "saving": "保存中...",
+        "saved": "已保存",
+        "saveFailed": "保存失败",
+        "addChild": "添加子节点",
+        "deleteNode": "删除节点",
+        "loading": "加载中...",
+        "noMindmap": "暂无思维导图"
+    },
+    "Notes": {
+        "jumpToVideo": "点击跳转视频",
+        "addImage": "添加图片",
+        "keyframe": "关键帧",
+        "removeImage": "移除图片",
+        "zoomedAlt": "关键帧截图（放大）",
+        "loading": "加载中...",
+        "editorTitle": "笔记编辑器",
+        "words": "词",
+        "saving": "保存中...",
+        "saved": "✔ 已保存",
+        "saveFailed": "保存失败"
+    },
+    "Highlights": {
+        "noHighlights": "暂无重点内容"
     }
 }
