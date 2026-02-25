@@ -42,18 +42,22 @@ module.exports = async function beforePack(context) {
     );
   }
 
-  const styledJsxPkg = path.join(
-    standaloneWebDir,
-    'node_modules',
-    'styled-jsx',
-    'package.json'
-  );
+  const checkScript = path.join(repoRoot, 'scripts', 'ci', 'check-next-standalone-deps.mjs');
+  const nodeCmd = process.platform === 'win32' ? 'node.exe' : 'node';
+  const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  const npmArgs = ['install', '--omit=dev', '--no-package-lock', '--loglevel=error'];
 
-  if (!exists(styledJsxPkg)) {
-    const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-    const args = ['install', '--omit=dev', '--no-package-lock', '--loglevel=error'];
+  function runCheck() {
+    return spawnSync(nodeCmd, [checkScript, standaloneWebDir], {
+      encoding: 'utf8',
+      env: { ...process.env },
+      shell: false,
+    });
+  }
 
-    const res = spawnSync(npmCmd, args, {
+  let checkRes = runCheck();
+  if (checkRes.status !== 0) {
+    const res = spawnSync(npmCmd, npmArgs, {
       cwd: standaloneWebDir,
       stdio: 'inherit',
       env: {
@@ -66,11 +70,16 @@ module.exports = async function beforePack(context) {
     if (res.status !== 0) {
       throw new Error(`Failed to hydrate standalone node_modules via npm (exit=${res.status}).`);
     }
+
+    checkRes = runCheck();
   }
 
-  if (!exists(styledJsxPkg)) {
+  if (checkRes.status !== 0) {
+    const out = `${checkRes.stdout ?? ''}${checkRes.stderr ?? ''}`.trim();
     throw new Error(
-      `Sanity check failed: styled-jsx is still missing after hydration. Expected: ${styledJsxPkg}`
+      `Sanity check failed: standalone Next runtime deps are not resolvable after hydration.\n` +
+        `standaloneWebDir: ${standaloneWebDir}\n` +
+        (out ? `check output:\n${out}\n` : '')
     );
   }
 

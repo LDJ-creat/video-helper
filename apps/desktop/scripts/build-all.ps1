@@ -261,9 +261,10 @@ try {
     & npm install --omit=dev --no-package-lock --loglevel=error
     if ($LASTEXITCODE -ne 0) { throw "npm install failed in $standaloneWeb" }
 
-    $styledJsxPkg = Join-Path $standaloneWeb "node_modules\styled-jsx\package.json"
-    if (-not (Test-Path $styledJsxPkg)) {
-        throw "Sanity check failed: styled-jsx was not installed into standalone node_modules. Expected: $styledJsxPkg"
+    $checkScript = Join-Path $ROOT "scripts\ci\check-next-standalone-deps.mjs"
+    & node $checkScript $standaloneWeb
+    if ($LASTEXITCODE -ne 0) {
+        throw "Sanity check failed: styled-jsx is not resolvable for Next runtime in standalone output: $standaloneWeb"
     }
 }
 finally {

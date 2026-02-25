@@ -306,8 +306,9 @@ function startFrontend(): Promise<void> {
         // in the packaged standalone output (common failure mode with pnpm layouts).
         try {
             const serverDir = path.dirname(standaloneServer);
-            const styledJsxPkg = path.join(serverDir, 'node_modules', 'styled-jsx', 'package.json');
-            if (!existsSync(styledJsxPkg)) {
+            const styledJsxRootPkg = path.join(serverDir, 'node_modules', 'styled-jsx', 'package.json');
+            const styledJsxNestedPkg = path.join(serverDir, 'node_modules', 'next', 'node_modules', 'styled-jsx', 'package.json');
+            if (!existsSync(styledJsxRootPkg) && !existsSync(styledJsxNestedPkg)) {
                 let nodeModulesPreview = '';
                 try {
                     const nmDir = path.join(serverDir, 'node_modules');
@@ -321,7 +322,8 @@ function startFrontend(): Promise<void> {
                 }
                 reject(
                     new Error(
-                        `Next standalone is missing styled-jsx at runtime: ${styledJsxPkg}. ` +
+                        `Next standalone is missing styled-jsx at runtime. ` +
+                        `Tried: ${styledJsxRootPkg} and ${styledJsxNestedPkg}. ` +
                         `node_modules preview: [${nodeModulesPreview}]`
                     )
                 );
