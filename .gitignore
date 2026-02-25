@@ -15,6 +15,9 @@ __pycache__/
 # Local env
 .env
 
+# Editor
+.vscode/
+
 # Data directory (keep placeholder files)
 data/**
 !data/.gitkeep
@@ -27,9 +30,8 @@ data/**
 test_*.py
 tests/*
 www.bilibili.com_cookies.txt
-*.json
-!en.json
-!zh.json
+# NOTE: Do NOT ignore all JSON globally. This repo contains essential JSON
+# config files (e.g. package.json, tsconfig.json) required for CI builds.
 *.sqlite3
 *.log
 build_log.txt
@@ -37,3 +39,6 @@ build_log.txt
 # Ignore backend build artifacts (PyInstaller / packaging outputs)
 services/core/build/
 services/core/build/**
+
+# Generated artifacts (keep markdown docs, ignore generated json evidence)
+_bmad-output/implementation-artifacts/*.json

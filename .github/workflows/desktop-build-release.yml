@@ -70,10 +70,16 @@ jobs:
           # gyan.dev provides stable Windows builds.
           Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" -OutFile $zip
           Expand-Archive -Path $zip -DestinationPath .\_ci\ffmpeg -Force
-          $bin = Get-ChildItem -Path .\_ci\ffmpeg -Directory | Select-Object -First 1 | ForEach-Object { Join-Path $_.FullName 'bin' }
-          if (-not (Test-Path $bin)) { throw "ffmpeg bin dir not found" }
+          $ffmpegExe = Get-ChildItem -Path .\_ci\ffmpeg -Recurse -Filter ffmpeg.exe -File | Select-Object -First 1
+          if (-not $ffmpegExe) { throw "ffmpeg.exe not found after extraction" }
+          $bin = Split-Path -Parent $ffmpegExe.FullName
+
+          # Make it available in later steps.
           "${bin}" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          ffmpeg -version
+          # Also make it available within THIS step.
+          $env:Path = "${bin};$env:Path"
+
+          & $ffmpegExe.FullName -version
 
       - name: Install Node dependencies (workspace)
         shell: bash
@@ -95,7 +101,7 @@ jobs:
 
       - name: Build Desktop installer (electron-builder)
         shell: bash
-        run: pnpm -C apps/desktop build
+        run: pnpm -C apps/desktop exec electron-builder -- --publish never
 
       - name: Upload installers
         uses: actions/upload-artifact@v4
