@@ -5,7 +5,7 @@ import { useCreateJobFromUrl, useCreateJobFromUpload } from "@/lib/api/jobCreati
 import { useCookiesStatus, useUploadCookies } from "@/lib/api/cookiesQueries";
 import { useState, useRef } from "react";
 import type { ApiErrorEnvelope } from "@/lib/api/apiClient";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 
 type TabType = "url" | "upload";
 
@@ -175,9 +175,10 @@ function CookiesUploadSection() {
 
 function UrlForm() {
     const t = useTranslations("Ingest.urlForm");
+    const locale = useLocale();
     const [sourceUrl, setSourceUrl] = useState("");
     const [title, setTitle] = useState("");
-    const [outputLanguage, setOutputLanguage] = useState("zh-Hans");
+    const [outputLanguage, setOutputLanguage] = useState(locale === "zh" ? "zh-Hans" : "en");
     const mutation = useCreateJobFromUrl();
 
     const isValidUrl = (url: string) => {
@@ -283,13 +284,14 @@ function UrlForm() {
 function UploadForm() {
     const t = useTranslations("Ingest.uploadForm");
     const tUrl = useTranslations("Ingest.urlForm"); // Reuse generic translations if needed
+    const locale = useLocale();
 
     // Explicitly reusing options from urlForm
     const tOptions = useTranslations("Ingest.urlForm.options");
 
     const [file, setFile] = useState<File | null>(null);
     const [title, setTitle] = useState("");
-    const [outputLanguage, setOutputLanguage] = useState("zh-Hans");
+    const [outputLanguage, setOutputLanguage] = useState(locale === "zh" ? "zh-Hans" : "en");
     const mutation = useCreateJobFromUpload();
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {

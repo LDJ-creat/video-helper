@@ -186,7 +186,7 @@ def generate_quiz_endpoint(
     context = f"Video Title: {project.title or 'Unknown'}"
     
     try:
-        quiz = generate_quiz(context, req.project_id, req.topic_focus)
+        quiz = generate_quiz(context, req.project_id, req.topic_focus, req.output_language)
 
         # --- Persist quiz session and items immediately after generation ---
         now = _now_ms()

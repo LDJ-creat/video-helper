@@ -40,6 +40,7 @@ class ChatSessionDTO(BaseModel):
 class QuizGenerateRequest(BaseModel):
     project_id: str
     topic_focus: str | None = None
+    output_language: str | None = None
 
 
 class QuizItemDTO(BaseModel):

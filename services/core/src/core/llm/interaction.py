@@ -27,6 +27,7 @@ Context:
 Topic Focus: {topic}
 
 Generate 5 multiple-choice questions.
+{language_instruction}
 Format:
 {{
   "items": [
@@ -40,7 +41,12 @@ Format:
 }}
 """
 
-def generate_quiz(context_text: str, project_id: str, topic_focus: str | None = None) -> QuizDTO:
+def generate_quiz(
+    context_text: str, 
+    project_id: str, 
+    topic_focus: str | None = None,
+    output_language: str | None = None
+) -> QuizDTO:
     """Generate a quiz based on context."""
     provider = llm_provider_for_jobs()
     if not provider:
@@ -48,12 +54,20 @@ def generate_quiz(context_text: str, project_id: str, topic_focus: str | None = 
 
     topic = topic_focus or "General understanding"
     
+    lang_instr = ""
+    if output_language and output_language.lower() != "auto":
+        lang_instr = f"Output MUST be in {output_language}."
+
     # Truncate context if too long? 
     # For now assume it fits.
     
     messages = [
         {"role": "system", "content": QUIZ_SYS_PROMPT},
-        {"role": "user", "content": QUIZ_USER_PROMPT_TEMPLATE.format(context=context_text[:100000], topic=topic)} 
+        {"role": "user", "content": QUIZ_USER_PROMPT_TEMPLATE.format(
+            context=context_text[:100000], 
+            topic=topic,
+            language_instruction=lang_instr
+        )} 
     ]
     
     try:

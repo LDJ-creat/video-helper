@@ -47,8 +47,8 @@ export function useChatStream() {
 
 export function useQuizGenerator() {
     return useMutation({
-        mutationFn: (vars: { projectId: string; topicFocus?: string }) =>
-            generateQuiz(vars.projectId, vars.topicFocus),
+        mutationFn: (vars: { projectId: string; topicFocus?: string; outputLanguage?: string }) =>
+            generateQuiz(vars.projectId, vars.topicFocus, vars.outputLanguage),
     });
 }
 

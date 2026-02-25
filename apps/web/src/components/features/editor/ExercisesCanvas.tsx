@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { useParams } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
+import { useLocale, useTranslations } from "next-intl";
 import { useQuizGenerator, useQuizSave, useQuizSessions, useQuizDetail, useQuizItemUpdate } from "@/hooks/useAI";
-import { Loader2, CheckCircle2, XCircle, BrainCircuit, RefreshCw, Save, History, ChevronLeft, ChevronRight, Calendar, BookOpen } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, BrainCircuit, RefreshCw, Save, History, ChevronLeft, ChevronRight, Calendar, BookOpen, Languages } from "lucide-react";
 import type { Quiz, QuizItem, QuizSession } from "@/lib/api/ai";
 import { fetchQuizSessionDetail } from "@/lib/api/ai";
 import { queryKeys } from "@/lib/api/queryKeys";
@@ -31,6 +32,11 @@ export function ExercisesCanvas({ projectId: propProjectId }: ExercisesCanvasPro
     const [quizFinished, setQuizFinished] = useState(false);
     const [topic, setTopic] = useState("");
 
+    // Language support
+    const locale = useLocale();
+    const t = useTranslations("Ingest.urlForm"); // Reuse ingest translations for language options
+    const [outputLanguage, setOutputLanguage] = useState(locale === "zh" ? "zh-Hans" : "en");
+
     // History & Sidebar State
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const [viewingSessionId, setViewingSessionId] = useState<string | null>(null);
@@ -49,7 +55,11 @@ export function ExercisesCanvas({ projectId: propProjectId }: ExercisesCanvasPro
         setViewingSessionId(null);
 
         generateMutation.mutate(
-            { projectId, topicFocus: topic || undefined },
+            {
+                projectId,
+                topicFocus: topic || undefined,
+                outputLanguage: outputLanguage
+            },
             {
                 onSuccess: (data: Quiz) => {
                     setQuiz(data);
@@ -348,13 +358,31 @@ export function ExercisesCanvas({ projectId: propProjectId }: ExercisesCanvasPro
             </p>
 
             <div className="w-full max-w-xs space-y-4">
-                <input
-                    type="text"
-                    placeholder="可选：侧重主题 (例如 'React Hooks')"
-                    value={topic}
-                    onChange={e => setTopic(e.target.value)}
-                    className="w-full px-4 py-3 border border-stone-200 bg-white rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all shadow-sm"
-                />
+                <div className="relative">
+                    <input
+                        type="text"
+                        placeholder="可选：侧重主题 (例如 'React Hooks')"
+                        value={topic}
+                        onChange={e => setTopic(e.target.value)}
+                        className="w-full px-4 py-3 border border-stone-200 bg-white rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all shadow-sm"
+                    />
+                </div>
+
+                <div className="relative">
+                    <div className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none">
+                        <Languages size={16} />
+                    </div>
+                    <select
+                        value={outputLanguage}
+                        onChange={(e) => setOutputLanguage(e.target.value)}
+                        className="w-full pl-10 pr-4 py-3 border border-stone-200 bg-white rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all shadow-sm appearance-none cursor-pointer"
+                    >
+                        <option value="zh-Hans">{t("options.zhHans")}</option>
+                        <option value="en">{t("options.en")}</option>
+                        <option value="auto">{t("options.auto")}</option>
+                    </select>
+                </div>
+
                 <button
                     onClick={handleGenerate}
                     disabled={generateMutation.isPending}

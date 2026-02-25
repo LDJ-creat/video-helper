@@ -65,11 +65,15 @@ export async function fetchSessionMessages(sessionId: string): Promise<ChatMessa
     return apiFetch<ChatMessage[]>(endpoints.chatSessionMessages(sessionId));
 }
 
-export async function generateQuiz(projectId: string, topicFocus?: string): Promise<Quiz> {
+export async function generateQuiz(projectId: string, topicFocus?: string, outputLanguage?: string): Promise<Quiz> {
     return apiFetch<Quiz>(endpoints.quizGenerate(), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ project_id: projectId, topic_focus: topicFocus }),
+        body: JSON.stringify({
+            project_id: projectId,
+            topic_focus: topicFocus,
+            output_language: outputLanguage
+        }),
     });
 }
 
