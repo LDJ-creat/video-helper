@@ -161,3 +161,4 @@ jobs:
             artifacts/**/*.AppImage
             artifacts/**/*.tar.gz
           generate_release_notes: true
+          prerelease: true
