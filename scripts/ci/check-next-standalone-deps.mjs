@@ -47,12 +47,31 @@ if (!exists(base)) {
 
 const requireFromStandalone = createRequire(pathToFileURL(base));
 
+function isInside(child, parent) {
+  const rel = path.relative(parent, child);
+  return rel && !rel.startsWith('..') && !path.isAbsolute(rel);
+}
+
 try {
   const nextPkg = requireFromStandalone.resolve('next/package.json');
+  const absNextPkg = path.resolve(nextPkg);
+  const absTarget = path.resolve(targetDir);
+  if (!isInside(absNextPkg, absTarget)) {
+    throw new Error(
+      `Resolved next/package.json outside targetDir (leaked to parent node_modules): ${absNextPkg}`
+    );
+  }
   const nextDir = path.dirname(nextPkg);
   const styledJsxPkg = requireFromStandalone.resolve('styled-jsx/package.json', {
     paths: [nextDir],
   });
+
+  const absStyled = path.resolve(styledJsxPkg);
+  if (!isInside(absStyled, absTarget)) {
+    throw new Error(
+      `Resolved styled-jsx/package.json outside targetDir (leaked to parent node_modules): ${absStyled}`
+    );
+  }
 
   if (!exists(styledJsxPkg)) {
     throw new Error(`Resolved styled-jsx package.json but file is missing: ${styledJsxPkg}`);

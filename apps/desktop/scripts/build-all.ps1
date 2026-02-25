@@ -258,6 +258,14 @@ if (-not (Test-Path $standaloneWeb)) {
 Push-Location $standaloneWeb
 try {
     $env:npm_config_progress = "false"
+    # Ensure we don't keep a pnpm-style/symlinked node_modules produced by Next standalone output.
+    $standaloneNodeModules = Join-Path $standaloneWeb "node_modules"
+    if (Test-Path $standaloneNodeModules) {
+        try { Remove-Item -Recurse -Force $standaloneNodeModules -ErrorAction Stop } catch { }
+        if (Test-Path $standaloneNodeModules) {
+            try { & cmd.exe /c "rmdir /s /q \"$standaloneNodeModules\"" 2>$null | Out-Null } catch { }
+        }
+    }
     & npm install --omit=dev --no-package-lock --loglevel=error
     if ($LASTEXITCODE -ne 0) { throw "npm install failed in $standaloneWeb" }
 

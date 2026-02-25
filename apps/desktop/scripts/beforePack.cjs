@@ -57,6 +57,9 @@ module.exports = async function beforePack(context) {
 
   let checkRes = runCheck();
   if (checkRes.status !== 0) {
+    // Ensure we don't keep a pnpm-style/symlinked node_modules from the standalone output.
+    rmrf(path.join(standaloneWebDir, 'node_modules'));
+
     const res = spawnSync(npmCmd, npmArgs, {
       cwd: standaloneWebDir,
       stdio: 'inherit',
