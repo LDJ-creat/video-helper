@@ -66,7 +66,15 @@ const version = desktopPkg.version;
 const runnerOs = process.env.RUNNER_OS || '';
 
 if (runnerOs === 'Windows') {
-  const exe = findFirst(outputDir, (p) => /Video Helper Setup .*\.exe$/i.test(p) && !p.toLowerCase().endsWith('.exe.blockmap'));
+  const exe =
+    findFirst(outputDir, (p) => {
+      const base = path.basename(p).toLowerCase();
+      return base.endsWith('.exe') && !base.endsWith('.exe.blockmap') && base.includes('setup');
+    }) ||
+    findFirst(outputDir, (p) => {
+      const base = path.basename(p).toLowerCase();
+      return base.endsWith('.exe') && !base.endsWith('.exe.blockmap');
+    });
   if (!exe) throw new Error(`Windows installer exe not found under ${outputDir}`);
   writeLatestYaml({ outDir: outputDir, filePath: exe, ymlName: 'latest.yml', version });
 } else if (runnerOs === 'macOS') {

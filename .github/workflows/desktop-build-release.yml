@@ -23,6 +23,10 @@ jobs:
       CSC_IDENTITY_AUTO_DISCOVERY: "false"
       # Avoid accidental auto-publish behavior in some environments.
       ELECTRON_BUILDER_ALLOW_UNRESOLVED_DEPENDENCIES: "true"
+      # Cache Electron/Electron-Builder downloads inside the workspace so we can
+      # persist them via actions/cache across runs.
+      ELECTRON_CACHE: ${{ github.workspace }}/_ci/electron-cache
+      ELECTRON_BUILDER_CACHE: ${{ github.workspace }}/_ci/electron-builder-cache
       # Some tools still look for GH_TOKEN even when publish is disabled.
       GH_TOKEN: ${{ github.token }}
       # Ensure Python uses UTF-8 where possible (Windows runners may default to legacy codepages).
@@ -57,6 +61,14 @@ jobs:
 
       - name: Setup uv
         uses: astral-sh/setup-uv@v5
+
+      - name: Cache Electron downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            _ci/electron-cache
+            _ci/electron-builder-cache
+          key: ${{ runner.os }}-electron-${{ hashFiles('pnpm-lock.yaml', 'apps/desktop/package.json') }}
 
       - name: Install Linux build deps
         if: runner.os == 'Linux'
@@ -140,7 +152,20 @@ jobs:
 
       - name: Install Node dependencies (workspace)
         shell: bash
-        run: pnpm -r install --frozen-lockfile
+        run: |
+          set -euo pipefail
+          # Electron downloads can be flaky on CI; retry to reduce transient failures.
+          for attempt in 1 2 3; do
+            echo "pnpm install attempt ${attempt}/3"
+            if pnpm -r install --frozen-lockfile; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "pnpm install failed after 3 attempts" >&2
+              exit 1
+            fi
+            sleep $((attempt * 15))
+          done
 
       - name: Build Electron main process
         shell: bash
