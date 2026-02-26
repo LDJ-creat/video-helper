@@ -1,5 +1,6 @@
 import { apiFetch } from "./apiClient";
 import { endpoints } from "./endpoints";
+import { config } from "../config";
 
 export interface ChatSession {
     id: string;
@@ -58,15 +59,18 @@ export interface QuizDetail {
 }
 
 export async function fetchChatSessions(projectId: string): Promise<ChatSession[]> {
-    return apiFetch<ChatSession[]>(endpoints.chatSessions(projectId));
+    const url = `${config.apiBaseUrl}${endpoints.chatSessions(projectId)}`;
+    return apiFetch<ChatSession[]>(url);
 }
 
 export async function fetchSessionMessages(sessionId: string): Promise<ChatMessage[]> {
-    return apiFetch<ChatMessage[]>(endpoints.chatSessionMessages(sessionId));
+    const url = `${config.apiBaseUrl}${endpoints.chatSessionMessages(sessionId)}`;
+    return apiFetch<ChatMessage[]>(url);
 }
 
 export async function generateQuiz(projectId: string, topicFocus?: string, outputLanguage?: string): Promise<Quiz> {
-    return apiFetch<Quiz>(endpoints.quizGenerate(), {
+    const url = `${config.apiBaseUrl}${endpoints.quizGenerate()}`;
+    return apiFetch<Quiz>(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -82,7 +86,8 @@ export async function saveQuizV1(
     sessionId: string,
     score: number,
 ): Promise<{ success: boolean }> {
-    return apiFetch<{ success: boolean }>(endpoints.quizSave(), {
+    const url = `${config.apiBaseUrl}${endpoints.quizSave()}`;
+    return apiFetch<{ success: boolean }>(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -101,7 +106,8 @@ export async function updateQuizItem(
     userAnswer: string,
     isCorrect: boolean
 ): Promise<{ success: boolean }> {
-    return apiFetch<{ success: boolean }>(endpoints.quizSessionItem(sessionId, questionHash), {
+    const url = `${config.apiBaseUrl}${endpoints.quizSessionItem(sessionId, questionHash)}`;
+    return apiFetch<{ success: boolean }>(url, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -112,15 +118,17 @@ export async function updateQuizItem(
 }
 
 export async function fetchQuizSessions(projectId: string): Promise<QuizSession[]> {
-    return apiFetch<QuizSession[]>(endpoints.quizSessions(projectId));
+    const url = `${config.apiBaseUrl}${endpoints.quizSessions(projectId)}`;
+    return apiFetch<QuizSession[]>(url);
 }
 
 export async function fetchQuizSessionDetail(sessionId: string): Promise<QuizDetail> {
-    return apiFetch<QuizDetail>(endpoints.quizSession(sessionId));
+    const url = `${config.apiBaseUrl}${endpoints.quizSession(sessionId)}`;
+    return apiFetch<QuizDetail>(url);
 } // chat url export remains below
 
 // Chat streaming is handled via native fetch/EventSource in component or custom hook
 // because apiFetch wraps response handling too tightly for streams.
 export function getChatCompletionUrl(): string {
-    return endpoints.chat();
+    return `${config.apiBaseUrl}${endpoints.chat()}`;
 }

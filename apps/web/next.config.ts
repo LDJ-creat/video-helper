@@ -12,7 +12,13 @@ const nextConfig: NextConfig = {
   ...(process.env.BUILD_STANDALONE === '1' && { output: 'standalone' }),
 
   async rewrites() {
-    const apiBaseUrl = process.env.API_BASE_URL || process.env.NEXT_PUBLIC_API_BASE_URL;
+    const apiBaseUrl =
+      process.env.API_BASE_URL ||
+      process.env.NEXT_PUBLIC_API_BASE_URL ||
+      // Desktop packaging builds (standalone) must proxy to the local backend,
+      // even in CI environments where .env.local is not present.
+      (process.env.BUILD_STANDALONE === '1' ? 'http://127.0.0.1:8000' : '');
+
     if (!apiBaseUrl) return [];
 
     return [

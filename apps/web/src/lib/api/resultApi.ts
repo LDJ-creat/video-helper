@@ -1,18 +1,21 @@
 import { apiFetch } from "./apiClient";
 import { endpoints } from "./endpoints";
 import type { Result, Mindmap, ContentBlock, UpdateResultResponse } from "../contracts/resultTypes";
+import { config } from "../config";
 
 /* ── Queries ── */
 
 export async function fetchLatestResult(projectId: string): Promise<Result> {
-    return apiFetch<Result>(endpoints.resultLatest(projectId));
+    const url = `${config.apiBaseUrl}${endpoints.resultLatest(projectId)}`;
+    return apiFetch<Result>(url);
 }
 
 /* ── Editing mutations (aligned with api.md Section 4) ── */
 
 /** Overwrite the entire mindmap graph. */
 export async function saveMindmap(projectId: string, mindmap: Mindmap): Promise<UpdateResultResponse> {
-    return apiFetch<UpdateResultResponse>(endpoints.saveMindmap(projectId), {
+    const url = `${config.apiBaseUrl}${endpoints.saveMindmap(projectId)}`;
+    return apiFetch<UpdateResultResponse>(url, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ nodes: mindmap.nodes, edges: mindmap.edges }),
@@ -21,7 +24,8 @@ export async function saveMindmap(projectId: string, mindmap: Mindmap): Promise<
 
 /** Full-array overwrite of contentBlocks (used by NoteEditor autosave). */
 export async function saveContentBlocks(projectId: string, contentBlocks: ContentBlock[]): Promise<UpdateResultResponse> {
-    return apiFetch<UpdateResultResponse>(endpoints.saveContentBlocks(projectId), {
+    const url = `${config.apiBaseUrl}${endpoints.saveContentBlocks(projectId)}`;
+    return apiFetch<UpdateResultResponse>(url, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ contentBlocks }),
@@ -34,7 +38,8 @@ export async function editBlock(
     blockId: string,
     patch: { title?: string; startMs?: number; endMs?: number },
 ): Promise<UpdateResultResponse> {
-    return apiFetch<UpdateResultResponse>(endpoints.editBlock(projectId, blockId), {
+    const url = `${config.apiBaseUrl}${endpoints.editBlock(projectId, blockId)}`;
+    return apiFetch<UpdateResultResponse>(url, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(patch),
@@ -47,7 +52,8 @@ export async function updateHighlightKeyframe(
     highlightId: string,
     payload: { assetId: string | null; timeMs?: number },
 ): Promise<UpdateResultResponse> {
-    return apiFetch<UpdateResultResponse>(endpoints.updateHighlightKeyframe(projectId, highlightId), {
+    const url = `${config.apiBaseUrl}${endpoints.updateHighlightKeyframe(projectId, highlightId)}`;
+    return apiFetch<UpdateResultResponse>(url, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -67,10 +73,11 @@ export async function uploadAsset(
     file: File,
     kind: string = "user_image",
 ): Promise<UploadAssetResponse> {
+    const url = `${config.apiBaseUrl}${endpoints.uploadAsset(projectId)}`;
     const form = new FormData();
     form.append("file", file);
     form.append("kind", kind);
-    return apiFetch<UploadAssetResponse>(endpoints.uploadAsset(projectId), {
+    return apiFetch<UploadAssetResponse>(url, {
         method: "POST",
         body: form,
         // Do NOT set Content-Type — browser sets it with boundary for multipart

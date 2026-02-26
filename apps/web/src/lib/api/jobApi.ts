@@ -1,12 +1,14 @@
 import { apiFetch } from "./apiClient";
 import { endpoints } from "./endpoints";
 import type { Job, LogsResponse } from "../contracts/types";
+import { config } from "../config";
 
 /**
  * Fetch job status (for polling fallback)
  */
 export async function fetchJob(jobId: string): Promise<Job> {
-    return apiFetch<Job>(endpoints.job(jobId));
+    const url = `${config.apiBaseUrl}${endpoints.job(jobId)}`;
+    return apiFetch<Job>(url);
 }
 
 /**
@@ -17,7 +19,8 @@ export async function fetchJobLogs(
     cursor?: string,
     limit = 200
 ): Promise<LogsResponse> {
-    const url = new URL(endpoints.jobLogs(jobId), window.location.origin);
+    const baseUrl = config.apiBaseUrl || window.location.origin;
+    const url = new URL(endpoints.jobLogs(jobId), baseUrl);
     if (cursor) url.searchParams.set("cursor", cursor);
     url.searchParams.set("limit", String(limit));
 
@@ -28,7 +31,8 @@ export async function fetchJobLogs(
  * Cancel a job
  */
 export async function cancelJob(jobId: string): Promise<{ ok: boolean }> {
-    return apiFetch<{ ok: boolean }>(endpoints.jobCancel(jobId), {
+    const url = `${config.apiBaseUrl}${endpoints.jobCancel(jobId)}`;
+    return apiFetch<{ ok: boolean }>(url, {
         method: "POST",
     });
 }
@@ -37,7 +41,8 @@ export async function cancelJob(jobId: string): Promise<{ ok: boolean }> {
  * Retry a job
  */
 export async function retryJob(jobId: string): Promise<{ ok: boolean }> {
-    return apiFetch<{ ok: boolean }>(endpoints.jobRetry(jobId), {
+    const url = `${config.apiBaseUrl}${endpoints.jobRetry(jobId)}`;
+    return apiFetch<{ ok: boolean }>(url, {
         method: "POST",
     });
 }

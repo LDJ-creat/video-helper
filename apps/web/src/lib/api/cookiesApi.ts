@@ -1,5 +1,6 @@
 import { apiFetch } from "./apiClient";
 import { endpoints } from "./endpoints";
+import { config } from "../config";
 
 export interface CookiesStatusResponse {
     hasFile: boolean;
@@ -14,12 +15,14 @@ export interface OkResponse {
 export async function uploadCookiesFile(file: File): Promise<OkResponse> {
     const form = new FormData();
     form.append("file", file);
-    return apiFetch<OkResponse>(endpoints.ytdlpCookiesUpload(), {
+    const url = `${config.apiBaseUrl}${endpoints.ytdlpCookiesUpload()}`;
+    return apiFetch<OkResponse>(url, {
         method: "POST",
         body: form,
     });
 }
 
 export async function getCookiesStatus(): Promise<CookiesStatusResponse> {
-    return apiFetch<CookiesStatusResponse>(endpoints.ytdlpCookiesStatus());
+    const url = `${config.apiBaseUrl}${endpoints.ytdlpCookiesStatus()}`;
+    return apiFetch<CookiesStatusResponse>(url);
 }

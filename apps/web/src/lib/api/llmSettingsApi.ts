@@ -10,20 +10,24 @@ import type {
     AddCustomModelRequest,
     AddCustomProviderRequest,
 } from "../contracts/llmSettingsTypes";
+import { config } from "../config";
 
 // Fetch provider catalog
 export async function fetchLlmCatalog(): Promise<CatalogResponse> {
-    return apiFetch<CatalogResponse>(endpoints.llmCatalog());
+    const url = `${config.apiBaseUrl}${endpoints.llmCatalog()}`;
+    return apiFetch<CatalogResponse>(url);
 }
 
 // Fetch active LLM settings
 export async function fetchActiveLlmSettings(): Promise<ActiveSettingsResponse> {
-    return apiFetch<ActiveSettingsResponse>(endpoints.llmActive());
+    const url = `${config.apiBaseUrl}${endpoints.llmActive()}`;
+    return apiFetch<ActiveSettingsResponse>(url);
 }
 
 // Update active LLM settings
 export async function updateActiveLlmSettings(request: UpdateActiveRequest): Promise<OkResponse> {
-    return apiFetch<OkResponse>(endpoints.llmActive(), {
+    const url = `${config.apiBaseUrl}${endpoints.llmActive()}`;
+    return apiFetch<OkResponse>(url, {
         method: "PUT",
         headers: {
             "Content-Type": "application/json",
@@ -35,7 +39,8 @@ export async function updateActiveLlmSettings(request: UpdateActiveRequest): Pro
 // Update provider secret (API key)
 export async function updateProviderSecret(providerId: string, apiKey: string): Promise<OkResponse> {
     const request: SecretRequest = { apiKey };
-    return apiFetch<OkResponse>(endpoints.llmProviderSecret(providerId), {
+    const url = `${config.apiBaseUrl}${endpoints.llmProviderSecret(providerId)}`;
+    return apiFetch<OkResponse>(url, {
         method: "PUT",
         headers: {
             "Content-Type": "application/json",
@@ -46,14 +51,16 @@ export async function updateProviderSecret(providerId: string, apiKey: string): 
 
 // Delete provider secret
 export async function deleteProviderSecret(providerId: string): Promise<OkResponse> {
-    return apiFetch<OkResponse>(endpoints.llmProviderSecret(providerId), {
+    const url = `${config.apiBaseUrl}${endpoints.llmProviderSecret(providerId)}`;
+    return apiFetch<OkResponse>(url, {
         method: "DELETE",
     });
 }
 
 // Test active LLM settings
 export async function testActiveLlmSettings(): Promise<TestResponse> {
-    return apiFetch<TestResponse>(endpoints.llmTest(), {
+    const url = `${config.apiBaseUrl}${endpoints.llmTest()}`;
+    return apiFetch<TestResponse>(url, {
         method: "POST",
     });
 }
@@ -64,7 +71,8 @@ export async function addCustomModel(
     providerId: string,
     request: AddCustomModelRequest,
 ): Promise<OkResponse> {
-    return apiFetch<OkResponse>(endpoints.llmProviderModels(providerId), {
+    const url = `${config.apiBaseUrl}${endpoints.llmProviderModels(providerId)}`;
+    return apiFetch<OkResponse>(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(request),
@@ -75,7 +83,8 @@ export async function deleteCustomModel(
     providerId: string,
     modelId: string,
 ): Promise<OkResponse> {
-    return apiFetch<OkResponse>(endpoints.llmProviderModel(providerId, modelId), {
+    const url = `${config.apiBaseUrl}${endpoints.llmProviderModel(providerId, modelId)}`;
+    return apiFetch<OkResponse>(url, {
         method: "DELETE",
     });
 }
@@ -85,7 +94,8 @@ export async function deleteCustomModel(
 export async function addCustomProvider(
     request: AddCustomProviderRequest,
 ): Promise<OkResponse> {
-    return apiFetch<OkResponse>(endpoints.llmCustomProviders(), {
+    const url = `${config.apiBaseUrl}${endpoints.llmCustomProviders()}`;
+    return apiFetch<OkResponse>(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(request),
@@ -93,7 +103,8 @@ export async function addCustomProvider(
 }
 
 export async function deleteCustomProvider(providerId: string): Promise<OkResponse> {
-    return apiFetch<OkResponse>(endpoints.llmCustomProvider(providerId), {
+    const url = `${config.apiBaseUrl}${endpoints.llmCustomProvider(providerId)}`;
+    return apiFetch<OkResponse>(url, {
         method: "DELETE",
     });
 }
