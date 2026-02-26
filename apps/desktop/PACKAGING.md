@@ -90,7 +90,7 @@ uv run python scripts\build_backend.py
 - （可选）`yt-dlp`
 
 > [!NOTE]
-> CI 环境下会先安装/下载 ffmpeg，使其能被脚本从 PATH 发现并打入安装包。
+> CI 环境下会先安装/下载 ffmpeg 与 yt-dlp，使其能被脚本从 PATH 发现并打入安装包。
 
 产物：`apps/desktop/resources/backend/backend.exe`（及所有依赖文件）
 

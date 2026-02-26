@@ -65,6 +65,17 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg libfuse2 libarchive-tools imagemagick
 
+      - name: Download yt-dlp (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p _ci/ytdlp
+          curl -fsSL -o _ci/ytdlp/yt-dlp https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux
+          chmod +x _ci/ytdlp/yt-dlp
+          echo "$PWD/_ci/ytdlp" >> "$GITHUB_PATH"
+          _ci/ytdlp/yt-dlp --version
+
       - name: Prepare Linux icon (>=256x256)
         if: runner.os == 'Linux'
         shell: bash
@@ -80,6 +91,17 @@ jobs:
         run: |
           brew update
           brew install ffmpeg
+
+      - name: Download yt-dlp (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p _ci/ytdlp
+          curl -fsSL -o _ci/ytdlp/yt-dlp https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos
+          chmod +x _ci/ytdlp/yt-dlp
+          echo "$PWD/_ci/ytdlp" >> "$GITHUB_PATH"
+          _ci/ytdlp/yt-dlp --version
 
       - name: Download Windows ffmpeg
         if: runner.os == 'Windows'
@@ -101,6 +123,20 @@ jobs:
           $env:Path = "${bin};$env:Path"
 
           & $ffmpegExe.FullName -version
+
+      - name: Download yt-dlp (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path .\_ci\ytdlp | Out-Null
+          $exe = Join-Path $PWD "_ci\ytdlp\yt-dlp.exe"
+          Invoke-WebRequest -Uri "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" -OutFile $exe
+          # Make it available in later steps.
+          "$(Split-Path -Parent $exe)" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          # Also make it available within THIS step.
+          $env:Path = "$(Split-Path -Parent $exe);$env:Path"
+          & $exe --version
 
       - name: Install Node dependencies (workspace)
         shell: bash

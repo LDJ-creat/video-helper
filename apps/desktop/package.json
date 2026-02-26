@@ -76,6 +76,7 @@
             }
         ],
         "win": {
+            "artifactName": "Video-Helper-Setup-${version}.${ext}",
             "target": [
                 {
                     "target": "nsis",
@@ -87,6 +88,7 @@
             "icon": "resources/icon.ico"
         },
         "mac": {
+            "artifactName": "Video-Helper-${version}-mac-${arch}.${ext}",
             "icon": "resources/icon.icns",
             "target": [
                 "dmg",
@@ -94,6 +96,7 @@
             ]
         },
         "linux": {
+            "artifactName": "Video-Helper-${version}-linux-${arch}.${ext}",
             "icon": "resources/icon.png",
             "target": [
                 "AppImage",
