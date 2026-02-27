@@ -28,6 +28,8 @@ export interface ElectronAPI {
     onUpdateError: (cb: (message: string) => void) => () => void;
     /** Quit the app and install the downloaded update */
     installUpdate: () => Promise<void>;
+    /** Relaunch the entire app (used by error page retry button) */
+    relaunchApp: () => Promise<void>;
 }
 
 export type UpdateStatus = 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'error';
@@ -76,6 +78,7 @@ const electronAPI: ElectronAPI = {
     },
 
     installUpdate: () => ipcRenderer.invoke('install-update'),
+    relaunchApp: () => ipcRenderer.invoke('relaunch-app'),
 };
 
 // Expose to renderer under window.electronAPI
