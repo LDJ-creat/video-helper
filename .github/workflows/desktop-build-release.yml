@@ -187,7 +187,7 @@ jobs:
           npm config set progress false
           # Ensure we don't keep a pnpm-style node_modules tree/symlinks from the standalone output.
           rm -rf node_modules || true
-          npm install --omit=dev --no-package-lock --loglevel=error
+          npm install --omit=dev --omit=optional --no-package-lock --loglevel=error
           standalone_dir="$PWD"
           if [ "${RUNNER_OS:-}" = "Windows" ]; then
             standalone_dir="$(pwd -W)"

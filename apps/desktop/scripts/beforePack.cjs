@@ -38,14 +38,17 @@ module.exports = async function beforePack(context) {
   if (!exists(standaloneWebDir)) {
     throw new Error(
       `Next standalone output not found at: ${standaloneWebDir}. ` +
-        `Run the web build first (BUILD_STANDALONE=1 pnpm -C apps/web build).`
+      `Run the web build first (BUILD_STANDALONE=1 pnpm -C apps/web build).`
     );
   }
 
   const checkScript = path.join(repoRoot, 'scripts', 'ci', 'check-next-standalone-deps.mjs');
   const nodeCmd = process.platform === 'win32' ? 'node.exe' : 'node';
   const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-  const npmArgs = ['install', '--omit=dev', '--no-package-lock', '--loglevel=error'];
+  // Keep the packaged app small:
+  // - omit devDependencies
+  // - omit optionalDependencies (e.g. sharp/libvips) unless explicitly needed
+  const npmArgs = ['install', '--omit=dev', '--omit=optional', '--no-package-lock', '--loglevel=error'];
 
   function runCheck() {
     return spawnSync(nodeCmd, [checkScript, standaloneWebDir], {
@@ -55,34 +58,32 @@ module.exports = async function beforePack(context) {
     });
   }
 
-  let checkRes = runCheck();
-  if (checkRes.status !== 0) {
-    // Ensure we don't keep a pnpm-style/symlinked node_modules from the standalone output.
-    rmrf(path.join(standaloneWebDir, 'node_modules'));
+  // Always hydrate with npm so we don't ship pnpm's virtual store (`.pnpm/`)
+  // which is large and can include cross-platform prebuilt binaries.
+  rmrf(path.join(standaloneWebDir, 'node_modules'));
 
-    const res = spawnSync(npmCmd, npmArgs, {
-      cwd: standaloneWebDir,
-      stdio: 'inherit',
-      env: {
-        ...process.env,
-        npm_config_progress: 'false',
-      },
-      shell: false,
-    });
+  const res = spawnSync(npmCmd, npmArgs, {
+    cwd: standaloneWebDir,
+    stdio: 'inherit',
+    env: {
+      ...process.env,
+      npm_config_progress: 'false',
+    },
+    shell: process.platform === 'win32',
+  });
 
-    if (res.status !== 0) {
-      throw new Error(`Failed to hydrate standalone node_modules via npm (exit=${res.status}).`);
-    }
-
-    checkRes = runCheck();
+  if (res.status !== 0) {
+    throw new Error(`Failed to hydrate standalone node_modules via npm (exit=${res.status}).`);
   }
+
+  const checkRes = runCheck();
 
   if (checkRes.status !== 0) {
     const out = `${checkRes.stdout ?? ''}${checkRes.stderr ?? ''}`.trim();
     throw new Error(
       `Sanity check failed: standalone Next runtime deps are not resolvable after hydration.\n` +
-        `standaloneWebDir: ${standaloneWebDir}\n` +
-        (out ? `check output:\n${out}\n` : '')
+      `standaloneWebDir: ${standaloneWebDir}\n` +
+      (out ? `check output:\n${out}\n` : '')
     );
   }
 
