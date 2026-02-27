@@ -16,29 +16,64 @@ export interface ElectronAPI {
     platform: string;
 
     // ── Auto-update ──────────────────────────────────────────────────────────
+    /** Current update state (best-effort snapshot from main process) */
+    getUpdateState: () => Promise<UpdateState>;
     /** Called when a new version is found and download begins */
-    onUpdateAvailable: (cb: (version: string) => void) => void;
-    /** Called periodically with download progress percentage (0-100) */
-    onUpdateProgress: (cb: (percent: number) => void) => void;
+    onUpdateAvailable: (cb: (version: string) => void) => () => void;
+    /** Called periodically with download progress */
+    onUpdateProgress: (cb: (progress: UpdateProgress) => void) => () => void;
     /** Called when download is complete and ready to install */
-    onUpdateDownloaded: (cb: (version: string) => void) => void;
+    onUpdateDownloaded: (cb: (version: string) => void) => () => void;
     /** Called if an update error occurs */
-    onUpdateError: (cb: (message: string) => void) => void;
+    onUpdateError: (cb: (message: string) => void) => () => void;
     /** Quit the app and install the downloaded update */
     installUpdate: () => Promise<void>;
 }
+
+export type UpdateStatus = 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'error';
+
+export type UpdateProgress = {
+    percent: number;
+    transferred: number;
+    total: number;
+    bytesPerSecond?: number;
+};
+
+export type UpdateState = {
+    status: UpdateStatus;
+    version?: string;
+    progress?: UpdateProgress;
+    error?: string;
+};
 
 const electronAPI: ElectronAPI = {
     isElectron: true,
     platform: process.platform,
 
     getBackendUrl: () => ipcRenderer.invoke('get-backend-url'),
+    getUpdateState: () => ipcRenderer.invoke('get-update-state'),
 
     // Forward update events from main process to renderer
-    onUpdateAvailable: (cb) => ipcRenderer.on('update-available', (_e, version) => cb(version)),
-    onUpdateProgress: (cb) => ipcRenderer.on('update-progress', (_e, percent) => cb(percent)),
-    onUpdateDownloaded: (cb) => ipcRenderer.on('update-downloaded', (_e, version) => cb(version)),
-    onUpdateError: (cb) => ipcRenderer.on('update-error', (_e, message) => cb(message)),
+    onUpdateAvailable: (cb) => {
+        const listener = (_e: unknown, version: string) => cb(version);
+        ipcRenderer.on('update-available', listener);
+        return () => ipcRenderer.removeListener('update-available', listener);
+    },
+    onUpdateProgress: (cb) => {
+        const listener = (_e: unknown, progress: UpdateProgress) => cb(progress);
+        ipcRenderer.on('update-progress', listener);
+        return () => ipcRenderer.removeListener('update-progress', listener);
+    },
+    onUpdateDownloaded: (cb) => {
+        const listener = (_e: unknown, version: string) => cb(version);
+        ipcRenderer.on('update-downloaded', listener);
+        return () => ipcRenderer.removeListener('update-downloaded', listener);
+    },
+    onUpdateError: (cb) => {
+        const listener = (_e: unknown, message: string) => cb(message);
+        ipcRenderer.on('update-error', listener);
+        return () => ipcRenderer.removeListener('update-error', listener);
+    },
 
     installUpdate: () => ipcRenderer.invoke('install-update'),
 };

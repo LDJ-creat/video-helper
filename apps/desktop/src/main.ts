@@ -10,6 +10,22 @@ let mainWindow: BrowserWindow | null = null;
 let backendProcess: ChildProcess | null = null;
 let nextProcess: any = null;
 
+type UpdateStatus = 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'error';
+type UpdateProgress = {
+    percent: number;
+    transferred: number;
+    total: number;
+    bytesPerSecond?: number;
+};
+type UpdateState = {
+    status: UpdateStatus;
+    version?: string;
+    progress?: UpdateProgress;
+    error?: string;
+};
+
+let updateState: UpdateState = { status: 'idle' };
+
 const BACKEND_PORT = 8000;
 const FRONTEND_PORT = 3000;
 const LOOPBACK_HOST = '127.0.0.1';
@@ -476,6 +492,7 @@ function shutdownSubprocesses(): void {
 // ─── IPC ─────────────────────────────────────────────────────────────────────
 ipcMain.handle('get-backend-url', () => `http://${LOOPBACK_HOST}:${BACKEND_PORT}`);
 ipcMain.handle('install-update', () => autoUpdater.quitAndInstall());
+ipcMain.handle('get-update-state', () => updateState);
 
 // ─── Auto Updater ─────────────────────────────────────────────────────────────
 function initAutoUpdater(): void {
@@ -493,10 +510,12 @@ function initAutoUpdater(): void {
 
     autoUpdater.on('checking-for-update', () => {
         safeLog('updater', 'Checking for updates...');
+        updateState = { status: 'checking' };
     });
 
     autoUpdater.on('update-available', (info) => {
         safeLog('updater', `Update available: ${info.version}`);
+        updateState = { status: 'available', version: info.version };
         mainWindow?.webContents.send('update-available', info.version);
         // Start download automatically after notifying the renderer
         autoUpdater.downloadUpdate();
@@ -504,16 +523,32 @@ function initAutoUpdater(): void {
 
     autoUpdater.on('update-not-available', (info) => {
         safeLog('updater', `No update available. Current version: ${info.version}`);
+        updateState = { status: 'idle', version: info.version };
     });
 
     autoUpdater.on('download-progress', (progress) => {
-        const percent = Math.round(progress.percent);
-        safeLog('updater', `Download progress: ${percent}% (${Math.round(progress.transferred / 1024)}KB / ${Math.round(progress.total / 1024)}KB)`);
-        mainWindow?.webContents.send('update-progress', percent);
+        const percent = Number.isFinite(progress.percent) ? Number(progress.percent.toFixed(1)) : 0;
+        const payload: UpdateProgress = {
+            percent,
+            transferred: progress.transferred,
+            total: progress.total,
+            bytesPerSecond: progress.bytesPerSecond,
+        };
+        updateState = {
+            status: 'downloading',
+            version: updateState.version,
+            progress: payload,
+        };
+        safeLog(
+            'updater',
+            `Download progress: ${percent}% (${Math.round(progress.transferred / 1024)}KB / ${Math.round(progress.total / 1024)}KB)`,
+        );
+        mainWindow?.webContents.send('update-progress', payload);
     });
 
     autoUpdater.on('update-downloaded', (info) => {
         safeLog('updater', `Update downloaded: ${info.version}. Ready to install.`);
+        updateState = { status: 'downloaded', version: info.version };
         mainWindow?.webContents.send('update-downloaded', info.version);
 
         // If the renderer is blank/crashed, still allow the user to finish update.
@@ -541,6 +576,7 @@ function initAutoUpdater(): void {
 
     autoUpdater.on('error', (err) => {
         safeLog('updater', `Update error: ${err.message}`, true);
+        updateState = { status: 'error', version: updateState.version, error: err.message };
         mainWindow?.webContents.send('update-error', err.message);
     });
 
