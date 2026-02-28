@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from core.app.pipeline.media_source import plan_media_source
-from core.app.pipeline.transcribe import build_placeholder_transcript
 from core.app.pipeline.transcript_store import store_transcript_json
 from core.contracts.error_codes import ErrorCode
 from core.db.models.project import Project
@@ -239,22 +238,6 @@ def run_real_transcribe(
 		if log_cb and callable(log_cb):
 			log_cb(msg)
 
-	provider = (os.environ.get("TRANSCRIBE_PROVIDER") or "faster-whisper").strip().lower()
-	allow_fallback = _env_bool("TRANSCRIBE_ALLOW_PLACEHOLDER_FALLBACK", False)
-
-	if provider == "placeholder":
-		duration_ms = project.duration_ms if isinstance(project.duration_ms, int) and project.duration_ms else default_duration_ms
-		transcript = build_placeholder_transcript(duration_ms=duration_ms)
-		transcript["provider"] = "placeholder"
-		stored = store_transcript_json(project_id=project.project_id, job_id=job_id, transcript=transcript)
-		return TranscribeArtifacts(
-			transcript=transcript,
-			transcript_ref=stored.rel_path,
-			audio_ref=None,
-			transcript_meta={"provider": "placeholder", "sha256": stored.sha256},
-			updated_project_source_path=None,
-		)
-
 	plan = plan_media_source(project)
 	_maybe_set_project_title(project=project)
 
@@ -308,26 +291,17 @@ def run_real_transcribe(
 
 	# ASR
 	_progress(0.40, "asr=starting provider=faster-whisper")
-	try:
-		model_size = (os.environ.get("TRANSCRIBE_MODEL_SIZE") or "base").strip() or "base"
-		device = (os.environ.get("TRANSCRIBE_DEVICE") or "cpu").strip() or "cpu"
-		compute_type = (os.environ.get("TRANSCRIBE_COMPUTE_TYPE") or "int8").strip() or "int8"
-		asr = transcribe_with_faster_whisper(
-			audio_path=audio_result.abs_path,
-			model_size=model_size,
-			device=device,
-			compute_type=compute_type,
-		)
-		transcript = asr.to_transcript_dict()
-		_progress(0.45, f"asr=ok language={asr.language or 'unknown'}")
-	except Exception as e:
-		if allow_fallback and isinstance(e, AsrError) and e.kind in {"dependency_missing", "model_missing"}:
-			duration_ms = project.duration_ms if isinstance(project.duration_ms, int) and project.duration_ms else default_duration_ms
-			transcript = build_placeholder_transcript(duration_ms=duration_ms)
-			transcript["provider"] = "placeholder"
-			_progress(0.45, "asr=fallback provider=placeholder")
-		else:
-			raise
+	model_size = (os.environ.get("TRANSCRIBE_MODEL_SIZE") or "base").strip() or "base"
+	device = (os.environ.get("TRANSCRIBE_DEVICE") or "cpu").strip() or "cpu"
+	compute_type = (os.environ.get("TRANSCRIBE_COMPUTE_TYPE") or "int8").strip() or "int8"
+	asr = transcribe_with_faster_whisper(
+		audio_path=audio_result.abs_path,
+		model_size=model_size,
+		device=device,
+		compute_type=compute_type,
+	)
+	transcript = asr.to_transcript_dict()
+	_progress(0.45, f"asr=ok language={asr.language or 'unknown'}")
 
 	# Persist transcript file
 	stored = store_transcript_json(project_id=project.project_id, job_id=job_id, transcript=transcript)
