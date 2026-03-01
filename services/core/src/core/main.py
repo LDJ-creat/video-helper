@@ -27,6 +27,20 @@ from core.app.worker.worker_loop import WorkerConfig, WorkerService
 
 logger = logging.getLogger(__name__)
 
+def _configure_logging() -> None:
+    log_level_str = os.environ.get("LOG_LEVEL", "INFO").upper()
+    try:
+        log_level = getattr(logging, log_level_str)
+    except AttributeError:
+        log_level = logging.INFO
+    
+    logging.basicConfig(
+        level=log_level,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+
+_configure_logging()
+
 _COOKIES_FILE_NAME = "ytdlp_cookies.txt"
 
 
