@@ -12,7 +12,6 @@ class PublicStage(str, Enum):
 
     INGEST = "ingest"
     TRANSCRIBE = "transcribe"
-    SEGMENT = "segment"
     ANALYZE = "analyze"
     ASSEMBLE_RESULT = "assemble_result"
     EXTRACT_KEYFRAMES = "extract_keyframes"
@@ -34,7 +33,6 @@ _INTERNAL_STAGE_TO_PUBLIC.update(
         "upload": PublicStage.INGEST,
         "decode": PublicStage.INGEST,
         "speech_to_text": PublicStage.TRANSCRIBE,
-        "chapters": PublicStage.SEGMENT,
         "plan": PublicStage.ANALYZE,
         "highlights": PublicStage.ANALYZE,
         "mindmap": PublicStage.ANALYZE,

@@ -23,7 +23,6 @@ class Job(Base):
 
     # Pipeline artifacts (MVP stored on job row).
     transcript: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    chapters: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     # User preference for final output language (rendered by LLM plan stage).
     # Examples: "zh-Hans", "en", "auto".

@@ -9,7 +9,6 @@ function isJobStage(stage: string): stage is JobStage {
   return (
     stage === "ingest" ||
     stage === "transcribe" ||
-    stage === "segment" ||
     stage === "analyze" ||
     stage === "assemble_result" ||
     stage === "extract_keyframes"

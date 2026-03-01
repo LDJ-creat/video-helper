@@ -170,8 +170,6 @@ def _ensure_sqlite_schema_compat() -> None:
 			conn.execute(text("ALTER TABLE jobs ADD COLUMN attempt INTEGER NOT NULL DEFAULT 0"))
 		if "transcript" not in job_cols:
 			conn.execute(text("ALTER TABLE jobs ADD COLUMN transcript TEXT"))
-		if "chapters" not in job_cols:
-			conn.execute(text("ALTER TABLE jobs ADD COLUMN chapters TEXT"))
 		if "audio_ref" not in job_cols:
 			conn.execute(text("ALTER TABLE jobs ADD COLUMN audio_ref TEXT"))
 		if "transcript_ref" not in job_cols:

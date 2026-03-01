@@ -5,7 +5,6 @@ import type { JobStage } from "../contracts/types";
 export const STAGE_DISPLAY: Record<JobStage, string> = {
     ingest: "导入",
     transcribe: "转写",
-    segment: "分章",
     analyze: "分析",
     assemble_result: "组装结果",
     extract_keyframes: "提取关键帧",

@@ -4,7 +4,6 @@ export type JobStatus = "queued" | "running" | "blocked" | "succeeded" | "failed
 export type JobStage =
   | "ingest"
   | "transcribe"
-  | "segment"
   | "analyze"
   | "assemble_result"
   | "extract_keyframes";
