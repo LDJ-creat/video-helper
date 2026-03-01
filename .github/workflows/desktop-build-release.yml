@@ -1,0 +1,265 @@
+name: desktop-build-release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+
+    env:
+      BUILD_STANDALONE: "1"
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      # Avoid accidental auto-publish behavior in some environments.
+      ELECTRON_BUILDER_ALLOW_UNRESOLVED_DEPENDENCIES: "true"
+      # Cache Electron/Electron-Builder downloads inside the workspace so we can
+      # persist them via actions/cache across runs.
+      ELECTRON_CACHE: ${{ github.workspace }}/_ci/electron-cache
+      ELECTRON_BUILDER_CACHE: ${{ github.workspace }}/_ci/electron-builder-cache
+      # Some tools still look for GH_TOKEN even when publish is disabled.
+      GH_TOKEN: ${{ github.token }}
+      # Ensure Python uses UTF-8 where possible (Windows runners may default to legacy codepages).
+      PYTHONUTF8: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Sync desktop version from tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          set -euo pipefail
+          ver="${GITHUB_REF_NAME#v}"
+          node -e "const fs=require('fs'); const p='apps/desktop/package.json'; const j=JSON.parse(fs.readFileSync(p,'utf8')); const ver=process.argv[1]; if(!ver) throw new Error('missing version'); j.version=ver; fs.writeFileSync(p, JSON.stringify(j,null,4)+'\\n'); console.log('desktop version ->', j.version)" "$ver"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: "9"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Cache Electron downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            _ci/electron-cache
+            _ci/electron-builder-cache
+          key: ${{ runner.os }}-electron-${{ hashFiles('pnpm-lock.yaml', 'apps/desktop/package.json') }}
+
+      - name: Install Linux build deps
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg libfuse2 libarchive-tools imagemagick
+
+      - name: Download yt-dlp (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p _ci/ytdlp
+          curl -fsSL -o _ci/ytdlp/yt-dlp https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux
+          chmod +x _ci/ytdlp/yt-dlp
+          echo "$PWD/_ci/ytdlp" >> "$GITHUB_PATH"
+          _ci/ytdlp/yt-dlp --version
+
+      - name: Prepare Linux icon (>=256x256)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f apps/desktop/resources/icon.ico
+          convert apps/desktop/resources/icon.ico -resize 512x512 apps/desktop/resources/icon.png
+          identify apps/desktop/resources/icon.png
+
+      - name: Install macOS ffmpeg
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          brew update
+          brew install ffmpeg
+
+      - name: Download yt-dlp (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p _ci/ytdlp
+          curl -fsSL -o _ci/ytdlp/yt-dlp https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos
+          chmod +x _ci/ytdlp/yt-dlp
+          echo "$PWD/_ci/ytdlp" >> "$GITHUB_PATH"
+          _ci/ytdlp/yt-dlp --version
+
+      - name: Download Windows ffmpeg
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path .\_ci\ffmpeg | Out-Null
+          $zip = Join-Path $PWD "_ci\ffmpeg\ffmpeg.zip"
+          # gyan.dev provides stable Windows builds.
+          Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" -OutFile $zip
+          Expand-Archive -Path $zip -DestinationPath .\_ci\ffmpeg -Force
+          $ffmpegExe = Get-ChildItem -Path .\_ci\ffmpeg -Recurse -Filter ffmpeg.exe -File | Select-Object -First 1
+          if (-not $ffmpegExe) { throw "ffmpeg.exe not found after extraction" }
+          $bin = Split-Path -Parent $ffmpegExe.FullName
+
+          # Make it available in later steps.
+          "${bin}" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          # Also make it available within THIS step.
+          $env:Path = "${bin};$env:Path"
+
+          & $ffmpegExe.FullName -version
+
+      - name: Download yt-dlp (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path .\_ci\ytdlp | Out-Null
+          $exe = Join-Path $PWD "_ci\ytdlp\yt-dlp.exe"
+          Invoke-WebRequest -Uri "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" -OutFile $exe
+          # Make it available in later steps.
+          "$(Split-Path -Parent $exe)" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          # Also make it available within THIS step.
+          $env:Path = "$(Split-Path -Parent $exe);$env:Path"
+          & $exe --version
+
+      - name: Install Node dependencies (workspace)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Electron downloads can be flaky on CI; retry to reduce transient failures.
+          for attempt in 1 2 3; do
+            echo "pnpm install attempt ${attempt}/3"
+            if pnpm -r install --frozen-lockfile; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "pnpm install failed after 3 attempts" >&2
+              exit 1
+            fi
+            sleep $((attempt * 15))
+          done
+
+      - name: Build Electron main process
+        shell: bash
+        run: pnpm -C apps/desktop compile
+
+      - name: Build Next.js (standalone)
+        shell: bash
+        run: pnpm -C apps/web build
+
+      # Next standalone output + pnpm workspace can end up with a non-resolvable
+      # node_modules layout (only `.pnpm/` is present). Hydrate a classic
+      # node_modules in the standalone app directory so runtime `require()`
+      # works in packaged installers (e.g. styled-jsx).
+      - name: Hydrate Next standalone node_modules (npm)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd apps/web/.next/standalone/apps/web
+          npm config set progress false
+          # Ensure we don't keep a pnpm-style node_modules tree/symlinks from the standalone output.
+          rm -rf node_modules || true
+          npm install --omit=dev --omit=optional --no-package-lock --loglevel=error
+          standalone_dir="$PWD"
+          if [ "${RUNNER_OS:-}" = "Windows" ]; then
+            standalone_dir="$(pwd -W)"
+          fi
+          node "$GITHUB_WORKSPACE/scripts/ci/check-next-standalone-deps.mjs" "$standalone_dir"
+          # The root standalone node_modules is a pnpm virtual store only and is
+          # not used at runtime (server.js chdir's into apps/web). Remove it to
+          # avoid shipping a large, non-resolvable tree.
+          rm -rf ../../node_modules || true
+
+      - name: Package backend (PyInstaller)
+        shell: bash
+        run: |
+          cd services/core
+          uv run python scripts/build_backend.py
+
+      - name: Build Desktop installer (electron-builder)
+        if: runner.os != 'Linux'
+        shell: bash
+        run: pnpm -C apps/desktop exec -- electron-builder --publish=never
+
+      - name: Build Desktop installer (electron-builder) [Linux]
+        if: runner.os == 'Linux'
+        shell: bash
+        run: pnpm -C apps/desktop exec -- electron-builder --publish=never --config.linux.icon=resources/icon.png
+
+      - name: Generate update metadata (latest*.yml)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: node scripts/ci/generate-update-yml.mjs apps/desktop/release
+
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.os }}
+          if-no-files-found: error
+          path: |
+            apps/desktop/release/**/*.exe
+            apps/desktop/release/**/*.exe.blockmap
+            apps/desktop/release/**/latest*.yml
+            apps/desktop/release/**/*.dmg
+            apps/desktop/release/**/*.zip
+            apps/desktop/release/**/*.AppImage
+            apps/desktop/release/**/*.tar.gz
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./artifacts
+
+      - name: List release assets
+        shell: bash
+        run: |
+          ls -R ./artifacts
+
+      - name: Publish Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/**/*.exe
+            artifacts/**/*.exe.blockmap
+            artifacts/**/latest*.yml
+            artifacts/**/*.dmg
+            artifacts/**/*.zip
+            artifacts/**/*.AppImage
+            artifacts/**/*.tar.gz
+          generate_release_notes: true
+          prerelease: true

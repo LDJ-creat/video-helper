@@ -1,0 +1,42 @@
+# Node
+node_modules/
+.next/
+out/
+dist/
+.turbo/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.mypy_cache/
+
+# Local env
+.env
+
+# Editor
+.vscode/
+
+# Data directory (keep placeholder files)
+data/**
+!data/.gitkeep
+!data/db/.gitkeep
+!data/projects/.gitkeep
+!data/cache/.gitkeep
+
+
+#test
+www.bilibili.com_cookies.txt
+# NOTE: Do NOT ignore all JSON globally. This repo contains essential JSON
+# config files (e.g. package.json, tsconfig.json) required for CI builds.
+*.sqlite3
+*.log
+build_log.txt
+
+# Ignore backend build artifacts (PyInstaller / packaging outputs)
+services/core/build/
+services/core/build/**
+
+# Generated artifacts (keep markdown docs, ignore generated json evidence)
+_bmad-output/implementation-artifacts/*.json

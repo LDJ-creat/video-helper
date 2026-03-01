@@ -1,0 +1,35 @@
+version: "3.9"
+
+services:
+  core:
+    build:
+      context: ./services/core
+      dockerfile: Dockerfile
+    image: video-helper-core:latest
+    container_name: video-helper-core
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data
+      # 挂载 .env 文件，方便运行时配置更改
+      - ./services/core/.env:/app/.env
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+    #UV 运行命令
+    command: [ "uv", "run", "python", "main.py" ]
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    image: video-helper-web:latest
+    container_name: video-helper-web
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+      - NODE_ENV=production
+    depends_on:
+      - core

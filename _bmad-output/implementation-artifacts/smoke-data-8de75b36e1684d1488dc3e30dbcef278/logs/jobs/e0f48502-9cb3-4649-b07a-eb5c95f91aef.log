@@ -1,0 +1,11 @@
+{"tsMs":1770110916847,"level":"info","message":"transcribe started","stage":"speech_to_text"}
+{"tsMs":1770110916854,"level":"info","message":"transcribe finished","stage":"speech_to_text"}
+{"tsMs":1770110916857,"level":"info","message":"segment started","stage":"chapters"}
+{"tsMs":1770110916861,"level":"info","message":"segment finished","stage":"chapters"}
+{"tsMs":1770110916864,"level":"info","message":"analyze(highlights) started","stage":"highlights"}
+{"tsMs":1770110916866,"level":"info","message":"analyze(mindmap) started","stage":"mindmap"}
+{"tsMs":1770110916868,"level":"info","message":"analyze finished","stage":"mindmap"}
+{"tsMs":1770110916871,"level":"info","message":"extract_keyframes started","stage":"keyframes"}
+{"tsMs":1770110916875,"level":"info","message":"assemble_result started","stage":"assemble_result"}
+{"tsMs":1770110916878,"level":"info","message":"assemble_result finished","stage":"assemble_result"}
+{"tsMs":1770110916882,"level":"info","message":"job succeeded","stage":"chapters"}
