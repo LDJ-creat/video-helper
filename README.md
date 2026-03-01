@@ -21,12 +21,6 @@ The core highlight lies in its outstanding **interactive linkage**: clicking on 
 - **Quiz Canvas**: AI automatically generates questions based on video knowledge points, providing targeted practice and feedback to form a learning loop.
 - **Flexible Editing**: Supports manual adjustment of mind map logic and summary content to customize personalized learning notes.
 
-## ⬇️ Download Client
-
-| Windows | MacOS | Linux |
-| :---: | :---: | :---: |
-| <img src="https://simpleicons.org/icons/windows11.svg" width="36" height="36" alt="Windows" /> | <img src="https://simpleicons.org/icons/apple.svg" width="36" height="36" alt="macOS" /> | <img src="https://simpleicons.org/icons/linux.svg" width="36" height="36" alt="Linux" /> |
-| [Setup.exe](https://github.com/LDJ-creat/video-helper/releases/latest) | [dmg/zip](https://github.com/LDJ-creat/video-helper/releases/latest) | [AppImage](https://github.com/LDJ-creat/video-helper/releases/latest) |
 
 ## 🏗️ Architecture
 
@@ -46,7 +40,16 @@ This project uses Monorepo architecture to manage frontend and backend, ensuring
 
 ## 🚀 Getting Started
 
-### Prerequisites
+## ⬇️ Download Client
+
+If you want to use the application directly without setting up a development environment, you can download the latest pre-built client for your OS:
+
+| Windows | MacOS | Linux |
+| :---: | :---: | :---: |
+| <img src="https://simpleicons.org/icons/windows11.svg" width="36" height="36" alt="Windows" /> | <img src="https://simpleicons.org/icons/apple.svg" width="36" height="36" alt="macOS" /> | <img src="https://simpleicons.org/icons/linux.svg" width="36" height="36" alt="Linux" /> |
+| [Setup.exe](https://github.com/LDJ-creat/video-helper/releases/latest) | [dmg/zip](https://github.com/LDJ-creat/video-helper/releases/latest) | [AppImage](https://github.com/LDJ-creat/video-helper/releases/latest) |
+
+### Prerequisites (For Source Code Compilation)
 
 Please ensure your development environment has the following tools installed:
 
@@ -90,41 +93,50 @@ The frontend application is located in the `apps/web` directory.
 # Enter frontend directory
 cd apps/web
 
-# Install dependencies
-npm install
-# Or use pnpm (Recommended)
+# Install dependencies (from the root or in web)
 pnpm install
 
+# Setup environment variables using the provided example:
+cp .env.example .env.local
+
 # Start development server (Default port: 3000)
-npm run dev
-# Or
-pnpm dev
+pnpm run dev
 ```
 
-Open your browser and visit [http://localhost:3000](http://localhost:3000) to see the application interface.
+Open your browser and visit [http://localhost:3000](http://localhost:3000) to see the web interface.
 
-### 🐳 Docker Deployment
+#### 4. Desktop App (Electron) Startup & Build
 
-If you prefer to deploy using Docker, run the following commands:
+If you want to run the Desktop version locally instead of the Web version, we provide convenient scripts:
 
-1. **Build and Start Services**
-    ```bash
-    # Run in the project root directory
-    docker-compose up -d --build
-    ```
+**Run in Development Mode**:
+```bash
+# In the project root, this script automatically starts the Python backend, Next.js frontend, and Electron container
+node apps/desktop/scripts/dev.js
+```
 
-2. **Access Services**
-    - Frontend: [http://localhost:3000](http://localhost:3000)
-    - Backend API: [http://localhost:8000/docs](http://localhost:8000/docs)
+**Test Desktop Packaging**:
+```bash
+cd apps/desktop
+# Compile the TypeScript and package the app into a local folder (without building installers)
+pnpm run pack
+```
 
-3. **Stop Services**
-    ```bash
-    docker-compose down
-    ```
+**Build Complete Release Installers (Windows)**:
+```powershell
+# In PowerShell, from the project root. This fully compiles the Web, packages the Backend via PyInstaller, and builds the Electron installer.
+powershell -ExecutionPolicy Bypass -File apps\desktop\scripts\build-all.ps1
+```
 
-> **Note**:
-> 1. Ensure the `data` directory exists in the root for data persistence.
-> 2. Ensure `services/core/.env` is correctly configured.
+#### 5. Using as an AI Skill
+
+You can also use the backend service of this project as a skill within AI editors like **Claude Code**, **Antigravity**, or **GitHub Copilot**. In this mode, you don't need to configure LLMs in the backend project itself; instead, the AI editor's LLM handles the analysis.
+
+To use it:
+1. Download the source code and start the backend service.
+2. Download and install the dedicated skill from: [video-helper-skill](https://github.com/LDJ-creat/video-helper-skill).
+3. Follow the usage guide in the skill repository to perform video analysis using your AI editor, and view the structured results in the web or desktop app.
+
 
 ## 📂 Directory Structure
 

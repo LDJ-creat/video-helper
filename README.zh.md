@@ -21,12 +21,6 @@
 - **练习画布 (Quiz Canvas)**: AI 根据视频知识点自动出题，提供针对性练习与反馈，形成学习闭环。
 - **灵活编辑**: 支持用户手动调整思维导图结构与摘要内容，定制个性化学习笔记。
 
-## ⬇️ 下载客户端 (Download Client)
-
-| Windows | MacOS | Linux |
-| :---: | :---: | :---: |
-| <img src="https://simpleicons.org/icons/windows11.svg" width="36" height="36" alt="Windows" /> | <img src="https://simpleicons.org/icons/apple.svg" width="36" height="36" alt="macOS" /> | <img src="https://simpleicons.org/icons/linux.svg" width="36" height="36" alt="Linux" /> |
-| [Setup.exe](https://github.com/LDJ-creat/video-helper/releases/latest) | [dmg/zip](https://github.com/LDJ-creat/video-helper/releases/latest) | [AppImage](https://github.com/LDJ-creat/video-helper/releases/latest) |
 
 ## 🏗️ 技术架构
 
@@ -46,7 +40,16 @@
 
 ## 🚀 快速开始
 
-### 环境要求
+## ⬇️ 下载客户端 (Download Client)
+
+如果您不想配置本地开发环境，可以直接下载打包好的最新版本客户端开箱即用：
+
+| Windows | MacOS | Linux |
+| :---: | :---: | :---: |
+| <img src="https://simpleicons.org/icons/windows11.svg" width="36" height="36" alt="Windows" /> | <img src="https://simpleicons.org/icons/apple.svg" width="36" height="36" alt="macOS" /> | <img src="https://simpleicons.org/icons/linux.svg" width="36" height="36" alt="Linux" /> |
+| [Setup.exe](https://github.com/LDJ-creat/video-helper/releases/latest) | [dmg/zip](https://github.com/LDJ-creat/video-helper/releases/latest) | [AppImage](https://github.com/LDJ-creat/video-helper/releases/latest) |
+
+### 环境要求 (针对源码运行)
 
 在此之前，请确保您的开发环境已安装以下工具：
 
@@ -91,40 +94,50 @@ uv run python main.py
 cd apps/web
 
 # 安装依赖
-npm install
-# 或使用 pnpm (推荐)
 pnpm install
 
+# 根据模板创建本地环境变量文件
+cp .env.example .env.local
+
 # 启动开发服务器 (默认端口: 3000)
-npm run dev
-# 或
-pnpm dev
+pnpm run dev
 ```
 
-打开浏览器访问 [http://localhost:3000](http://localhost:3000) 即可看到应用界面。
+打开浏览器访问 [http://localhost:3000](http://localhost:3000) 即可看到 Web 端应用界面。
 
-### 🐳 Docker 部署
+#### 4. 桌面端 (Electron) 启动与打包
 
-如果您希望使用 Docker 快速部署，请执行以下命令：
+除了 Web 版之外，我们还可以直接编译运行具有原生能力的桌面端：
 
-1. **构建并启动服务**
-    ```bash
-    # 在项目根目录下运行
-    docker-compose up -d --build
-    ```
+**开发模式启动**:
+```bash
+# 在项目根目录下运行，此脚本会自动串联并拉起 Python 后端、Next.js 前端和 Electron 容器
+node apps/desktop/scripts/dev.js
+```
 
-2. **访问服务**
-    - 前端: [http://localhost:3000](http://localhost:3000)
-    - 后端 API: [http://localhost:8000/docs](http://localhost:8000/docs)
+**测试桌面端打包**:
+```bash
+cd apps/desktop
+# 编译 TypeScript 并在本地目录生成解包文件 (不生成安装包)
+pnpm run pack
+```
 
-3. **停止服务**
-    ```bash
-    docker-compose down
-    ```
+**完整客户端离线安装包构建 (Windows)**:
+```powershell
+# 在 PowerShell 中于项目根目录运行。此脚本将完成 Web 编译、后端 PyInstaller 打包、Electron NSIS 安装包的完整流程。
+powershell -ExecutionPolicy Bypass -File apps\desktop\scripts\build-all.ps1
+```
 
-> **注意**:
-> 1. 请确保根目录下存在 `data` 目录用于持久化数据。
-> 2. 请确保 `services/core/.env` 文件已配置正确。
+#### 5. 作为 AI 编辑器 Skill 使用
+
+除了常规独立部署，您还可以将本项目的后端服务作为 Skill 集成到 **Claude Code**, **Antigravity**, **GitHub Copilot** 等 AI 编辑器中使用。采用此模式，您**无需**在后端项目中配置 LLM（大模型选项），视频的 AI 分析推理将完全依靠您的 AI 编辑器所搭载的能力完成。
+
+使用指南：
+1. 下载本项目源码并启动后端服务（`services/core`）。
+2. 下载并安装配套的独立 Skill 项目：[video-helper-skill](https://github.com/LDJ-creat/video-helper-skill)。
+3. 参考该 skill 项目中的文档使用方式，即可在您的 AI 编辑器中对视频进行分析，最后仍可通过本项目的 Web 端或桌面端访问并查看生成的精美知识点和思维导图。
+
+
 
 ## 📂 目录结构
 
