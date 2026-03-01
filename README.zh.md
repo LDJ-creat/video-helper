@@ -1,25 +1,32 @@
-# Video Analysis Assistant (Video Helper)
+# Video Helper（Video Analysis Assistant）
 
 🌐 **语言 / Language**: 中文 | [English](README.md)
 
 ## 📖 项目简介
 
-**Video Analysis Assistant** 是一个基于 AI 的智能视频学习助手，旨在显著提升视频学习与知识复习的效率。
+**Video Helper** 是一个基于 AI 的智能视频学习助手，旨在显著提升视频学习与知识复习的效率。
 
-本项目采用全栈 Monorepo 架构，集成了先进的 LLM 分析流水线。用户只需提供视频链接（如 Bilibili）或上传本地视频，系统即可自动提取核心内容，生成结构化的**思维导图**和**重点摘要**。
+本项目采用全栈 Monorepo 架构，集成了先进的 LLM 分析流水线。用户只需提供视频链接（如 Bilibili,Youtube）或上传本地视频，系统即可自动提取核心内容，生成结构化的**思维导图**和**重点摘要**。
 
-核心亮点在于其强大的**联动交互能力**：点击思维导图节点可精准跳转至视频对应片段，反之亦然。此外，内置的 AI 助手支持多轮问答，并能基于视频知识点生成练习题，帮助用户巩固所学。
+核心亮点在于其出色的**联动交互能力**：点击思维导图节点可精准跳转至对应的重点内容，点击某模块的内容可以跳转至对应的视频片段。此外，内置的 AI 助手支持多轮问答，并能基于视频知识点生成练习题，帮助用户巩固所学。
 
 ## ✨ 核心功能
 
 - **智能流水线分析**: 自动化处理视频下载、音频转录、内容提取与结构化分析。
-- **动态思维导图**: 生成可视化的知识结构图，支持缩放、拖拽与节点折叠。
+- **动态思维导图**: 生成可视化的知识结构图，支持缩放、拖拽与增删改。
 - **双向联动交互**:
-    - **导图 -> 视频**: 点击导图节点，视频流自动跳转至对应时间戳。
-    - **内容 -> 视频**: 点击摘要重点，精准定位视频讲解片段。
+    - **导图 -> 内容**: 点击导图节点，自动定位到对应的重点内容模块。
+    - **内容 -> 视频**: 点击摘要重点，视频流自动跳转至对应时间戳。
 - **AI 智能问答**: 基于视频内容的上下文，支持用户与 AI 进行多轮对话，深入解析疑难点。
 - **练习画布 (Quiz Canvas)**: AI 根据视频知识点自动出题，提供针对性练习与反馈，形成学习闭环。
 - **灵活编辑**: 支持用户手动调整思维导图结构与摘要内容，定制个性化学习笔记。
+
+## ⬇️ 下载客户端 (Download Client)
+
+| Windows | MacOS | Linux |
+| :---: | :---: | :---: |
+| <img src="https://simpleicons.org/icons/windows11.svg" width="36" height="36" alt="Windows" /> | <img src="https://simpleicons.org/icons/apple.svg" width="36" height="36" alt="macOS" /> | <img src="https://simpleicons.org/icons/linux.svg" width="36" height="36" alt="Linux" /> |
+| [Setup.exe](https://github.com/LDJ-creat/video-helper/releases/latest) | [dmg/zip](https://github.com/LDJ-creat/video-helper/releases/latest) | [AppImage](https://github.com/LDJ-creat/video-helper/releases/latest) |
 
 ## 🏗️ 技术架构
 
@@ -124,9 +131,11 @@ pnpm dev
 ```graphql
 video-helper/
 ├── apps/
-│   └── web/                # Next.js Frontend App
+│   ├── web/                # Next.js Frontend App
+│   └── desktop/            # Electron Desktop App
 ├── services/
 │   └── core/               # Python FastAPI Backend
+├── docs/                   # Documentation
 ├── scripts/                # Automation Scripts (e.g., Smoke Tests)
 ├── _bmad-output/           # Architecture & Planning Artifacts
 ├── docker-compose.yml      # (Optional) Docker setup

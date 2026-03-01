@@ -1,25 +1,32 @@
-# Video Analysis Assistant (Video Helper)
+# Video Helper (Video Analysis Assistant)
 
 🌐 **语言 / Language**: [中文](README.zh.md) | English
 
 ## 📖 Introduction
 
-**Video Analysis Assistant** is an AI-powered smart video learning assistant designed to significantly improve the efficiency of video learning and knowledge review.
+**Video Helper** is an AI-powered smart video learning assistant designed to significantly improve the efficiency of video learning and knowledge review.
 
-This project adopts a full-stack Monorepo architecture and integrates advanced LLM analysis pipelines. Users simply provide a video link (e.g., Bilibili) or upload a local video, and the system automatically extracts core content, generating structured **Mind Maps** and **Key Summaries**.
+This project adopts a full-stack Monorepo architecture and integrates advanced LLM analysis pipelines. Users simply provide a video link (e.g., Bilibili, YouTube) or upload a local video, and the system automatically extracts core content, generating structured **Mind Maps** and **Key Summaries**.
 
-The core highlight lies in its powerful **interactive linkage**: clicking on a mind map node precisely jumps to the corresponding video segment, and vice versa. Additionally, the built-in AI assistant supports multi-turn Q&A and can generate practice questions based on video knowledge points to help users consolidate what they have learned.
+The core highlight lies in its outstanding **interactive linkage**: clicking on a mind map node precisely navigates to the corresponding key content module, and clicking on a content module can jump to the corresponding video segment. Additionally, the built-in AI assistant supports multi-turn Q&A and can generate practice questions based on video knowledge points to help users consolidate what they have learned.
 
 ## ✨ Key Features
 
 - **Smart Pipeline Analysis**: Automated handling of video downloading, audio transcription, content extraction, and structured analysis.
-- **Dynamic Mind Map**: Generates visual knowledge structure maps supporting zooming, dragging, and node folding.
+- **Dynamic Mind Map**: Generates visual knowledge structure maps supporting zooming, dragging, and adding/deleting/editing nodes.
 - **Bi-directional Interaction**:
-    - **Mind Map -> Video**: Click a map node to jump the video stream to the corresponding timestamp.
-    - **Content -> Video**: Click summary highlights to precisely locate the video explanation segment.
+    - **Mind Map -> Content**: Click a map node to automatically locate the corresponding key content module.
+    - **Content -> Video**: Click summary highlights to jump the video stream to the corresponding timestamp.
 - **AI Q&A**: Supports multi-turn dialogue with the user based on video context, explaining difficult points in depth.
 - **Quiz Canvas**: AI automatically generates questions based on video knowledge points, providing targeted practice and feedback to form a learning loop.
 - **Flexible Editing**: Supports manual adjustment of mind map logic and summary content to customize personalized learning notes.
+
+## ⬇️ Download Client
+
+| Windows | MacOS | Linux |
+| :---: | :---: | :---: |
+| <img src="https://simpleicons.org/icons/windows11.svg" width="36" height="36" alt="Windows" /> | <img src="https://simpleicons.org/icons/apple.svg" width="36" height="36" alt="macOS" /> | <img src="https://simpleicons.org/icons/linux.svg" width="36" height="36" alt="Linux" /> |
+| [Setup.exe](https://github.com/LDJ-creat/video-helper/releases/latest) | [dmg/zip](https://github.com/LDJ-creat/video-helper/releases/latest) | [AppImage](https://github.com/LDJ-creat/video-helper/releases/latest) |
 
 ## 🏗️ Architecture
 
@@ -124,9 +131,11 @@ If you prefer to deploy using Docker, run the following commands:
 ```graphql
 video-helper/
 ├── apps/
-│   └── web/                # Next.js Frontend App
+│   ├── web/                # Next.js Frontend App
+│   └── desktop/            # Electron Desktop App
 ├── services/
 │   └── core/               # Python FastAPI Backend
+├── docs/                   # Documentation
 ├── scripts/                # Automation Scripts (e.g., Smoke Tests)
 ├── _bmad-output/           # Architecture & Planning Artifacts
 ├── docker-compose.yml      # (Optional) Docker setup
