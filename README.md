@@ -12,7 +12,7 @@ The core highlight lies in its outstanding **interactive linkage**: clicking on 
 
 ## ✨ Key Features
 
-- **Smart Pipeline Analysis**: Automated handling of video downloading, audio transcription, content extraction, and structured analysis.
+- **Smart Pipeline Analysis**: Automated handling of video downloading, audio transcription, content extraction, and structured analysis. It supports LLM-guided keyframe extraction via FFmpeg to provide visual context alongside key summaries.
 - **Dynamic Mind Map**: Generates visual knowledge structure maps supporting zooming, dragging, and adding/deleting/editing nodes.
 - **Bi-directional Interaction**:
     - **Mind Map -> Content**: Click a map node to automatically locate the corresponding key content module.
