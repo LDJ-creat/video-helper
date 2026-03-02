@@ -358,6 +358,44 @@ def _terminate_process_tree(proc: subprocess.Popen, *, grace_s: int = 5) -> None
 		return
 
 
+def _chmod_x(p: Path) -> None:
+	if _is_windows():
+		return
+	try:
+		if not p.exists():
+			return
+		mode = p.stat().st_mode
+		p.chmod(mode | 0o111)
+	except Exception:
+		return
+
+
+def _best_effort_fix_unpacked_permissions(desktop_exe: Path) -> None:
+	# Artifact downloads can drop executable bits on POSIX. The desktop app
+	# will spawn the packaged backend from within resources; if that binary is
+	# not executable, startup fails with EACCES.
+	if _is_windows():
+		return
+
+	# Desktop executable itself.
+	_chmod_x(desktop_exe)
+
+	backend: Path | None = None
+	if _is_linux():
+		# <linux-unpacked>/desktop
+		backend = desktop_exe.parent / "resources" / "backend" / "backend"
+	elif _is_macos():
+		# <App>.app/Contents/MacOS/<bin>
+		backend = desktop_exe.parent.parent / "Resources" / "backend" / "backend"
+	if backend is not None:
+		_chmod_x(backend)
+		# Also ensure bundled ffmpeg/yt-dlp (if present) remain executable.
+		internal_dir = backend.parent / "_internal"
+		if internal_dir.exists():
+			for name in ("ffmpeg", "ffprobe", "yt-dlp"):
+				_chmod_x(internal_dir / name)
+
+
 def main() -> int:
 	parser = argparse.ArgumentParser(description="CI smoke: launch desktop (unpacked) and run closed-loop validation")
 	parser.add_argument("--api-base", default="http://127.0.0.1:8000")
@@ -373,13 +411,7 @@ def main() -> int:
 	out_dir.mkdir(parents=True, exist_ok=True)
 
 	exe = find_unpacked_desktop_executable(repo_root)
-	# Best-effort: ensure executable bit on POSIX (artifact download may drop it).
-	if not _is_windows():
-		try:
-			mode = exe.stat().st_mode
-			exe.chmod(mode | 0o111)
-		except Exception:
-			pass
+	_best_effort_fix_unpacked_permissions(exe)
 	print(f"[smoke] desktop exe: {exe}")
 
 	child_env = dict(os.environ)
@@ -398,7 +430,8 @@ def main() -> int:
 	# Linux CI often requires disabling Chromium sandbox.
 	app_args: list[str] = []
 	if _is_linux():
-		app_args = ["--no-sandbox"]
+		# On headless runners, GPU init frequently fails; disable it.
+		app_args = ["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"]
 
 	stdout_path = out_dir / "desktop-stdout.log"
 	stderr_path = out_dir / "desktop-stderr.log"

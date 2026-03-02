@@ -236,7 +236,7 @@ jobs:
             apps/desktop/release/**/*.tar.gz
             apps/desktop/release/win-unpacked/**
             apps/desktop/release/linux-unpacked/**
-            apps/desktop/release/mac/**
+            apps/desktop/release/mac*/**
 
   smoke:
     name: Smoke (${{ matrix.os }})

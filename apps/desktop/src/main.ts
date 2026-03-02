@@ -591,7 +591,7 @@ ipcMain.handle('relaunch-app', () => {
 
 // ─── Auto Updater ─────────────────────────────────────────────────────────────
 function initAutoUpdater(): void {
-    if (isDev) {
+    if (isDev || isDebug || process.env.CI === 'true' || process.env.VH_DISABLE_UPDATER === '1') {
         safeLog('updater', 'Dev mode: skipping auto-update check');
         return;
     }

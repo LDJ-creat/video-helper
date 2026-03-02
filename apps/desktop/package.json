@@ -55,10 +55,7 @@
             },
             {
                 "from": "../web/.next/standalone",
-                "to": "web",
-                "filter": [
-                    "**/*"
-                ]
+                "to": "web"
             },
             {
                 "from": "../web/.next/static",
