@@ -55,7 +55,12 @@
             },
             {
                 "from": "../web/.next/standalone",
-                "to": "web"
+                "to": "web",
+                "filter": [
+                    "**/*",
+                    "**/.next",
+                    "**/.next/**"
+                ]
             },
             {
                 "from": "../web/.next/static",

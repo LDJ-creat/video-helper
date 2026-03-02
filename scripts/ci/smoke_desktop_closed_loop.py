@@ -424,14 +424,17 @@ def main() -> int:
 	child_env.setdefault("LLM_MAX_ATTEMPTS", "3")
 	child_env.setdefault("LLM_PLAN_MAX_SEGMENTS", "40")
 	child_env.setdefault("LLM_PLAN_MAX_CHARS", "8000")
-	# Keep desktop stable in CI.
-	child_env.setdefault("VH_DEBUG", "1")
+	# CI stability: do not force DevTools.
+	child_env.setdefault("VH_DEBUG", "0")
+	# Explicitly disable updater (even though main.ts also skips in CI).
+	child_env.setdefault("VH_DISABLE_UPDATER", "1")
 
-	# Linux CI often requires disabling Chromium sandbox.
+	# CI often requires disabling Chromium sandbox and GPU.
 	app_args: list[str] = []
 	if _is_linux():
-		# On headless runners, GPU init frequently fails; disable it.
 		app_args = ["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"]
+	elif _is_macos():
+		app_args = ["--disable-gpu"]
 
 	stdout_path = out_dir / "desktop-stdout.log"
 	stderr_path = out_dir / "desktop-stderr.log"
