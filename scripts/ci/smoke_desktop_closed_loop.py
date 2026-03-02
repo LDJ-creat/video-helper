@@ -81,12 +81,80 @@ def _is_linux() -> bool:
 	return sys.platform.startswith("linux")
 
 
-def find_unpacked_desktop_executable(repo_root: Path) -> Path:
-	release_dir = repo_root / "apps" / "desktop" / "release"
-	if not release_dir.exists():
-		raise RuntimeError(f"desktop release dir not found: {release_dir}")
+def _iter_release_dir_candidates(repo_root: Path) -> list[Path]:
+	# Depending on how actions/upload-artifact chooses the root directory, the
+	# downloaded artifact may contain either:
+	# - apps/desktop/release/<platform-unpacked>/...
+	# - <platform-unpacked>/... (with the common prefix stripped)
+	# In addition, a later download step might choose a different destination.
+	candidates: list[Path] = []
 
+	# The canonical repo location.
+	candidates.append(repo_root / "apps" / "desktop" / "release")
+	# If the artifact root already is "release" and we download into repo root.
+	candidates.append(repo_root / "release")
+	# If the artifact root is release/ and we download directly into it (or if
+	# it was extracted into repo root with prefix stripped).
+	candidates.append(repo_root)
+	# If someone downloads the artifact into apps/desktop/release but the stored
+	# paths still include the prefix, we'll end up nested.
+	candidates.append(repo_root / "apps" / "desktop" / "release" / "apps" / "desktop" / "release")
+
+	# De-dup while preserving order.
+	seen: set[Path] = set()
+	out: list[Path] = []
+	for c in candidates:
+		c = c.resolve()
+		if c in seen:
+			continue
+		seen.add(c)
+		out.append(c)
+	return out
+
+
+def find_unpacked_desktop_executable(repo_root: Path) -> Path:
 	product_name = _load_product_name(repo_root)
+
+	candidates = _iter_release_dir_candidates(repo_root)
+
+	def pick_release_dir_for_windows() -> Path | None:
+		for c in candidates:
+			if (c / "win-unpacked").exists():
+				return c
+		return None
+
+	def pick_release_dir_for_linux() -> Path | None:
+		for c in candidates:
+			if (c / "linux-unpacked").exists():
+				return c
+		return None
+
+	def pick_release_dir_for_macos() -> Path | None:
+		for c in candidates:
+			apps = [p for p in c.glob("mac*/**/*.app") if p.is_dir()]
+			if apps:
+				return c
+		return None
+
+	release_dir: Path | None = None
+	if _is_windows():
+		release_dir = pick_release_dir_for_windows()
+	elif _is_linux():
+		release_dir = pick_release_dir_for_linux()
+	elif _is_macos():
+		release_dir = pick_release_dir_for_macos()
+	else:
+		raise RuntimeError(f"unsupported platform: {sys.platform}")
+
+	if release_dir is None:
+		checked = "\n".join(f"- {c}" for c in candidates)
+		raise RuntimeError(
+			"desktop release dir not found. Checked candidates:\n"
+			+ checked
+			+ "\nHint: in GitHub Actions, download the build artifact into apps/desktop/release to match expected layout."
+		)
+
+	print(f"[smoke] using release dir: {release_dir}")
 
 	if _is_windows():
 		unpacked = release_dir / "win-unpacked"

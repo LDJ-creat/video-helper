@@ -282,7 +282,9 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: desktop-${{ matrix.os }}
-          path: .
+          # upload-artifact may strip the common prefix (apps/desktop/release)
+          # so download directly into the expected release directory.
+          path: apps/desktop/release
 
       - name: Install Linux runtime deps (xvfb)
         if: runner.os == 'Linux'
