@@ -403,6 +403,11 @@ def main() -> int:
 	parser.add_argument("--timeout-sec", type=int, default=1800)
 	parser.add_argument("--source-type", default="youtube")
 	parser.add_argument("--url", default="https://www.youtube.com/watch?v=uN6r-rWLACc")
+	parser.add_argument(
+		"--env-file",
+		default="",
+		help="Optional dotenv file path for local runs (e.g. services/core/.env). Values are only applied when missing from the current environment.",
+	)
 	parser.add_argument("--out", default="")
 	args = parser.parse_args()
 
@@ -415,6 +420,41 @@ def main() -> int:
 	print(f"[smoke] desktop exe: {exe}")
 
 	child_env = dict(os.environ)
+
+	def _load_dotenv_into_env(env: dict[str, str], env_file: Path) -> None:
+		try:
+			if not env_file.exists() or not env_file.is_file():
+				return
+			for raw in env_file.read_text(encoding="utf-8").splitlines():
+				line = raw.strip()
+				if not line or line.startswith("#"):
+					continue
+				if line.startswith("export "):
+					line = line[len("export ") :].lstrip()
+				if "=" not in line:
+					continue
+				key, value = line.split("=", 1)
+				key = key.strip()
+				value = value.strip()
+				if not key:
+					continue
+				if len(value) >= 2 and ((value[0] == value[-1] == '"') or (value[0] == value[-1] == "'")):
+					value = value[1:-1]
+				# Only apply when missing to avoid surprising overrides.
+				env.setdefault(key, value)
+		except Exception:
+			return
+
+	# Local runs: allow loading env from a dotenv file so the packaged backend
+	# receives LLM/API settings without relying on Actions secrets.
+	if child_env.get("CI", "").lower() != "true":
+		env_file_arg = (args.env_file or "").strip()
+		if env_file_arg:
+			_load_dotenv_into_env(child_env, Path(env_file_arg).expanduser())
+		else:
+			default_env = repo_root / "services" / "core" / ".env"
+			_load_dotenv_into_env(child_env, default_env)
+
 	child_env.setdefault("PYTHONUTF8", "1")
 	child_env.setdefault("TRANSCRIBE_MODEL_SIZE", "tiny")
 	child_env.setdefault("TRANSCRIBE_DEVICE", "cpu")
@@ -434,7 +474,8 @@ def main() -> int:
 	if _is_linux():
 		app_args = ["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"]
 	elif _is_macos():
-		app_args = ["--disable-gpu"]
+		# macOS runners can crash hard on GPU init; be extra defensive.
+		app_args = ["--disable-gpu", "--disable-gpu-compositing", "--use-gl=swiftshader"]
 
 	stdout_path = out_dir / "desktop-stdout.log"
 	stderr_path = out_dir / "desktop-stderr.log"
