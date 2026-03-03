@@ -254,6 +254,9 @@ jobs:
         with:
           name: desktop-${{ matrix.os }}
           if-no-files-found: error
+          # v4 defaults to excluding hidden files/dirs (e.g. `.next/**`).
+          # Our packaged Next runtime depends on `.next/BUILD_ID` and `.next/static`.
+          include-hidden-files: true
           path: |
             apps/desktop/release/**/*.exe
             apps/desktop/release/**/*.exe.blockmap
