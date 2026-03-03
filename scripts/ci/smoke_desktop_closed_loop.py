@@ -396,6 +396,48 @@ def _best_effort_fix_unpacked_permissions(desktop_exe: Path) -> None:
 				_chmod_x(internal_dir / name)
 
 
+def _resources_dir_from_desktop_exe(desktop_exe: Path) -> Path:
+	if _is_windows() or _is_linux():
+		return desktop_exe.parent / "resources"
+	# macOS: <App>.app/Contents/MacOS/<bin>
+	return desktop_exe.parent.parent / "Resources"
+
+
+def _preflight_check_packaged_frontend(desktop_exe: Path) -> None:
+	resources_dir = _resources_dir_from_desktop_exe(desktop_exe)
+	web_root = resources_dir / "web" / "apps" / "web"
+	server_js = web_root / "server.js"
+	build_id = web_root / ".next" / "BUILD_ID"
+	static_dir = web_root / ".next" / "static"
+
+	print(f"[smoke] resources dir: {resources_dir}")
+	print(f"[smoke] web root: {web_root}")
+	print(f"[smoke] check server.js: {server_js.exists()}")
+	print(f"[smoke] check .next/BUILD_ID: {build_id.exists()}")
+	print(f"[smoke] check .next/static: {static_dir.exists()}")
+
+	missing: list[str] = []
+	if not server_js.exists():
+		missing.append(f"server.js missing: {server_js}")
+	if not build_id.exists():
+		missing.append(f"BUILD_ID missing: {build_id}")
+	if not static_dir.exists():
+		missing.append(f"static dir missing: {static_dir}")
+
+	if missing:
+		# Provide a small directory preview to make CI debugging easy.
+		try:
+			if web_root.exists():
+				entries = sorted([p.name for p in web_root.iterdir()])
+				print(f"[smoke] web root entries: {entries[:40]}")
+		except Exception:
+			pass
+		raise RuntimeError(
+			"Packaged frontend assets are incomplete; Next cannot start.\n"
+			+ "\n".join(f"- {m}" for m in missing)
+		)
+
+
 def main() -> int:
 	parser = argparse.ArgumentParser(description="CI smoke: launch desktop (unpacked) and run closed-loop validation")
 	parser.add_argument("--api-base", default="http://127.0.0.1:8000")
@@ -418,6 +460,7 @@ def main() -> int:
 	exe = find_unpacked_desktop_executable(repo_root)
 	_best_effort_fix_unpacked_permissions(exe)
 	print(f"[smoke] desktop exe: {exe}")
+	_preflight_check_packaged_frontend(exe)
 
 	child_env = dict(os.environ)
 

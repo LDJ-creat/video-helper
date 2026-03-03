@@ -54,30 +54,12 @@
                 ]
             },
             {
-                "from": "../web/.next/standalone",
-                "to": "web",
+                "from": "../web/.next/standalone/apps/web",
+                "to": "web/apps/web",
                 "filter": [
                     "**/*",
-                    "!**/.next",
-                    "!**/.next/**"
-                ]
-            },
-            {
-                "from": "../web/.next/server",
-                "to": "web/apps/web/.next/server",
-                "filter": [
-                    "**/*"
-                ]
-            },
-            {
-                "from": "../web/.next",
-                "to": "web/apps/web/.next",
-                "filter": [
-                    "BUILD_ID",
-                    "trace",
-                    "*.json",
-                    "*.js",
-                    "*.map"
+                    ".next",
+                    ".next/**"
                 ]
             },
             {
