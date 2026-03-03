@@ -18,6 +18,9 @@ __pycache__/
 # Editor
 .vscode/
 
+# CI / local run artifacts
+_ci/
+
 # Data directory (keep placeholder files)
 data/**
 !data/.gitkeep

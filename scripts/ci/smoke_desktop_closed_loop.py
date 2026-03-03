@@ -403,12 +403,34 @@ def _resources_dir_from_desktop_exe(desktop_exe: Path) -> Path:
 	return desktop_exe.parent.parent / "Resources"
 
 
-def _preflight_check_packaged_frontend(desktop_exe: Path) -> None:
+def _preflight_check_packaged_frontend(desktop_exe: Path, *, out_dir: Path) -> None:
 	resources_dir = _resources_dir_from_desktop_exe(desktop_exe)
 	web_root = resources_dir / "web" / "apps" / "web"
 	server_js = web_root / "server.js"
 	build_id = web_root / ".next" / "BUILD_ID"
 	static_dir = web_root / ".next" / "static"
+
+	# Always write a diagnostic file so Actions can upload something even when
+	# the preflight fails before launching the desktop app.
+	try:
+		out_dir.mkdir(parents=True, exist_ok=True)
+		(out_dir / "packaged-frontend-check.json").write_text(
+			json.dumps(
+				{
+					"resources_dir": str(resources_dir),
+					"web_root": str(web_root),
+					"server_js": {"path": str(server_js), "exists": server_js.exists()},
+					"build_id": {"path": str(build_id), "exists": build_id.exists()},
+					"static_dir": {"path": str(static_dir), "exists": static_dir.exists()},
+				},
+				ensure_ascii=False,
+				indent=2,
+			)
+			+ "\n",
+			encoding="utf-8",
+		)
+	except Exception:
+		pass
 
 	print(f"[smoke] resources dir: {resources_dir}")
 	print(f"[smoke] web root: {web_root}")
@@ -460,7 +482,7 @@ def main() -> int:
 	exe = find_unpacked_desktop_executable(repo_root)
 	_best_effort_fix_unpacked_permissions(exe)
 	print(f"[smoke] desktop exe: {exe}")
-	_preflight_check_packaged_frontend(exe)
+	_preflight_check_packaged_frontend(exe, out_dir=out_dir)
 
 	child_env = dict(os.environ)
 

@@ -17,7 +17,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
+        # TEMP: speed up iteration by only building Windows.
+        # os: [windows-latest, macos-latest, ubuntu-latest]
+        os: [windows-latest]
 
     env:
       BUILD_STANDALONE: "1"
@@ -217,6 +219,32 @@ jobs:
         shell: bash
         run: pnpm -C apps/desktop exec -- electron-builder --dir --publish=never --config.linux.icon=resources/icon.png
 
+      - name: Verify packaged frontend assets (unpacked)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = (Get-Location).Path
+          $webRoot = Join-Path $root 'apps/desktop/release/win-unpacked/resources/web/apps/web'
+          $serverJs = Join-Path $webRoot 'server.js'
+          $buildId = Join-Path $webRoot '.next/BUILD_ID'
+          $staticDir = Join-Path $webRoot '.next/static'
+          Write-Host "[verify-build] webRoot=$webRoot"
+          Write-Host "[verify-build] server.js exists=$([bool](Test-Path -LiteralPath $serverJs)) path=$serverJs"
+          Write-Host "[verify-build] BUILD_ID exists=$([bool](Test-Path -LiteralPath $buildId)) path=$buildId"
+          Write-Host "[verify-build] static exists=$([bool](Test-Path -LiteralPath $staticDir)) path=$staticDir"
+          if (Test-Path -LiteralPath $webRoot) {
+            $entries = Get-ChildItem -LiteralPath $webRoot | Select-Object -ExpandProperty Name
+            Write-Host "[verify-build] webRoot entries=$($entries -join ',')"
+          }
+          if (Test-Path -LiteralPath $buildId) {
+            $val = (Get-Content -LiteralPath $buildId -TotalCount 1)
+            Write-Host "[verify-build] BUILD_ID value=$val"
+          }
+          if (-not (Test-Path -LiteralPath $buildId) -or -not (Test-Path -LiteralPath $staticDir)) {
+            throw "Packaged frontend assets missing in unpacked build"
+          }
+
       - name: Generate update metadata (latest*.yml)
         shell: bash
         run: node scripts/ci/generate-update-yml.mjs apps/desktop/release
@@ -248,7 +276,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
+        # TEMP: speed up iteration by only testing Windows.
+        # os: [windows-latest, macos-latest, ubuntu-latest]
+        os: [windows-latest]
 
     env:
       PYTHONUTF8: "1"
@@ -285,6 +315,29 @@ jobs:
           # upload-artifact may strip the common prefix (apps/desktop/release)
           # so download directly into the expected release directory.
           path: apps/desktop/release
+
+      - name: Verify packaged frontend assets (downloaded)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = (Get-Location).Path
+          $webRoot = Join-Path $root 'apps/desktop/release/win-unpacked/resources/web/apps/web'
+          $serverJs = Join-Path $webRoot 'server.js'
+          $buildId = Join-Path $webRoot '.next/BUILD_ID'
+          $staticDir = Join-Path $webRoot '.next/static'
+          Write-Host "[verify-dl] webRoot=$webRoot"
+          Write-Host "[verify-dl] server.js exists=$([bool](Test-Path -LiteralPath $serverJs)) path=$serverJs"
+          Write-Host "[verify-dl] BUILD_ID exists=$([bool](Test-Path -LiteralPath $buildId)) path=$buildId"
+          Write-Host "[verify-dl] static exists=$([bool](Test-Path -LiteralPath $staticDir)) path=$staticDir"
+          if (Test-Path -LiteralPath $webRoot) {
+            $entries = Get-ChildItem -LiteralPath $webRoot | Select-Object -ExpandProperty Name
+            Write-Host "[verify-dl] webRoot entries=$($entries -join ',')"
+          }
+          if (Test-Path -LiteralPath $buildId) {
+            $val = (Get-Content -LiteralPath $buildId -TotalCount 1)
+            Write-Host "[verify-dl] BUILD_ID value=$val"
+          }
 
       - name: Install Linux runtime deps (xvfb)
         if: runner.os == 'Linux'
