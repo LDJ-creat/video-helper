@@ -46,9 +46,11 @@ if (shouldDisableGpu) {
         // Prefer software rendering paths.
         app.commandLine.appendSwitch('disable-gpu');
         app.commandLine.appendSwitch('disable-gpu-compositing');
-        app.commandLine.appendSwitch('disable-software-rasterizer');
         // swiftshader is the most reliable fallback in headless CI.
         app.commandLine.appendSwitch('use-gl', 'swiftshader');
+        // Reduce crashy surface area in CI.
+        app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
+        app.commandLine.appendSwitch('disable-gpu-sandbox');
     } catch {
         // ignore
     }

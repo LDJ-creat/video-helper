@@ -546,8 +546,8 @@ def main() -> int:
 	parser.add_argument("--api-base", default="http://127.0.0.1:8000")
 	parser.add_argument("--frontend-base", default="http://127.0.0.1:3000")
 	parser.add_argument("--timeout-sec", type=int, default=1800)
-	parser.add_argument("--source-type", default="youtube")
-	parser.add_argument("--url", default="https://www.youtube.com/watch?v=uN6r-rWLACc")
+	parser.add_argument("--source-type", default="bilibili")
+	parser.add_argument("--url", default=" https://b23.tv/279Yz1P")
 	parser.add_argument(
 		"--env-file",
 		default="",
