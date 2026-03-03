@@ -283,8 +283,9 @@ jobs:
 
     env:
       PYTHONUTF8: "1"
-      # Smoke input (YouTube)
-      SMOKE_URL: "https://www.youtube.com/watch?v=uN6r-rWLACc"
+      # Smoke input (URL)
+      SMOKE_SOURCE_TYPE: "bilibili"
+      SMOKE_URL: "https://b23.tv/279Yz1P"
       # Optional: base64-encoded cookies.txt for yt-dlp (helps bypass YouTube bot checks).
       # Provide as Actions secret `YTDLP_COOKIES_B64`.
       SMOKE_YTDLP_COOKIES_B64: ${{ secrets.YTDLP_COOKIES_B64 }}
@@ -361,7 +362,7 @@ jobs:
         run: |
           set -euo pipefail
           python scripts/ci/smoke_desktop_closed_loop.py \
-            --source-type youtube \
+            --source-type "$SMOKE_SOURCE_TYPE" \
             --url "$SMOKE_URL" \
             --timeout-sec 1800 \
             --out "_ci/smoke/${{ matrix.os }}"
@@ -372,7 +373,7 @@ jobs:
         run: |
           set -euo pipefail
           xvfb-run -a python scripts/ci/smoke_desktop_closed_loop.py \
-            --source-type youtube \
+            --source-type "$SMOKE_SOURCE_TYPE" \
             --url "$SMOKE_URL" \
             --timeout-sec 1800 \
             --out "_ci/smoke/${{ matrix.os }}"

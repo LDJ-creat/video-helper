@@ -468,6 +468,44 @@ def _best_effort_fix_unpacked_permissions(desktop_exe: Path) -> None:
 	elif _is_macos():
 		# <App>.app/Contents/MacOS/<bin>
 		backend = desktop_exe.parent.parent / "Resources" / "backend" / "backend"
+		# macOS app bundles contain multiple helper executables (Renderer/GPU/etc)
+		# under Contents/Frameworks. If executable bits are stripped during artifact
+		# download/extraction, Electron child processes fail to launch (often logged
+		# as GPU process launch failed / render-process-gone launch-failed).
+		contents_dir = desktop_exe.parent.parent
+		frameworks_dir = contents_dir / "Frameworks"
+		# Main binaries under Contents/MacOS
+		try:
+			macos_dir = contents_dir / "MacOS"
+			if macos_dir.exists():
+				for p in macos_dir.iterdir():
+					_chmod_x(p)
+		except Exception:
+			pass
+		# Helper apps: *.app/Contents/MacOS/*
+		try:
+			if frameworks_dir.exists():
+				for helper_app in frameworks_dir.glob("*.app"):
+					macos_bin_dir = helper_app / "Contents" / "MacOS"
+					if macos_bin_dir.exists():
+						for p in macos_bin_dir.iterdir():
+							_chmod_x(p)
+		except Exception:
+			pass
+		# Framework binaries (best-effort): mark top-level files executable.
+		try:
+			if frameworks_dir.exists():
+				for p in frameworks_dir.rglob("*"):
+					# Only touch files (no dirs) and avoid obvious metadata.
+					if not p.is_file():
+						continue
+					name = p.name.lower()
+					if name.endswith((".plist", ".json", ".txt", ".pak", ".dat", ".icns")):
+						continue
+					# Many Mach-O binaries have no extension; some are .dylib.
+					_chmod_x(p)
+		except Exception:
+			pass
 	if backend is not None:
 		_chmod_x(backend)
 		# Also ensure bundled ffmpeg/yt-dlp (if present) remain executable.
