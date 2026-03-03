@@ -78,6 +78,26 @@ def _env_get(env: dict[str, str], key: str) -> str:
 	return (env.get(key) or "").strip()
 
 
+def _looks_like_netscape_cookies_txt(text: str) -> bool:
+	# Netscape cookie file typically starts with this header, but some exporters omit it.
+	# We accept either:
+	# - a header line, or
+	# - at least one tab-delimited cookie line with >= 7 fields.
+	lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
+	if not lines:
+		return False
+	if lines[0].lower().startswith("# netscape http cookie file"):
+		return True
+	for ln in lines[:40]:
+		if ln.startswith("#"):
+			continue
+		# domain \t include_subdomains \t path \t secure \t expiry \t name \t value
+		parts = ln.split("\t")
+		if len(parts) >= 7:
+			return True
+	return False
+
+
 def _maybe_write_ytdlp_cookies(*, env: dict[str, str], data_dir: Path) -> None:
 	"""Best-effort configure yt-dlp cookies for CI.
 
@@ -108,7 +128,20 @@ def _maybe_write_ytdlp_cookies(*, env: dict[str, str], data_dir: Path) -> None:
 			content = base64.b64decode(b64.encode("utf-8"))
 			dest.write_bytes(content)
 		else:
-			dest.write_text(raw + "\n", encoding="utf-8")
+			# Some CI env injection turns newlines into literal "\\n" sequences.
+			# If we see no real newlines but do see escaped ones, unescape them.
+			text = raw
+			if "\n" not in text and "\\n" in text:
+				text = text.replace("\\n", "\n")
+			dest.write_text(text + "\n", encoding="utf-8")
+
+		# Best-effort validation to catch common secret-format issues.
+		try:
+			preview = dest.read_text(encoding="utf-8", errors="ignore")
+			if not _looks_like_netscape_cookies_txt(preview):
+				print("[smoke] WARNING: ytdlp cookies file does not look like Netscape cookies.txt format; yt-dlp may ignore it")
+		except Exception:
+			pass
 		env["YTDLP_COOKIES_FILE"] = str(dest)
 		print(f"[smoke] ytdlp cookies configured: True path={dest}")
 	except Exception as e:
@@ -577,6 +610,14 @@ def main() -> int:
 	# yt-dlp may require a JS runtime for YouTube extraction; default to node in CI.
 	if _env_get(child_env, "CI").lower() == "true" and "youtube" in (args.url or "").lower():
 		child_env.setdefault("YTDLP_JS_RUNTIMES", "node")
+		# Best-effort hardening for CI datacenter IPs.
+		child_env.setdefault("YTDLP_REFERER", "https://www.youtube.com/")
+		child_env.setdefault(
+			"YTDLP_USER_AGENT",
+			"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+		)
+		# Prefer Android client extraction paths which can be more resilient.
+		child_env.setdefault("YTDLP_EXTRACTOR_ARGS", "youtube:player_client=android")
 
 	# Optional: inject yt-dlp cookies for providers that require auth (YouTube bot check).
 	_maybe_write_ytdlp_cookies(env=child_env, data_dir=data_dir)
@@ -594,6 +635,9 @@ def main() -> int:
 	child_env.setdefault("VH_DEBUG", "0")
 	# Explicitly disable updater (even though main.ts also skips in CI).
 	child_env.setdefault("VH_DISABLE_UPDATER", "1")
+	# Align with desktop GPU-disable logic (macOS runners can crash on GPU init).
+	if _env_get(child_env, "CI").lower() == "true":
+		child_env.setdefault("VH_DISABLE_GPU", "1")
 
 	# CI often requires disabling Chromium sandbox and GPU.
 	app_args: list[str] = []

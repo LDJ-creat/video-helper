@@ -117,6 +117,30 @@ def _apply_optional_network_args(cmd: list[str]) -> list[str]:
 	return out
 
 
+def _cookie_diagnostics() -> dict:
+	"""Return non-sensitive diagnostics about cookie configuration."""
+	cookies_file = _env_str("YTDLP_COOKIES_FILE")
+	cookies_from_browser = _env_str("YTDLP_COOKIES_FROM_BROWSER")
+	d: dict = {
+		"cookiesProvided": bool(cookies_file or cookies_from_browser),
+		"cookiesFromBrowser": bool(cookies_from_browser),
+		"cookiesFile": None,
+		"cookiesFileExists": None,
+		"cookiesFileBytes": None,
+	}
+	if cookies_file:
+		try:
+			p = Path(cookies_file).expanduser()
+			d["cookiesFile"] = p.name
+			d["cookiesFileExists"] = p.exists()
+			if p.exists():
+				d["cookiesFileBytes"] = int(p.stat().st_size)
+		except Exception:
+			# Leave as best-effort.
+			pass
+	return d
+
+
 def _apply_optional_js_runtime_args(cmd: list[str]) -> list[str]:
 	"""Optionally configure a JavaScript runtime for yt-dlp.
 
@@ -136,6 +160,17 @@ def _apply_optional_js_runtime_args(cmd: list[str]) -> list[str]:
 	if js_runtimes:
 		out.extend(["--js-runtimes", js_runtimes])
 	return out
+
+
+def _apply_optional_extractor_args(cmd: list[str]) -> list[str]:
+	"""Optionally pass extractor args.
+
+	Useful for provider-specific CI hardening (e.g. YouTube player_client tweaks).
+	"""
+	extractor_args = _env_str("YTDLP_EXTRACTOR_ARGS")
+	if not extractor_args:
+		return list(cmd)
+	return [*cmd, "--extractor-args", extractor_args]
 
 
 def _resolve_ytdlp_runner() -> list[str] | None:
@@ -237,6 +272,7 @@ def download_with_ytdlp(
 	cmd = runner + build_ytdlp_command(url=url, output_template=output_template)[1:]
 	cmd = _apply_optional_network_args(cmd)
 	cmd = _apply_optional_js_runtime_args(cmd)
+	cmd = _apply_optional_extractor_args(cmd)
 
 	try:
 		completed = subprocess.run(
@@ -282,6 +318,7 @@ def download_with_ytdlp(
 				"blocked": blocked,
 				"httpStatus": http_status,
 				"cookiesError": cookies_error,
+				**_cookie_diagnostics(),
 				"outputTail": _sanitize_output_tail(output),
 			},
 		)

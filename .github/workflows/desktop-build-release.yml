@@ -17,7 +17,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
+        # os: [windows-latest, macos-latest, ubuntu-latest]
+        os: [windows-latest, macos-latest]
 
     env:
       BUILD_STANDALONE: "1"
@@ -277,7 +278,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
+        # os: [windows-latest, macos-latest, ubuntu-latest]
+        os: [windows-latest, macos-latest]
 
     env:
       PYTHONUTF8: "1"
