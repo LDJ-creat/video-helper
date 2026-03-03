@@ -58,8 +58,15 @@
                 "to": "web/apps/web",
                 "filter": [
                     "**/*",
-                    ".next",
-                    ".next/**"
+                    "!**/.next",
+                    "!**/.next/**"
+                ]
+            },
+            {
+                "from": "../web/.next/standalone/apps/web/.next",
+                "to": "web/apps/web/.next",
+                "filter": [
+                    "**/*"
                 ]
             },
             {
