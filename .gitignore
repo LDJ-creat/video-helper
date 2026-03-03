@@ -30,7 +30,7 @@ data/**
 
 
 #test
-www.bilibili.com_cookies.txt
+*_cookies.*
 # NOTE: Do NOT ignore all JSON globally. This repo contains essential JSON
 # config files (e.g. package.json, tsconfig.json) required for CI builds.
 *.sqlite3

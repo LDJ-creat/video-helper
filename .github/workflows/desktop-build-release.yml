@@ -17,9 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # TEMP: speed up iteration by only building Windows.
-        # os: [windows-latest, macos-latest, ubuntu-latest]
-        os: [windows-latest]
+        os: [windows-latest, macos-latest, ubuntu-latest]
 
     env:
       BUILD_STANDALONE: "1"
@@ -53,11 +51,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
-      - name: Setup Node (for yt-dlp JS runtime)
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
 
       - name: Setup uv
         uses: astral-sh/setup-uv@v5
@@ -284,9 +277,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # TEMP: speed up iteration by only testing Windows.
-        # os: [windows-latest, macos-latest, ubuntu-latest]
-        os: [windows-latest]
+        os: [windows-latest, macos-latest, ubuntu-latest]
 
     env:
       PYTHONUTF8: "1"
@@ -318,6 +309,11 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - name: Setup Node.js (for yt-dlp JS runtime)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
 
       - name: Download build artifacts
         uses: actions/download-artifact@v4
@@ -379,6 +375,19 @@ jobs:
             --timeout-sec 1800 \
             --out "_ci/smoke/${{ matrix.os }}"
 
+      - name: Sanitize smoke logs (remove cookies before upload)
+        if: always()
+        shell: pwsh
+        run: |
+          # Remove the cookies directory so auth tokens are never stored in artifacts.
+          $cookiesDir = "_ci/smoke/${{ matrix.os }}/data/cookies"
+          if (Test-Path $cookiesDir) {
+            Remove-Item -Recurse -Force $cookiesDir
+            Write-Host "Removed $cookiesDir"
+          } else {
+            Write-Host "No cookies dir found, nothing to remove"
+          }
+
       - name: Upload smoke logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -387,3 +396,4 @@ jobs:
           if-no-files-found: warn
           path: |
             _ci/smoke/${{ matrix.os }}/**
+            !_ci/smoke/${{ matrix.os }}/data/cookies/**
