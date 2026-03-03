@@ -287,6 +287,9 @@ jobs:
       PYTHONUTF8: "1"
       # Smoke input (YouTube)
       SMOKE_URL: "https://www.youtube.com/watch?v=uN6r-rWLACc"
+      # Optional: base64-encoded cookies.txt for yt-dlp (helps bypass YouTube bot checks).
+      # Provide as Actions secret `YTDLP_COOKIES_B64`.
+      SMOKE_YTDLP_COOKIES_B64: ${{ secrets.YTDLP_COOKIES_B64 }}
       # Keep smoke stable/fast-ish.
       TRANSCRIBE_MODEL_SIZE: "tiny"
       TRANSCRIBE_DEVICE: "cpu"

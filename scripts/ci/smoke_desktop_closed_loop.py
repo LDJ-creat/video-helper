@@ -6,6 +6,7 @@ import os
 import signal
 import subprocess
 import sys
+import base64
 import time
 from pathlib import Path
 from typing import Any
@@ -71,6 +72,49 @@ def _load_product_name(repo_root: Path) -> str:
 
 def _is_windows() -> bool:
 	return sys.platform.startswith("win")
+
+
+def _env_get(env: dict[str, str], key: str) -> str:
+	return (env.get(key) or "").strip()
+
+
+def _maybe_write_ytdlp_cookies(*, env: dict[str, str], data_dir: Path) -> None:
+	"""Best-effort configure yt-dlp cookies for CI.
+
+	Priority:
+	1) Existing YTDLP_COOKIES_FILE pointing to a real file
+	2) SMOKE_YTDLP_COOKIES_B64 / YTDLP_COOKIES_B64 (base64-encoded cookies.txt content)
+	3) SMOKE_YTDLP_COOKIES_TEXT / YTDLP_COOKIES_TEXT (raw cookies.txt content)
+
+	Writes DATA_DIR/cookies/ytdlp_cookies.txt and sets YTDLP_COOKIES_FILE.
+	Never prints cookie content.
+	"""
+	try:
+		existing = _env_get(env, "YTDLP_COOKIES_FILE")
+		if existing and Path(existing).expanduser().exists():
+			print(f"[smoke] ytdlp cookies configured: True path={existing}")
+			return
+
+		b64 = _env_get(env, "SMOKE_YTDLP_COOKIES_B64") or _env_get(env, "YTDLP_COOKIES_B64")
+		raw = _env_get(env, "SMOKE_YTDLP_COOKIES_TEXT") or _env_get(env, "YTDLP_COOKIES_TEXT")
+		if not b64 and not raw:
+			print("[smoke] ytdlp cookies configured: False")
+			return
+
+		cookies_dir = data_dir / "cookies"
+		cookies_dir.mkdir(parents=True, exist_ok=True)
+		dest = cookies_dir / "ytdlp_cookies.txt"
+		if b64:
+			content = base64.b64decode(b64.encode("utf-8"))
+			dest.write_bytes(content)
+		else:
+			dest.write_text(raw + "\n", encoding="utf-8")
+		env["YTDLP_COOKIES_FILE"] = str(dest)
+		print(f"[smoke] ytdlp cookies configured: True path={dest}")
+	except Exception as e:
+		# Don't fail smoke setup on cookie issues; the job will fail with a clear
+		# yt-dlp error tail anyway.
+		print(f"[smoke] ytdlp cookies setup failed: {type(e).__name__}: {e}")
 
 
 def _is_macos() -> bool:
@@ -519,6 +563,19 @@ def main() -> int:
 		else:
 			default_env = repo_root / "services" / "core" / ".env"
 			_load_dotenv_into_env(child_env, default_env)
+
+	# Make packaged runs deterministic: pin DATA_DIR under the smoke output folder
+	# so logs/downloads/cookies are easy to collect as artifacts.
+	data_dir = Path(_env_get(child_env, "DATA_DIR") or str(out_dir / "data")).resolve()
+	child_env.setdefault("DATA_DIR", str(data_dir))
+	print(f"[smoke] DATA_DIR={data_dir}")
+
+	# yt-dlp may require a JS runtime for YouTube extraction; default to node in CI.
+	if _env_get(child_env, "CI").lower() == "true" and "youtube" in (args.url or "").lower():
+		child_env.setdefault("YTDLP_JS_RUNTIMES", "node")
+
+	# Optional: inject yt-dlp cookies for providers that require auth (YouTube bot check).
+	_maybe_write_ytdlp_cookies(env=child_env, data_dir=data_dir)
 
 	child_env.setdefault("PYTHONUTF8", "1")
 	child_env.setdefault("TRANSCRIBE_MODEL_SIZE", "tiny")

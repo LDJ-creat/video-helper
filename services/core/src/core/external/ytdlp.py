@@ -98,6 +98,20 @@ def _env_str(name: str) -> str | None:
 	return raw or None
 
 
+def _is_ci() -> bool:
+	return (os.environ.get("CI") or "").strip().lower() == "true"
+
+
+def _is_youtube_url(url: str) -> bool:
+	try:
+		from urllib.parse import urlsplit
+
+		host = (urlsplit(url).netloc or "").lower()
+		return host.endswith("youtube.com") or host.endswith("youtu.be")
+	except Exception:
+		return False
+
+
 def _apply_optional_network_args(cmd: list[str]) -> list[str]:
 	# Optional headers/cookies for sites with anti-bot checks (e.g. bilibili 412).
 	user_agent = _env_str("YTDLP_USER_AGENT")
@@ -114,6 +128,22 @@ def _apply_optional_network_args(cmd: list[str]) -> list[str]:
 		out.extend(["--cookies", cookies_file])
 	if cookies_from_browser:
 		out.extend(["--cookies-from-browser", cookies_from_browser])
+	return out
+
+
+def _apply_optional_js_runtime_args(cmd: list[str], *, url: str) -> list[str]:
+	"""Optionally configure a JavaScript runtime for yt-dlp.
+
+	Newer yt-dlp versions may require a JS runtime for some YouTube extraction.
+	- Allow explicit override via YTDLP_JS_RUNTIMES.
+	- In CI, default to node for YouTube when available.
+	"""
+	out: list[str] = list(cmd)
+	js_runtimes = _env_str("YTDLP_JS_RUNTIMES")
+	if not js_runtimes and _is_ci() and _is_youtube_url(url) and shutil.which("node"):
+		js_runtimes = "node"
+	if js_runtimes:
+		out.extend(["--js-runtimes", js_runtimes])
 	return out
 
 
@@ -215,6 +245,7 @@ def download_with_ytdlp(
 	output_template = output_dir / f"{base_filename}.%(ext)s"
 	cmd = runner + build_ytdlp_command(url=url, output_template=output_template)[1:]
 	cmd = _apply_optional_network_args(cmd)
+	cmd = _apply_optional_js_runtime_args(cmd, url=url)
 
 	try:
 		completed = subprocess.run(
