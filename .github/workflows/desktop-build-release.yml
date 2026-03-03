@@ -54,6 +54,11 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Setup Node (for yt-dlp JS runtime)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
       - name: Setup uv
         uses: astral-sh/setup-uv@v5
 
