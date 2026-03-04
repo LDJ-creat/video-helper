@@ -18,7 +18,7 @@ jobs:
       fail-fast: false
       matrix:
         # os: [windows-latest, macos-latest, ubuntu-latest]
-        os: [windows-latest, macos-latest]
+        os: [macos-latest]
 
     env:
       BUILD_STANDALONE: "1"
@@ -106,11 +106,39 @@ jobs:
           mkdir -p _ci/ffmpeg
           cd _ci/ffmpeg
           # Use a standalone build to avoid Homebrew dylib dependencies when bundling into the app.
-          curl -fsSL -o ffmpeg.zip "https://evermeet.cx/ffmpeg/getrelease/zip"
-          curl -fsSL -o ffprobe.zip "https://evermeet.cx/ffprobe/getrelease/zip"
-          unzip -o -q ffmpeg.zip
-          unzip -o -q ffprobe.zip
-          chmod +x ffmpeg ffprobe
+
+          extract_evermeet_zip() {
+            tool="$1"
+            url="$2"
+
+            zip_file="${tool}.zip"
+            tmp_dir="_unzip_${tool}"
+
+            rm -rf "$tmp_dir"
+            mkdir -p "$tmp_dir"
+
+            curl -fsSL -o "$zip_file" "$url"
+            unzip -o -q "$zip_file" -d "$tmp_dir"
+
+            # evermeet zip contents are not guaranteed to extract to a fixed filename.
+            candidate="$(find "$tmp_dir" -type f -name "$tool" 2>/dev/null | head -n 1 || true)"
+            if [ -z "${candidate:-}" ]; then
+              candidate="$(find "$tmp_dir" -type f -perm -111 2>/dev/null | head -n 1 || true)"
+            fi
+
+            if [ -z "${candidate:-}" ]; then
+              echo "::error::${tool} not found after unzip"
+              ls -la "$tmp_dir" || true
+              exit 1
+            fi
+
+            cp "$candidate" "./$tool"
+            chmod +x "./$tool"
+          }
+
+          extract_evermeet_zip ffmpeg "https://evermeet.cx/ffmpeg/getrelease/zip"
+          extract_evermeet_zip ffprobe "https://evermeet.cx/ffprobe/getrelease/zip"
+
           echo "$PWD" >> "$GITHUB_PATH"
           which ffmpeg
           ffmpeg -version | head -n 1
@@ -298,7 +326,7 @@ jobs:
       fail-fast: false
       matrix:
         # os: [windows-latest, macos-latest, ubuntu-latest]
-        os: [windows-latest, macos-latest]
+        os: [macos-latest]
 
     env:
       PYTHONUTF8: "1"
