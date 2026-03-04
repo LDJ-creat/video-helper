@@ -12,7 +12,7 @@ services:
     volumes:
       - ./data:/app/data
     ports:
-      - "8000:8000"
+      - "${CORE_HOST_PORT:-8000}:8000"
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONUTF8=1
@@ -27,7 +27,7 @@ services:
     container_name: video-helper-web
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "${WEB_HOST_PORT:-3000}:3000"
     environment:
       - NODE_ENV=production
       # Next.js rewrites() 读取 API_BASE_URL / NEXT_PUBLIC_API_BASE_URL。

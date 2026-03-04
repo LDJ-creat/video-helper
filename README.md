@@ -40,95 +40,137 @@ This project uses Monorepo architecture to manage frontend and backend, ensuring
 
 ## 🚀 Getting Started
 
-## ⬇️ Download Client
+Choose **one of three options** based on your use case:
 
-If you want to use the application directly without setting up a development environment, you can download the latest pre-built client for your OS:
+---
+
+### 🖥️ Option 1: Download the Client
+
+No environment setup required. Download the pre-built installer for your platform and run it directly:
 
 | Windows | MacOS | Linux |
 | :---: | :---: | :---: |
 | <img src="https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/windows.svg" width="36" height="36" alt="Windows" /> | <img src="https://simpleicons.org/icons/apple.svg" width="36" height="36" alt="macOS" /> | <img src="https://simpleicons.org/icons/linux.svg" width="36" height="36" alt="Linux" /> |
 | [Setup.exe](https://github.com/LDJ-creat/video-helper/releases/latest) | [dmg/zip](https://github.com/LDJ-creat/video-helper/releases/latest) | [AppImage](https://github.com/LDJ-creat/video-helper/releases/latest) |
 
-### Prerequisites (For Source Code Compilation)
+---
 
-Please ensure your development environment has the following tools installed:
+### 🐳 Option 2: Deploy with Docker
 
-- **Node.js**: >= 20.x
-- **Python**: >= 3.12
-- **uv**: Python package and project manager (Recommended install: `curl -LsSf https://astral.sh/uv/install.sh | sh` or `pip install uv`)
-- **FFmpeg**: For audio/video processing (Must be configured in system PATH)
+Ideal for deploying on a server or anyone who wants a running instance without a local dev environment.
 
-### 🛠️ Installation & Running
+**1. Clone the repository**
 
-#### 1. Clone Project
 ```bash
 git clone https://github.com/LDJ-creat/video-helper.git
 cd video-helper
 ```
 
-#### 2. Backend Startup
-
-The backend service is located in the `services/core` directory.
+**2. Start services**
 
 ```bash
-# Enter backend directory
+docker compose up -d
+```
+
+**3. Open**
+
+- Web UI: http://localhost:3000
+- Backend API: http://localhost:8000
+
+> Data is persisted to the `./data` folder in the project root.
+
+**Port conflicts (if `8000` or `3000` is already in use)**
+
+To resolve port conflicts, switch to different ports:
+
+```bash
+# Linux / macOS
+CORE_HOST_PORT=8001 WEB_HOST_PORT=3001 docker compose up -d
+```
+
+```powershell
+# Windows (PowerShell)
+$env:CORE_HOST_PORT="8001"; $env:WEB_HOST_PORT="3001"; docker compose up -d
+```
+
+---
+
+### 🛠️ Option 3: Build from Source (For developers)
+
+For contributors, developers who want to modify the code, or those running the full stack locally.
+
+**Prerequisites**
+
+- **Node.js** >= 20.x
+- **Python** >= 3.12
+- **uv** (Python package manager, install: `pip install uv`)
+- **FFmpeg** (must be in system PATH)
+
+#### 1. Clone the repository
+
+```bash
+git clone https://github.com/LDJ-creat/video-helper.git
+cd video-helper
+```
+
+#### 2. Start the backend
+
+```bash
 cd services/core
 
-# First run will automatically create virtual environment and install dependencies
-# Start API service (Default port: 8000)
+# Create config file from template
+cp .env.example .env          # Linux/macOS
+Copy-Item .env.example .env   # Windows (PowerShell)
+
+# First run automatically creates a virtualenv and installs deps
+# Start API service (port 8000)
 uv run python main.py
 ```
 
-> **Note**: Please ensure the `.env` file is configured in the `services/core` directory (refer to `.env.example`).
+Common command: `uv run pytest -q` (run tests)
 
-Common commands:
-- Run tests: `uv run pytest -q`
-- Activate environment (Manual): Windows: `.venv\Scripts\activate` | Linux/Mac: `.venv/bin/activate`
-
-#### 3. Frontend Startup
-
-The frontend application is located in the `apps/web` directory.
+#### 3. Start the frontend
 
 ```bash
-# Enter frontend directory
 cd apps/web
-
-# Install dependencies (from the root or in web)
 pnpm install
 
-# Setup environment variables using the provided example:
-cp .env.example .env.local
+cp .env.example .env.local          # Linux/macOS
+Copy-Item .env.example .env.local   # Windows (PowerShell)
 
-# Start development server (Default port: 3000)
 pnpm run dev
 ```
 
-Open your browser and visit [http://localhost:3000](http://localhost:3000) to see the web interface.
+Open your browser at [http://localhost:3000](http://localhost:3000).
 
 #### 4. Desktop App (Electron) Startup & Build
 
-If you want to run the Desktop version locally instead of the Web version, we provide convenient scripts:
+**Development mode** (run from project root — auto-launches backend, frontend, and Electron):
 
-**Run in Development Mode**:
 ```bash
-# In the project root, this script automatically starts the Python backend, Next.js frontend, and Electron container
 node apps/desktop/scripts/dev.js
 ```
 
-**Test Desktop Packaging**:
+**Local packaging test:**
+
 ```bash
 cd apps/desktop
-# Compile the TypeScript and package the app into a local folder (without building installers)
 pnpm run pack
 ```
 
-**Build Complete Release Installers (Windows)**:
+**Build full release installer (Windows only):**
+
 ```powershell
-# In PowerShell, from the project root. This fully compiles the Web, packages the Backend via PyInstaller, and builds the Electron installer.
+# Run from project root in PowerShell
 powershell -ExecutionPolicy Bypass -File apps\desktop\scripts\build-all.ps1
 ```
 
-#### 5. Using as an AI Skill
+> To build Docker images locally (developer override):
+> ```bash
+> docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+> ```
+
+## ⚡Using as an AI Skill
 
 You can also use the backend service of this project as a skill within AI editors like **Claude Code**, **Antigravity**, or **GitHub Copilot**. In this mode, you don't need to configure LLMs in the backend project itself; instead, the AI editor's LLM handles the analysis.
 
