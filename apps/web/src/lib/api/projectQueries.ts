@@ -12,10 +12,11 @@ export function useProjects() {
     });
 }
 
-export function useProjectDetail(projectId: string) {
+export function useProjectDetail(projectId: string, options?: { enabled?: boolean }) {
     return useQuery({
         queryKey: queryKeys.project(projectId),
         queryFn: () => fetchProjectDetail(projectId),
+        enabled: options?.enabled ?? true,
     });
 }
 

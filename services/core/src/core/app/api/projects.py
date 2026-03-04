@@ -2,7 +2,7 @@ import shutil
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from core.contracts.error_codes import ErrorCode
@@ -18,13 +18,28 @@ from core.storage.safe_paths import PathTraversalBlockedError, resolve_under_dat
 router = APIRouter(tags=["projects"])
 
 
-def _project_to_dto(project: Project) -> ProjectDTO:
+def _get_latest_job_id(session: Session, project_id: str) -> str | None:
+    """Return the job_id of the most-recently updated job for a project."""
+    row = (
+        session.execute(
+            select(Job.job_id)
+            .where(Job.project_id == project_id)
+            .order_by(Job.updated_at_ms.desc())
+            .limit(1)
+        )
+        .first()
+    )
+    return row[0] if row else None
+
+
+def _project_to_dto(project: Project, latest_job_id: str | None = None) -> ProjectDTO:
     return ProjectDTO(
         projectId=project.project_id,
         title=project.title,
         sourceType=project.source_type,
         updatedAtMs=project.updated_at_ms,
         latestResultId=project.latest_result_id,
+        latestJobId=latest_job_id,
     )
 
 
@@ -41,7 +56,21 @@ def list_projects(
         limit = 200
 
     projects, next_cursor = list_projects_page(session, limit=limit, cursor=cursor)
-    items = [_project_to_dto(p) for p in projects]
+    # Batch-fetch latest job IDs to avoid N+1 queries
+    project_ids = [p.project_id for p in projects]
+    latest_job_map: dict[str, str] = {}
+    if project_ids:
+        rows = session.execute(
+            select(Job.project_id, Job.job_id)
+            .where(Job.project_id.in_(project_ids))
+            .order_by(Job.updated_at_ms.desc())
+        ).all()
+        # First occurrence per project_id is the latest (due to ORDER BY DESC)
+        for pid, jid in rows:
+            if pid not in latest_job_map:
+                latest_job_map[pid] = jid
+
+    items = [_project_to_dto(p, latest_job_map.get(p.project_id)) for p in projects]
     return ProjectsPageDTO(items=items, nextCursor=next_cursor)
 
 
@@ -58,7 +87,8 @@ def get_project(project_id: str, request: Request, session: Session = Depends(ge
                 request_id=getattr(request.state, "request_id", None),
             ),
         )
-    return _project_to_dto(project)
+    latest_job_id = _get_latest_job_id(session, project_id)
+    return _project_to_dto(project, latest_job_id)
 
 
 @router.delete("/projects/{project_id}", response_model=DeleteProjectResponseDTO)
