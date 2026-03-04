@@ -21,6 +21,10 @@ jobs:
 
     env:
       BUILD_STANDALONE: "1"
+      # Next.js rewrites() destination is generated at build time in standalone mode.
+      # Desktop builds must explicitly proxy to the local backend.
+      API_BASE_URL: "http://127.0.0.1:8000"
+      NEXT_PUBLIC_API_BASE_URL: "http://127.0.0.1:8000"
       CSC_IDENTITY_AUTO_DISCOVERY: "false"
       # Avoid accidental auto-publish behavior in some environments.
       ELECTRON_BUILDER_ALLOW_UNRESOLVED_DEPENDENCIES: "true"

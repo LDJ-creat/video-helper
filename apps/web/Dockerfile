@@ -25,8 +25,13 @@ COPY --from=deps /app/apps/web/node_modules ./apps/web/node_modules
 COPY . .
 
 # 构建 Next.js 应用（standalone）
+ARG API_BASE_URL=http://core:8000
+ARG NEXT_PUBLIC_API_BASE_URL=http://core:8000
+
 ENV NEXT_TELEMETRY_DISABLED=1 \
-    BUILD_STANDALONE=1
+    BUILD_STANDALONE=1 \
+    API_BASE_URL=${API_BASE_URL} \
+    NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}
 
 WORKDIR /app/apps/web
 RUN pnpm build
@@ -39,6 +44,10 @@ ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     PORT=3000 \
     HOSTNAME="0.0.0.0"
+
+# Runtime 默认也给一份（compose 会覆盖）
+ENV API_BASE_URL=http://core:8000 \
+    NEXT_PUBLIC_API_BASE_URL=http://core:8000
 
 RUN addgroup --system --gid 1001 nodejs \
     && adduser --system --uid 1001 nextjs

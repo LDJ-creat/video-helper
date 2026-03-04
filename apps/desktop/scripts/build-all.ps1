@@ -243,8 +243,12 @@ Stop-DesktopAppIfRunning
 Stop-NextStandaloneIfRunning
 Clear-StaleNextStandalone
 $env:BUILD_STANDALONE = "1"
+$env:API_BASE_URL = "http://127.0.0.1:8000"
+$env:NEXT_PUBLIC_API_BASE_URL = "http://127.0.0.1:8000"
 Invoke-Step "pnpm build" $WEB
 Remove-Item Env:BUILD_STANDALONE -ErrorAction SilentlyContinue
+Remove-Item Env:API_BASE_URL -ErrorAction SilentlyContinue
+Remove-Item Env:NEXT_PUBLIC_API_BASE_URL -ErrorAction SilentlyContinue
 
 # Next standalone output + pnpm workspace may produce a non-resolvable node_modules
 # layout under `.next/standalone` (only `.pnpm/` is present). For packaged desktop
