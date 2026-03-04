@@ -36,6 +36,7 @@ data/**
 *.sqlite3
 *.log
 build_log.txt
+CI_smoke_log/*
 
 # Ignore backend build artifacts (PyInstaller / packaging outputs)
 services/core/build/

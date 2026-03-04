@@ -17,8 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # os: [windows-latest, macos-latest, ubuntu-latest]
-        os: [macos-latest]
+        os: [windows-latest, macos-latest, ubuntu-latest]
 
     env:
       BUILD_STANDALONE: "1"
@@ -90,13 +89,6 @@ jobs:
           test -f apps/desktop/resources/icon.ico
           convert apps/desktop/resources/icon.ico -resize 512x512 apps/desktop/resources/icon.png
           identify apps/desktop/resources/icon.png
-
-      # - name: Install macOS ffmpeg
-      #   if: runner.os == 'macOS'
-      #   shell: bash
-      #   run: |
-      #     brew update
-      #     brew install ffmpeg
 
       - name: Download ffmpeg (macOS, relocatable)
         if: runner.os == 'macOS'
@@ -312,8 +304,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # os: [windows-latest, macos-latest, ubuntu-latest]
-        os: [macos-latest]
+        os: [windows-latest, macos-latest, ubuntu-latest]
 
     env:
       PYTHONUTF8: "1"
