@@ -4,7 +4,8 @@ services:
     # 可通过环境变量覆盖：
     # - VIDEO_HELPER_TAG=sha-<commit> / latest
     # - CORE_IMAGE=ghcr.io/<owner>/<repo>-core:<tag>
-    image: ${CORE_IMAGE:-ghcr.io/LDJ-creat/video-helper-core:${VIDEO_HELPER_TAG:-latest}}
+    # NOTE: Docker/OCI 镜像引用要求仓库名必须全小写；GHCR 也建议全小写。
+    image: ${CORE_IMAGE:-ghcr.io/ldj-creat/video-helper-core:${VIDEO_HELPER_TAG:-latest}}
     pull_policy: always
     container_name: video-helper-core
     restart: unless-stopped
@@ -21,7 +22,7 @@ services:
         required: false
 
   web:
-    image: ${WEB_IMAGE:-ghcr.io/LDJ-creat/video-helper-web:${VIDEO_HELPER_TAG:-latest}}
+    image: ${WEB_IMAGE:-ghcr.io/ldj-creat/video-helper-web:${VIDEO_HELPER_TAG:-latest}}
     pull_policy: always
     container_name: video-helper-web
     restart: unless-stopped

@@ -35,6 +35,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Compute image repo (lowercase)
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "IMAGE_REPO=${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -53,7 +59,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ github.repository }}-${{ matrix.image }}
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_REPO }}-${{ matrix.image }}
           tags: |
             type=sha
             # 当通过 git tag 触发时，镜像 tag 使用该 tag（例如 v1.2.3）
