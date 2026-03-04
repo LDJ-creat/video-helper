@@ -383,7 +383,10 @@ jobs:
         shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb
+          # Runtime deps for smoke run:
+          # - xvfb: headless Electron UI
+          # - ffmpeg: provides libav* shared libs required by packaged ffmpeg invocations
+          sudo apt-get install -y xvfb ffmpeg
 
       - name: Smoke (Desktop + Backend closed-loop)
         if: runner.os != 'Linux'
