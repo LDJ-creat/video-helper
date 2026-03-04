@@ -70,6 +70,7 @@
         "customModelDeleted": "自定义 Model 已删除",
         "customProviderDeleted": "自定义提供商已删除",
         "selectProvider": "选择此提供方",
+        "selectedProvider": "已选择",
         "selecting": "设置中...",
         "activeSetSuccess": "已设置为当前使用的提供方",
         "apiKeyRequiredToSelect": "需要先配置 API Key 才能选择此提供方",
