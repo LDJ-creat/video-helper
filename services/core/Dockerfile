@@ -55,9 +55,13 @@ COPY . .
 
 # 非 root 运行（更安全）
 RUN addgroup --system --gid 10001 app \
-    && adduser --system --uid 10001 --ingroup app app \
-    && mkdir -p /app/data \
-    && chown -R app:app /app
+    && adduser --system --uid 10001 --ingroup app --home /home/app app \
+    && mkdir -p /app/data /home/app /tmp/uv-cache \
+    && chown -R app:app /app /home/app /tmp/uv-cache
+
+# uv 运行时会写缓存；system user 的默认 HOME 可能是 /nonexistent，导致权限错误。
+ENV HOME=/home/app \
+    UV_CACHE_DIR=/tmp/uv-cache
 
 USER app
 
