@@ -106,44 +106,31 @@ jobs:
           mkdir -p _ci/ffmpeg
           cd _ci/ffmpeg
           # Use a standalone build to avoid Homebrew dylib dependencies when bundling into the app.
+          # Prefer GitHub release assets (darwin-arm64/x64) over third-party zip endpoints.
 
-          extract_evermeet_zip() {
-            tool="$1"
-            url="$2"
+          arch="$(uname -m)"
+          case "$arch" in
+            arm64|aarch64) gh_arch="arm64" ;;
+            x86_64) gh_arch="x64" ;;
+            *) echo "::error::Unsupported macOS arch: $arch"; exit 1 ;;
+          esac
 
-            zip_file="${tool}.zip"
-            tmp_dir="_unzip_${tool}"
+          base="https://github.com/eugeneware/ffmpeg-static/releases/latest/download"
+          ffmpeg_url="$base/ffmpeg-darwin-$gh_arch"
+          ffprobe_url="$base/ffprobe-darwin-$gh_arch"
+          echo "[ffmpeg] arch=$arch url=$ffmpeg_url"
+          echo "[ffprobe] arch=$arch url=$ffprobe_url"
 
-            rm -rf "$tmp_dir"
-            mkdir -p "$tmp_dir"
+          curl -fsSL -L --retry 3 --retry-delay 2 -o ffmpeg "$ffmpeg_url"
+          curl -fsSL -L --retry 3 --retry-delay 2 -o ffprobe "$ffprobe_url"
+          chmod +x ffmpeg ffprobe
 
-            curl -fsSL -o "$zip_file" "$url"
-            unzip -o -q "$zip_file" -d "$tmp_dir"
-
-            # evermeet zip contents are not guaranteed to extract to a fixed filename.
-            candidate="$(find "$tmp_dir" -type f -name "$tool" 2>/dev/null | head -n 1 || true)"
-            if [ -z "${candidate:-}" ]; then
-              candidate="$(find "$tmp_dir" -type f -perm -111 2>/dev/null | head -n 1 || true)"
-            fi
-
-            if [ -z "${candidate:-}" ]; then
-              echo "::error::${tool} not found after unzip"
-              ls -la "$tmp_dir" || true
-              exit 1
-            fi
-
-            cp "$candidate" "./$tool"
-            chmod +x "./$tool"
-          }
-
-          extract_evermeet_zip ffmpeg "https://evermeet.cx/ffmpeg/getrelease/zip"
-          extract_evermeet_zip ffprobe "https://evermeet.cx/ffprobe/getrelease/zip"
+          ls -la ffmpeg ffprobe
+          file ffmpeg ffprobe || true
 
           echo "$PWD" >> "$GITHUB_PATH"
-          which ffmpeg
-          ffmpeg -version | head -n 1
-          which ffprobe
-          ffprobe -version | head -n 1
+          ./ffmpeg -version | head -n 1
+          ./ffprobe -version | head -n 1
 
       - name: Download yt-dlp (macOS)
         if: runner.os == 'macOS'
