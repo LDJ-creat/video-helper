@@ -1,35 +1,37 @@
-version: "3.9"
-
 services:
   core:
-    build:
-      context: ./services/core
-      dockerfile: Dockerfile
-    image: video-helper-core:latest
+    # 默认直接拉取 GitHub Actions 构建并推送到 GHCR 的镜像。
+    # 可通过环境变量覆盖：
+    # - VIDEO_HELPER_TAG=sha-<commit> / latest
+    # - CORE_IMAGE=ghcr.io/<owner>/<repo>-core:<tag>
+    image: ${CORE_IMAGE:-ghcr.io/LDJ-creat/video-helper-core:${VIDEO_HELPER_TAG:-latest}}
+    pull_policy: always
     container_name: video-helper-core
     restart: unless-stopped
     volumes:
       - ./data:/app/data
-      # 挂载 .env 文件，方便运行时配置更改
-      - ./services/core/.env:/app/.env
     ports:
       - "8000:8000"
     environment:
       - PYTHONUNBUFFERED=1
-    #UV 运行命令
-    command: [ "uv", "run", "python", "main.py" ]
+      - PYTHONUTF8=1
+      - DATA_DIR=/app/data
+    env_file:
+      - path: ./services/core/.env
+        required: false
 
   web:
-    build:
-      context: .
-      dockerfile: apps/web/Dockerfile
-    image: video-helper-web:latest
+    image: ${WEB_IMAGE:-ghcr.io/LDJ-creat/video-helper-web:${VIDEO_HELPER_TAG:-latest}}
+    pull_policy: always
     container_name: video-helper-web
     restart: unless-stopped
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
       - NODE_ENV=production
+      # Next.js rewrites() 读取 API_BASE_URL / NEXT_PUBLIC_API_BASE_URL。
+      # 容器内应访问 core 服务名，而不是 localhost。
+      - API_BASE_URL=http://core:8000
+      - NEXT_PUBLIC_API_BASE_URL=http://core:8000
     depends_on:
       - core

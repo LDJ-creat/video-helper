@@ -1,0 +1,26 @@
+.git
+**/.git
+
+# Node
+**/node_modules
+**/.next
+**/.turbo
+**/.cache
+
+# Python
+**/__pycache__
+**/*.pyc
+**/.venv
+
+# Local data / logs / artifacts (do NOT bake into images)
+data/
+CI_smoke_log/
+_bmad-output/
+_ci/
+apps/desktop/release/
+services/core/.venv/
+services/core/.env
+
+# Cookies / secrets
+www.*_cookies.txt
+*.log

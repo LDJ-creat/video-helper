@@ -170,6 +170,19 @@ jobs:
           $env:Path = "$(Split-Path -Parent $exe);$env:Path"
           & $exe --version
 
+      - name: Set version from tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Extract version from tag name, e.g. refs/tags/v1.2.0 -> 1.2.0
+          TAG_VERSION="${GITHUB_REF#refs/tags/v}"
+          echo "Setting package version to ${TAG_VERSION} (from tag ${GITHUB_REF})"
+          # Update package.json without creating a git commit (--no-git-tag-version)
+          cd apps/desktop
+          npm version "${TAG_VERSION}" --no-git-tag-version --allow-same-version
+          echo "Updated apps/desktop/package.json to version ${TAG_VERSION}"
+
       - name: Install Node dependencies (workspace)
         shell: bash
         run: |
