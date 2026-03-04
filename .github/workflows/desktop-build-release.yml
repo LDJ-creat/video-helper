@@ -91,12 +91,31 @@ jobs:
           convert apps/desktop/resources/icon.ico -resize 512x512 apps/desktop/resources/icon.png
           identify apps/desktop/resources/icon.png
 
-      - name: Install macOS ffmpeg
+      # - name: Install macOS ffmpeg
+      #   if: runner.os == 'macOS'
+      #   shell: bash
+      #   run: |
+      #     brew update
+      #     brew install ffmpeg
+
+      - name: Download ffmpeg (macOS, relocatable)
         if: runner.os == 'macOS'
         shell: bash
         run: |
-          brew update
-          brew install ffmpeg
+          set -euo pipefail
+          mkdir -p _ci/ffmpeg
+          cd _ci/ffmpeg
+          # Use a standalone build to avoid Homebrew dylib dependencies when bundling into the app.
+          curl -fsSL -o ffmpeg.zip "https://evermeet.cx/ffmpeg/getrelease/zip"
+          curl -fsSL -o ffprobe.zip "https://evermeet.cx/ffprobe/getrelease/zip"
+          unzip -o -q ffmpeg.zip
+          unzip -o -q ffprobe.zip
+          chmod +x ffmpeg ffprobe
+          echo "$PWD" >> "$GITHUB_PATH"
+          which ffmpeg
+          ffmpeg -version | head -n 1
+          which ffprobe
+          ffprobe -version | head -n 1
 
       - name: Download yt-dlp (macOS)
         if: runner.os == 'macOS'
