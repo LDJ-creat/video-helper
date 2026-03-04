@@ -404,13 +404,19 @@ export default function ResultPage() {
 
     // 5. Other errors (network failure, 5xx, etc.)
     if (resultError) {
+        const messageCandidate = (resultError as { message?: unknown } | null)?.message;
+        const resultErrorMessage =
+            typeof messageCandidate === "string" && messageCandidate.trim().length > 0
+                ? messageCandidate
+                : t("notFound");
+
         return (
             <ResultLayout>
                 <div className="flex items-center justify-center min-h-[60vh]">
                     <div className="text-center max-w-md">
                         <h2 className="text-xl font-semibold text-stone-900 mb-2">{t("loadFailed")}</h2>
                         <p className="text-stone-600 mb-4">
-                            {resultError instanceof Error ? resultError.message : t("notFound")}
+                            {resultErrorMessage}
                         </p>
                     </div>
                 </div>

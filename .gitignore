@@ -4,6 +4,7 @@ node_modules/
 out/
 dist/
 .turbo/
+package-lock.json
 
 # Python
 __pycache__/
