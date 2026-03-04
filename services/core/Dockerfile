@@ -26,10 +26,20 @@ RUN apt-get update \
     npm \
     && rm -rf /var/lib/apt/lists/*
 
-# 下载 yt-dlp（Linux）
-RUN curl -fsSL -o /usr/local/bin/yt-dlp https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux \
-    && chmod +x /usr/local/bin/yt-dlp \
-    && yt-dlp --version
+# 下载 yt-dlp（Linux，多架构）
+RUN set -e; \
+    arch="$(uname -m)"; \
+    case "$arch" in \
+    x86_64|amd64) asset="yt-dlp_linux" ;; \
+    aarch64|arm64) asset="yt-dlp_linux_aarch64" ;; \
+    armv7l|armv7) asset="yt-dlp_linux_armv7l" ;; \
+    *) echo "Unsupported arch for yt-dlp: $arch" >&2; exit 1 ;; \
+    esac; \
+    url="https://github.com/yt-dlp/yt-dlp/releases/latest/download/${asset}"; \
+    echo "Downloading yt-dlp: arch=$arch asset=$asset"; \
+    curl -fsSL -o /usr/local/bin/yt-dlp "$url"; \
+    chmod +x /usr/local/bin/yt-dlp; \
+    yt-dlp --version
 
 # 安装 uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv

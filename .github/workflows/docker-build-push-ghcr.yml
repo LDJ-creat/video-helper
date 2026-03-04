@@ -4,7 +4,9 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - main
+      - dev
+    tags:
+      - "*"
   pull_request:
 
 permissions:
@@ -54,14 +56,19 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ github.repository }}-${{ matrix.image }}
           tags: |
             type=sha
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            # 当通过 git tag 触发时，镜像 tag 使用该 tag（例如 v1.2.3）
+            type=ref,event=tag
+            # latest 何时更新：
+            # - dev 分支 push（便于 docker-compose.yml 默认 latest）
+            # - tag 发布时（让 latest 指向最新发布）
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/') }}
 
       - name: Build (and push)
         uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
