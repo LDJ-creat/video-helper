@@ -18,7 +18,7 @@ jobs:
       - name: Download artifacts for this tag commit
         uses: dawidd6/action-download-artifact@v6
         with:
-          workflow: desktop-build-release.yml
+          workflow: desktop-build.yml
           commit: ${{ github.sha }}
           path: ./artifacts
 
