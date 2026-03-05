@@ -8,6 +8,7 @@ export type Project = {
   sourceUrl?: string;          // 平台类来源
   durationMs?: number;         // 可选
   latestResultId?: string;     // UUID，指向最新结果
+  latestJobId?: string;        // UUID，指向最新 Job（分析任务）
   createdAtMs: number;         // Unix epoch milliseconds
   updatedAtMs: number;
 };

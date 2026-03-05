@@ -3,6 +3,24 @@ import createNextIntlPlugin from 'next-intl/plugin';
 
 const withNextIntl = createNextIntlPlugin();
 
+function _getApiBaseUrlForRewrites(): string {
+  const apiBaseUrl =
+    process.env.API_BASE_URL ||
+    process.env.NEXT_PUBLIC_API_BASE_URL ||
+    '';
+
+  const isStandalone = process.env.BUILD_STANDALONE === '1';
+  if (isStandalone && !apiBaseUrl) {
+    throw new Error(
+      "[next.config] BUILD_STANDALONE=1 requires API_BASE_URL (or NEXT_PUBLIC_API_BASE_URL) to be set. " +
+      "Desktop packaging: set API_BASE_URL=http://127.0.0.1:8000. " +
+      "Docker/compose: set API_BASE_URL=http://core:8000."
+    );
+  }
+
+  return apiBaseUrl;
+}
+
 /** @type {import('next').NextConfig} */
 const nextConfig: NextConfig = {
   // Enable standalone output for Electron production packaging.
@@ -12,12 +30,7 @@ const nextConfig: NextConfig = {
   ...(process.env.BUILD_STANDALONE === '1' && { output: 'standalone' }),
 
   async rewrites() {
-    const apiBaseUrl =
-      process.env.API_BASE_URL ||
-      process.env.NEXT_PUBLIC_API_BASE_URL ||
-      // Desktop packaging builds (standalone) must proxy to the local backend,
-      // even in CI environments where .env.local is not present.
-      (process.env.BUILD_STANDALONE === '1' ? 'http://127.0.0.1:8000' : '');
+    const apiBaseUrl = _getApiBaseUrlForRewrites();
 
     if (!apiBaseUrl) return [];
 

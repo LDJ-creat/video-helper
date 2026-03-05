@@ -3,6 +3,7 @@
 import { useRef, useState, useEffect, useCallback } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { useLatestResult } from "@/lib/api/resultQueries";
+import { useProjectDetail } from "@/lib/api/projectQueries";
 import { useJobQueryWithOptions, useJobLogsQueryWithOptions } from "@/lib/api/jobQueries";
 import { useJobSse } from "@/lib/sse/useJobSse";
 import { ResultLayout } from "@/components/layout/ResultLayout";
@@ -130,8 +131,19 @@ export default function ResultPage() {
 
     const queryClient = useQueryClient();
 
-    // Data fetching
-    const { data: result, isLoading, error } = useLatestResult(projectId);
+    // Only fetch the result when we do NOT already have a jobId.
+    // When jobId is present (freshly redirected from ingest), the analysis is
+    // definitely still running, so the result fetch would be a guaranteed 404.
+    const resultEnabled = !jobId;
+    const { data: result, isLoading: resultLoading, error: resultError } = useLatestResult(projectId, { enabled: resultEnabled });
+
+    // When there's no jobId in the URL and result is absent (404), we need to
+    // find the latest job for this project to show progress.
+    const resultIs404 = !!resultError;
+    const needsJobDiscovery = resultEnabled && resultIs404 && !jobId;
+
+    const { data: projectDetail, isLoading: projectDetailLoading } = useProjectDetail(projectId, { enabled: needsJobDiscovery });
+    const discoveredJobId = projectDetail?.latestJobId;
 
     // Refs
     const videoPlayerRef = useRef<VideoPlayerRef>(null);
@@ -233,7 +245,7 @@ export default function ResultPage() {
         }
     };
 
-    // Priority: Result > Job Progress (if no result) > Loading > Error
+    // ─── State Machine ────────────────────────────────────────────────────────
 
     // 1. If we have a result, show the dashboard (Happy path)
     if (result) {
@@ -338,13 +350,14 @@ export default function ResultPage() {
         );
     }
 
-    // 2. If no result but we have a valid jobId, show progress
+    // 2. If we came from ingest with an explicit jobId, show progress immediately
+    //    (result is disabled, so we never fetched it)
     if (jobId) {
         return <JobProgress jobId={jobId} projectId={projectId} />;
     }
 
-    // 3. Loading (only if fetching result and no jobId provided to fallback to progress)
-    if (isLoading) {
+    // 3. Loading the result (no jobId, result fetch in-flight)
+    if (resultLoading) {
         return (
             <ResultLayout>
                 <div className="flex items-center justify-center min-h-[60vh]">
@@ -357,15 +370,53 @@ export default function ResultPage() {
         );
     }
 
-    // 4. Error state
-    if (error) {
+    // 4. Result is 404 — try to discover the latest job for this project
+    if (resultIs404) {
+        // Still fetching the project detail to find the job
+        if (projectDetailLoading) {
+            return (
+                <ResultLayout>
+                    <div className="flex items-center justify-center min-h-[60vh]">
+                        <div className="text-center">
+                            <div className="inline-block w-12 h-12 border-4 border-stone-300 border-t-orange-600 rounded-full animate-spin mb-4" />
+                            <p className="text-stone-600">{t("loading")}</p>
+                        </div>
+                    </div>
+                </ResultLayout>
+            );
+        }
+
+        // Found a job — show progress view (JobProgress handles its own SSE/polling
+        // and will invalidate the result query when it detects success)
+        if (discoveredJobId) {
+            return <JobProgress jobId={discoveredJobId} projectId={projectId} />;
+        }
+
+        // No job found at all — project exists but no analysis has ever been created
+        return (
+            <ResultLayout>
+                <div className="flex items-center justify-center min-h-[60vh]">
+                    <p className="text-stone-600">{t("noResult")}</p>
+                </div>
+            </ResultLayout>
+        );
+    }
+
+    // 5. Other errors (network failure, 5xx, etc.)
+    if (resultError) {
+        const messageCandidate = (resultError as { message?: unknown } | null)?.message;
+        const resultErrorMessage =
+            typeof messageCandidate === "string" && messageCandidate.trim().length > 0
+                ? messageCandidate
+                : t("notFound");
+
         return (
             <ResultLayout>
                 <div className="flex items-center justify-center min-h-[60vh]">
                     <div className="text-center max-w-md">
                         <h2 className="text-xl font-semibold text-stone-900 mb-2">{t("loadFailed")}</h2>
                         <p className="text-stone-600 mb-4">
-                            {error instanceof Error ? error.message : t("notFound")}
+                            {resultErrorMessage}
                         </p>
                     </div>
                 </div>
@@ -373,7 +424,7 @@ export default function ResultPage() {
         );
     }
 
-    // 5. Fallback for no result and no job
+    // 6. Fallback: no result, no error, no jobId (should rarely happen)
     return (
         <ResultLayout>
             <div className="flex items-center justify-center min-h-[60vh]">
@@ -382,3 +433,4 @@ export default function ResultPage() {
         </ResultLayout>
     );
 }
+

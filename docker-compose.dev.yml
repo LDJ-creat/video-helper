@@ -1,0 +1,26 @@
+# 开发者本地构建/调试用：
+# 用法：
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+#
+# 说明：
+# - 默认的 docker-compose.yml 走 GHCR 拉取预构建镜像
+# - 本文件作为 override，把 core/web 切回本地 build
+# - 端口/环境变量/数据卷等仍继承自 docker-compose.yml（例如 CORE_HOST_PORT/WEB_HOST_PORT）
+
+# 端口冲突示例：
+#   CORE_HOST_PORT=8001 WEB_HOST_PORT=3001 docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+
+services:
+  core:
+    build:
+      context: ./services/core
+      dockerfile: Dockerfile
+    image: video-helper-core:dev
+    pull_policy: missing
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    image: video-helper-web:dev
+    pull_policy: missing

@@ -1,0 +1,42 @@
+name: desktop-release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  release:
+    name: Publish Release (from artifacts)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download artifacts for this tag commit
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: desktop-build.yml
+          commit: ${{ github.sha }}
+          path: ./artifacts
+
+      - name: List release assets
+        shell: bash
+        run: |
+          ls -R ./artifacts
+
+      - name: Publish Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/**/*.exe
+            artifacts/**/*.exe.blockmap
+            artifacts/**/latest*.yml
+            artifacts/**/*.dmg
+            artifacts/**/*.zip
+            artifacts/**/*.AppImage
+            artifacts/**/*.tar.gz
+          generate_release_notes: true
+          prerelease: true

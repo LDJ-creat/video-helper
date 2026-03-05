@@ -3,7 +3,7 @@
 import { HealthBanner } from "@/components/HealthBanner";
 import { useCreateJobFromUrl, useCreateJobFromUpload } from "@/lib/api/jobCreationQueries";
 import { useCookiesStatus, useUploadCookies } from "@/lib/api/cookiesQueries";
-import { useState, useRef } from "react";
+import { useState, useRef, useCallback } from "react";
 import type { ApiErrorEnvelope } from "@/lib/api/apiClient";
 import { useLocale, useTranslations } from "next-intl";
 
@@ -59,6 +59,47 @@ export default function IngestPage() {
     );
 }
 
+// ─── Reusable DnD hook ────────────────────────────────────────────────────────
+
+function useDragAndDrop(onDrop: (file: File) => void, accept?: (file: File) => boolean) {
+    const [isDragging, setIsDragging] = useState(false);
+    const dragCounterRef = useRef(0);
+
+    const handleDragEnter = useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dragCounterRef.current++;
+        setIsDragging(true);
+    }, []);
+
+    const handleDragLeave = useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dragCounterRef.current--;
+        if (dragCounterRef.current === 0) setIsDragging(false);
+    }, []);
+
+    const handleDragOver = useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.dropEffect = "copy";
+    }, []);
+
+    const handleDrop = useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dragCounterRef.current = 0;
+        setIsDragging(false);
+
+        const file = e.dataTransfer.files?.[0];
+        if (!file) return;
+        if (accept && !accept(file)) return;
+        onDrop(file);
+    }, [onDrop, accept]);
+
+    return { isDragging, handleDragEnter, handleDragLeave, handleDragOver, handleDrop };
+}
+
 // ─── Cookies Upload Section ─────────────────────────────────────────────────
 
 function CookiesUploadSection() {
@@ -72,9 +113,7 @@ function CookiesUploadSection() {
 
     const hasFile = status?.hasFile ?? false;
 
-    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
+    const doUpload = useCallback((file: File) => {
         setSuccessMsg(null);
         mutation.mutate(file, {
             onSuccess: () => {
@@ -82,7 +121,19 @@ function CookiesUploadSection() {
                 if (fileInputRef.current) fileInputRef.current.value = "";
             },
         });
+    }, [mutation, t]);
+
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) doUpload(file);
     };
+
+    const acceptCookie = useCallback((file: File) => {
+        return file.name.endsWith(".txt") || file.type === "text/plain";
+    }, []);
+
+    const { isDragging, handleDragEnter, handleDragLeave, handleDragOver, handleDrop } =
+        useDragAndDrop(doUpload, acceptCookie);
 
     const errorMsg = mutation.error ? t("uploadError") : null;
 
@@ -95,7 +146,11 @@ function CookiesUploadSection() {
                 className="flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-stone-100"
             >
                 <span className="flex items-center gap-2 text-sm font-medium text-stone-700">
-                    <span aria-hidden>🍪</span>
+                    {/* Cookie SVG icon */}
+                    <svg className="w-4 h-4 text-stone-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 3C7.03 3 3 7.03 3 12s4.03 9 9 9 9-4.03 9-9" />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M15 3.5A8.96 8.96 0 0121 9.5M9 9h.01M12 14h.01M15 11h.01" />
+                    </svg>
                     {t("sectionTitle")}
                 </span>
                 <div className="flex items-center gap-2">
@@ -128,9 +183,11 @@ function CookiesUploadSection() {
                     </p>
 
                     {/* Guide */}
-                    <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2.5 text-sm text-amber-800 leading-relaxed">
-                        <span className="font-medium">💡 </span>
-                        {t("guide")}
+                    <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2.5 text-sm text-amber-800 leading-relaxed flex gap-2">
+                        <svg className="w-4 h-4 mt-0.5 shrink-0 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 18h.01M12 2a10 10 0 100 20A10 10 0 0012 2zm0 14v-4m0-4V8" />
+                        </svg>
+                        <span>{t("guide")}</span>
                     </div>
 
                     {/* Current file info */}
@@ -140,18 +197,32 @@ function CookiesUploadSection() {
                         </p>
                     )}
 
-                    {/* File upload */}
-                    <div>
-                        <label className="block text-sm font-medium text-stone-700 mb-1.5">
-                            {t("labelFile")}
-                        </label>
+                    {/* DnD + click file upload zone */}
+                    <div
+                        onDragEnter={handleDragEnter}
+                        onDragLeave={handleDragLeave}
+                        onDragOver={handleDragOver}
+                        onDrop={handleDrop}
+                        onClick={() => fileInputRef.current?.click()}
+                        className={`flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed cursor-pointer py-6 px-4 transition-colors ${isDragging
+                            ? "border-blue-400 bg-blue-50"
+                            : "border-stone-300 bg-white hover:bg-stone-50 hover:border-stone-400"
+                            }`}
+                    >
+                        <svg className={`w-8 h-8 ${isDragging ? "text-blue-400" : "text-stone-400"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        <p className="text-sm text-stone-600">
+                            {isDragging ? "松开以上传" : t("labelFile")}
+                        </p>
+                        <p className="text-xs text-stone-400">拖拽或点击，支持 .txt 格式</p>
                         <input
                             ref={fileInputRef}
                             type="file"
                             accept=".txt"
                             onChange={handleFileChange}
                             disabled={mutation.isPending}
-                            className="block w-full text-sm text-stone-500 file:mr-3 file:rounded-lg file:border-0 file:bg-stone-800 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white hover:file:bg-stone-700 disabled:opacity-50"
+                            className="hidden"
                         />
                     </div>
 
@@ -283,28 +354,33 @@ function UrlForm() {
 
 function UploadForm() {
     const t = useTranslations("Ingest.uploadForm");
-    const tUrl = useTranslations("Ingest.urlForm"); // Reuse generic translations if needed
+    const tUrl = useTranslations("Ingest.urlForm");
     const locale = useLocale();
-
-    // Explicitly reusing options from urlForm
     const tOptions = useTranslations("Ingest.urlForm.options");
 
     const [file, setFile] = useState<File | null>(null);
     const [title, setTitle] = useState("");
     const [outputLanguage, setOutputLanguage] = useState(locale === "zh" ? "zh-Hans" : "en");
     const mutation = useCreateJobFromUpload();
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const validateAndSetFile = useCallback((f: File) => {
+        if (!f.type.startsWith("video/")) {
+            alert(t("selectFileError"));
+            return;
+        }
+        setFile(f);
+    }, [t]);
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const selectedFile = e.target.files?.[0];
-        if (selectedFile) {
-            // Check if it's a video file
-            if (!selectedFile.type.startsWith("video/")) {
-                alert(t("selectFileError"));
-                return;
-            }
-            setFile(selectedFile);
-        }
+        if (selectedFile) validateAndSetFile(selectedFile);
     };
+
+    const acceptVideo = useCallback((f: File) => f.type.startsWith("video/"), []);
+
+    const { isDragging, handleDragEnter, handleDragLeave, handleDragOver, handleDrop } =
+        useDragAndDrop(validateAndSetFile, acceptVideo);
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -323,23 +399,66 @@ function UploadForm() {
 
     return (
         <form onSubmit={handleSubmit} className="space-y-6">
+            {/* DnD Video Upload Zone */}
             <div className="space-y-2">
-                <label htmlFor="file" className="block text-sm font-medium text-stone-700">
+                <label className="block text-sm font-medium text-stone-700">
                     {t("labelFile")} <span className="text-red-500">*</span>
                 </label>
-                <div className="mt-2 rounded-lg border-2 border-dashed border-stone-200 bg-stone-50 px-6 py-10 transition-colors hover:bg-stone-100">
+                <div
+                    onDragEnter={handleDragEnter}
+                    onDragLeave={handleDragLeave}
+                    onDragOver={handleDragOver}
+                    onDrop={handleDrop}
+                    onClick={() => fileInputRef.current?.click()}
+                    className={`mt-2 flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed cursor-pointer px-6 py-12 transition-all ${isDragging
+                        ? "border-blue-400 bg-blue-50 scale-[1.01]"
+                        : file
+                            ? "border-green-300 bg-green-50"
+                            : "border-stone-200 bg-stone-50 hover:bg-stone-100 hover:border-stone-300"
+                        }`}
+                >
+                    {file ? (
+                        <>
+                            <div className="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center">
+                                <svg className="w-7 h-7 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                </svg>
+                            </div>
+                            <div className="text-center">
+                                <p className="text-sm font-semibold text-stone-800">{file.name}</p>
+                                <p className="text-xs text-stone-500 mt-0.5">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); setFile(null); if (fileInputRef.current) fileInputRef.current.value = ""; }}
+                                className="text-xs text-stone-400 hover:text-red-500 transition-colors"
+                            >
+                                更换文件
+                            </button>
+                        </>
+                    ) : (
+                        <>
+                            <div className={`w-14 h-14 rounded-full flex items-center justify-center ${isDragging ? "bg-blue-100" : "bg-stone-100"}`}>
+                                <svg className={`w-7 h-7 ${isDragging ? "text-blue-500" : "text-stone-400"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+                                </svg>
+                            </div>
+                            <div className="text-center">
+                                <p className="text-sm font-semibold text-stone-700">
+                                    {isDragging ? "松开以上传视频" : "拖拽视频到此处"}
+                                </p>
+                                <p className="text-xs text-stone-400 mt-1">支持 MP4、MKV、AVI 等常见格式，或点击选择</p>
+                            </div>
+                        </>
+                    )}
                     <input
+                        ref={fileInputRef}
                         type="file"
                         id="file"
                         accept="video/*"
                         onChange={handleFileChange}
-                        className="block w-full text-sm text-stone-500 file:mr-4 file:rounded-full file:border-0 file:bg-stone-800 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-stone-700"
+                        className="hidden"
                     />
-                    {file && (
-                        <p className="mt-4 text-sm font-medium text-stone-600">
-                            已选择: {file.name} ({(file.size / 1024 / 1024).toFixed(2)} MB)
-                        </p>
-                    )}
                 </div>
             </div>
 
@@ -394,7 +513,6 @@ function UploadForm() {
 }
 
 function getErrorMessage(error: unknown): string {
-    // Try to parse as error envelope
     if (error && typeof error === "object" && "error" in error) {
         const envelope = error as ApiErrorEnvelope;
         return envelope.error.message || "发生未知错误";

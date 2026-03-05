@@ -13,11 +13,12 @@ import type { UploadAssetResponse } from "./resultApi";
 
 /* ── Query hook ── */
 
-export function useLatestResult(projectId: string) {
+export function useLatestResult(projectId: string, options?: { enabled?: boolean }) {
     return useQuery({
         queryKey: queryKeys.result(projectId),
         queryFn: () => fetchLatestResult(projectId),
         retry: false,
+        enabled: options?.enabled ?? true,
     });
 }
 

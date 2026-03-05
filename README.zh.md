@@ -12,7 +12,7 @@
 
 ## ✨ 核心功能
 
-- **智能流水线分析**: 自动化处理视频下载、音频转录、内容提取与结构化分析。
+- **智能流水线分析**: 自动化处理视频下载、音频转录、内容提取与结构化分析。系统支持由 LLM 智能决策并利用 FFmpeg 截取关联关键帧，与重点摘要同步展示，使用户能够更直观地理解知识点。
 - **动态思维导图**: 生成可视化的知识结构图，支持缩放、拖拽与增删改。
 - **双向联动交互**:
     - **导图 -> 内容**: 点击导图节点，自动定位到对应的重点内容模块。
@@ -40,102 +40,147 @@
 
 ## 🚀 快速开始
 
-## ⬇️ 下载客户端 (Download Client)
+根据您的使用场景，选择以下**三种方式**之一：
 
-如果您不想配置本地开发环境，可以直接下载打包好的最新版本客户端开箱即用：
+---
+
+### 🖥️ 方式一：下载客户端
+
+无需任何环境配置，直接下载对应平台的安装包，开箱即用：
 
 | Windows | MacOS | Linux |
 | :---: | :---: | :---: |
 | <img src="https://simpleicons.org/icons/windows11.svg" width="36" height="36" alt="Windows" /> | <img src="https://simpleicons.org/icons/apple.svg" width="36" height="36" alt="macOS" /> | <img src="https://simpleicons.org/icons/linux.svg" width="36" height="36" alt="Linux" /> |
 | [Setup.exe](https://github.com/LDJ-creat/video-helper/releases/latest) | [dmg/zip](https://github.com/LDJ-creat/video-helper/releases/latest) | [AppImage](https://github.com/LDJ-creat/video-helper/releases/latest) |
 
-### 环境要求 (针对源码运行)
+---
 
-在此之前，请确保您的开发环境已安装以下工具：
+### 🐳 方式二：Docker 部署
 
-- **Node.js**: >= 20.x
-- **Python**: >= 3.12
-- **uv**: Python 包与项目管理器 (推荐安装: `curl -LsSf https://astral.sh/uv/install.sh | sh` 或 `pip install uv`)
-- **FFmpeg**: 用于音视频处理 (需配置到系统 PATH 环境变量中)
+适合希望快速在服务器上部署、无需本地开发环境的用户。
 
-### 🛠️ 安装与运行
+**1. 克隆项目**
 
-#### 1. 克隆项目
 ```bash
 git clone https://github.com/LDJ-creat/video-helper.git
 cd video-helper
 ```
 
-#### 2. 后端启动
-
-后端服务位于 `services/core` 目录。
+**2. 启动服务**
 
 ```bash
-# 进入后端目录
+docker compose up -d
+```
+
+**3. 访问**
+
+- Web 前端：http://localhost:3000
+- 后端 API：http://localhost:8000
+
+
+
+> 数据默认持久化到项目根目录的 `./data` 文件夹。
+
+
+**端口冲突（宿主机的 8000 或 3000 已被占用时）**
+
+如果遇到端口冲突问题，切换端口设置
+```bash
+# Linux / macOS
+CORE_HOST_PORT=8001 WEB_HOST_PORT=3001 docker compose up -d
+```
+
+```powershell
+# Windows (PowerShell)
+$env:CORE_HOST_PORT="8001"; $env:WEB_HOST_PORT="3001"; docker compose up -d
+```
+
+
+---
+
+### 🛠️ 方式三：源码构建（面向开发者）
+
+适合希望二次开发、修改源码或参与项目贡献的用户。
+
+**环境要求**
+
+- **Node.js** >= 20.x
+- **Python** >= 3.12
+- **uv**（Python 包管理器，安装：`pip install uv`）
+- **FFmpeg**（需配置到系统 PATH）
+
+#### 1. 克隆项目
+
+```bash
+git clone https://github.com/LDJ-creat/video-helper.git
+cd video-helper
+```
+
+#### 2. 启动后端
+
+```bash
 cd services/core
 
-# 首次运行将自动创建虚拟环境并安装依赖
-# 启动 API 服务 (默认端口: 8000)
+# 参考 .env.example 创建配置文件
+cp .env.example .env          # Linux/macOS
+Copy-Item .env.example .env   # Windows (PowerShell)
+
+# 首次运行自动创建虚拟环境并安装依赖，启动 API 服务（端口 8000）
 uv run python main.py
 ```
 
-> **注意**: 请确保在 `services/core` 目录下配置好 `.env` 文件（参考 `.env.example`）。
+常用命令：`uv run pytest -q`（运行测试）
 
-常见命令：
-- 运行测试: `uv run pytest -q`
-- 激活环境(手动): Windows: `.venv\Scripts\activate` | Linux/Mac: `.venv/bin/activate`
-
-#### 3. 前端启动
-
-前端应用位于 `apps/web` 目录。
+#### 3. 启动前端
 
 ```bash
-# 进入前端目录
 cd apps/web
-
-# 安装依赖
 pnpm install
 
-# 根据模板创建本地环境变量文件
-cp .env.example .env.local
+cp .env.example .env.local          # Linux/macOS
+Copy-Item .env.example .env.local   # Windows (PowerShell)
 
-# 启动开发服务器 (默认端口: 3000)
 pnpm run dev
 ```
 
-打开浏览器访问 [http://localhost:3000](http://localhost:3000) 即可看到 Web 端应用界面。
+打开浏览器访问 [http://localhost:3000](http://localhost:3000)。
 
-#### 4. 桌面端 (Electron) 启动与打包
+#### 4. 桌面端（Electron）启动与打包
 
-除了 Web 版之外，我们还可以直接编译运行具有原生能力的桌面端：
+**开发模式**（在项目根目录运行，自动拉起后端 + 前端 + Electron）：
 
-**开发模式启动**:
 ```bash
-# 在项目根目录下运行，此脚本会自动串联并拉起 Python 后端、Next.js 前端和 Electron 容器
 node apps/desktop/scripts/dev.js
 ```
 
-**测试桌面端打包**:
+**本地打包测试**：
+
 ```bash
 cd apps/desktop
-# 编译 TypeScript 并在本地目录生成解包文件 (不生成安装包)
 pnpm run pack
 ```
 
-**完整客户端离线安装包构建 (Windows)**:
+**构建完整安装包（仅 Windows）**：
+
 ```powershell
-# 在 PowerShell 中于项目根目录运行。此脚本将完成 Web 编译、后端 PyInstaller 打包、Electron NSIS 安装包的完整流程。
+# 在项目根目录的 PowerShell 中运行
 powershell -ExecutionPolicy Bypass -File apps\desktop\scripts\build-all.ps1
 ```
 
-#### 5. 作为 AI 编辑器 Skill 使用
+> 若需自行构建 Docker 镜像：
+> ```bash
+> docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+> ```
+
+
+## ⚡作为 AI 编辑器 Skill 使用
 
 除了常规独立部署，您还可以将本项目的后端服务作为 Skill 集成到 **Claude Code**, **Antigravity**, **GitHub Copilot** 等 AI 编辑器中使用。采用此模式，您**无需**在后端项目中配置 LLM（大模型选项），视频的 AI 分析推理将完全依靠您的 AI 编辑器所搭载的能力完成。
 
 使用指南：
-1. 下载本项目源码并启动后端服务（`services/core`）。
+1. 下载本项目源码或者客户端。
 2. 下载并安装配套的独立 Skill 项目：[video-helper-skill](https://github.com/LDJ-creat/video-helper-skill)。
-3. 参考该 skill 项目中的文档使用方式，即可在您的 AI 编辑器中对视频进行分析，最后仍可通过本项目的 Web 端或桌面端访问并查看生成的精美知识点和思维导图。
+3. 参考该 skill 项目中的文档使用方式，即可在您的 AI 编辑器中对视频进行分析，最后仍可通过本项目的 Web 端或桌面端访问并查看生成的知识点汇总和思维导图等内容。
 
 
 

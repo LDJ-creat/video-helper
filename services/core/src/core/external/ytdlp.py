@@ -117,6 +117,62 @@ def _apply_optional_network_args(cmd: list[str]) -> list[str]:
 	return out
 
 
+def _cookie_diagnostics() -> dict:
+	"""Return non-sensitive diagnostics about cookie configuration."""
+	cookies_file = _env_str("YTDLP_COOKIES_FILE")
+	cookies_from_browser = _env_str("YTDLP_COOKIES_FROM_BROWSER")
+	d: dict = {
+		"cookiesProvided": bool(cookies_file or cookies_from_browser),
+		"cookiesFromBrowser": bool(cookies_from_browser),
+		"cookiesFile": None,
+		"cookiesFileExists": None,
+		"cookiesFileBytes": None,
+	}
+	if cookies_file:
+		try:
+			p = Path(cookies_file).expanduser()
+			d["cookiesFile"] = p.name
+			d["cookiesFileExists"] = p.exists()
+			if p.exists():
+				d["cookiesFileBytes"] = int(p.stat().st_size)
+		except Exception:
+			# Leave as best-effort.
+			pass
+	return d
+
+
+def _apply_optional_js_runtime_args(cmd: list[str]) -> list[str]:
+	"""Optionally configure a JavaScript runtime for yt-dlp.
+
+	yt-dlp has a built-in JS interpreter (jsinterp) but falls back to an
+	external runtime for heavily obfuscated JavaScript (e.g. YouTube's player
+	signature decryption, bot-check bypass). Passing --js-runtimes to an
+	extractor that doesn't need it is harmless - the flag is silently ignored.
+
+	Priority:
+	1. Explicit YTDLP_JS_RUNTIMES env override (any value, including "none" to disable).
+	2. Auto-detect: use node if available on PATH.
+	"""
+	out: list[str] = list(cmd)
+	js_runtimes = _env_str("YTDLP_JS_RUNTIMES")
+	if not js_runtimes and shutil.which("node"):
+		js_runtimes = "node"
+	if js_runtimes:
+		out.extend(["--js-runtimes", js_runtimes])
+	return out
+
+
+def _apply_optional_extractor_args(cmd: list[str]) -> list[str]:
+	"""Optionally pass extractor args.
+
+	Useful for provider-specific CI hardening (e.g. YouTube player_client tweaks).
+	"""
+	extractor_args = _env_str("YTDLP_EXTRACTOR_ARGS")
+	if not extractor_args:
+		return list(cmd)
+	return [*cmd, "--extractor-args", extractor_args]
+
+
 def _resolve_ytdlp_runner() -> list[str] | None:
 	# IMPORTANT (PyInstaller): in frozen builds, sys.executable is the packaged
 	# app (e.g. backend.exe), not a Python interpreter. Running
@@ -215,6 +271,8 @@ def download_with_ytdlp(
 	output_template = output_dir / f"{base_filename}.%(ext)s"
 	cmd = runner + build_ytdlp_command(url=url, output_template=output_template)[1:]
 	cmd = _apply_optional_network_args(cmd)
+	cmd = _apply_optional_js_runtime_args(cmd)
+	cmd = _apply_optional_extractor_args(cmd)
 
 	try:
 		completed = subprocess.run(
@@ -260,6 +318,7 @@ def download_with_ytdlp(
 				"blocked": blocked,
 				"httpStatus": http_status,
 				"cookiesError": cookies_error,
+				**_cookie_diagnostics(),
 				"outputTail": _sanitize_output_tail(output),
 			},
 		)
@@ -321,6 +380,7 @@ def fetch_video_title(*, url: str, timeout_s: float = 15.0) -> str | None:
 		url,
 	]
 	cmd = _apply_optional_network_args(cmd)
+	cmd = _apply_optional_js_runtime_args(cmd)
 
 	try:
 		completed = subprocess.run(

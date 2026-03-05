@@ -4,6 +4,7 @@ node_modules/
 out/
 dist/
 .turbo/
+package-lock.json
 
 # Python
 __pycache__/
@@ -18,6 +19,9 @@ __pycache__/
 # Editor
 .vscode/
 
+# CI / local run artifacts
+_ci/
+
 # Data directory (keep placeholder files)
 data/**
 !data/.gitkeep
@@ -27,12 +31,13 @@ data/**
 
 
 #test
-www.bilibili.com_cookies.txt
+*_cookies.*
 # NOTE: Do NOT ignore all JSON globally. This repo contains essential JSON
 # config files (e.g. package.json, tsconfig.json) required for CI builds.
 *.sqlite3
 *.log
 build_log.txt
+CI_smoke_log/*
 
 # Ignore backend build artifacts (PyInstaller / packaging outputs)
 services/core/build/

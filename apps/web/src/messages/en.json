@@ -70,6 +70,7 @@
         "customModelDeleted": "Custom model deleted",
         "customProviderDeleted": "Custom provider deleted",
         "selectProvider": "Select this Provider",
+        "selectedProvider": "Selected",
         "selecting": "Setting...",
         "activeSetSuccess": "Set as current provider",
         "apiKeyRequiredToSelect": "Please configure API Key before selecting this provider",

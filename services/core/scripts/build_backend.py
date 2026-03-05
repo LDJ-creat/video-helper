@@ -81,6 +81,12 @@ def maybe_bundle_external_executables(resources_dir: Path) -> None:
     if not internal_dir.exists():
         return
 
+    # CI can provide relocatable ffmpeg/ffprobe builds under _ci/ffmpeg.
+    # Prefer these over system package-manager installs (e.g. Homebrew) because
+    # Homebrew ffmpeg is usually dynamically linked and may not be runnable after
+    # being copied into the app bundle.
+    ci_ffmpeg_dir = PROJECT_ROOT / "_ci" / "ffmpeg"
+
     exe_suffix = ".exe" if os.name == "nt" else ""
 
     # Common locations in virtualenv/conda setups.
@@ -115,6 +121,7 @@ def maybe_bundle_external_executables(resources_dir: Path) -> None:
             "ffmpeg",
             f"ffmpeg{exe_suffix}",
             [
+                ci_ffmpeg_dir / f"ffmpeg{exe_suffix}",
                 Path(shutil.which("ffmpeg") or ""),
                 *conda_candidates["ffmpeg"],
             ],
@@ -123,6 +130,7 @@ def maybe_bundle_external_executables(resources_dir: Path) -> None:
             "ffprobe",
             f"ffprobe{exe_suffix}",
             [
+                ci_ffmpeg_dir / f"ffprobe{exe_suffix}",
                 Path(shutil.which("ffprobe") or ""),
                 *conda_candidates["ffprobe"],
             ],
@@ -137,6 +145,16 @@ def maybe_bundle_external_executables(resources_dir: Path) -> None:
         dest = internal_dir / dest_name
         try:
             shutil.copy2(src, dest)
+            # Windows ffmpeg builds may depend on sibling DLLs (avcodec-*.dll, etc).
+            # Best-effort copy them alongside the executable.
+            if os.name == "nt" and tool_name in {"ffmpeg", "ffprobe"}:
+                try:
+                    for dll in src.parent.glob("*.dll"):
+                        target = internal_dir / dll.name
+                        if not target.exists():
+                            shutil.copy2(dll, target)
+                except Exception:
+                    pass
             if os.name != "nt":
                 try:
                     mode = dest.stat().st_mode

@@ -33,6 +33,29 @@ const LOOPBACK_HOST = '127.0.0.1';
 const isDev = process.env.NODE_ENV === 'development';
 const isDebug = process.env.VH_DEBUG === '1';
 
+// CI runners (especially macOS) may crash during Chromium GPU initialization.
+// Disable hardware acceleration early (must be before app.whenReady()).
+const shouldDisableGpu =
+    (process.env.CI || '').toLowerCase() === 'true' ||
+    process.env.VH_DISABLE_GPU === '1' ||
+    process.argv.includes('--disable-gpu');
+
+if (shouldDisableGpu) {
+    try {
+        app.disableHardwareAcceleration();
+        // Prefer software rendering paths.
+        app.commandLine.appendSwitch('disable-gpu');
+        app.commandLine.appendSwitch('disable-gpu-compositing');
+        // swiftshader is the most reliable fallback in headless CI.
+        app.commandLine.appendSwitch('use-gl', 'swiftshader');
+        // Reduce crashy surface area in CI.
+        app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
+        app.commandLine.appendSwitch('disable-gpu-sandbox');
+    } catch {
+        // ignore
+    }
+}
+
 // ─── userData Path (Production) ─────────────────────────────────────────────
 // Default userData on Windows is %APPDATA%/<appName>. Our package name is
 // "desktop" (not user-friendly). Use a stable, recognizable folder name.
@@ -591,7 +614,7 @@ ipcMain.handle('relaunch-app', () => {
 
 // ─── Auto Updater ─────────────────────────────────────────────────────────────
 function initAutoUpdater(): void {
-    if (isDev) {
+    if (isDev || isDebug || process.env.CI === 'true' || process.env.VH_DISABLE_UPDATER === '1') {
         safeLog('updater', 'Dev mode: skipping auto-update check');
         return;
     }

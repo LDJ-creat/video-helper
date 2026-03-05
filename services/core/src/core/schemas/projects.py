@@ -11,6 +11,7 @@ class ProjectDTO(BaseModel):
     sourceType: str
     updatedAtMs: int
     latestResultId: str | None
+    latestJobId: str | None = None
 
 
 class ProjectsPageDTO(BaseModel):

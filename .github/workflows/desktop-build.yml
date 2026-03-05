@@ -1,0 +1,434 @@
+name: desktop-build-release
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+
+    env:
+      BUILD_STANDALONE: "1"
+      # Next.js rewrites() destination is generated at build time in standalone mode.
+      # Desktop builds must explicitly proxy to the local backend.
+      API_BASE_URL: "http://127.0.0.1:8000"
+      NEXT_PUBLIC_API_BASE_URL: "http://127.0.0.1:8000"
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      # Avoid accidental auto-publish behavior in some environments.
+      ELECTRON_BUILDER_ALLOW_UNRESOLVED_DEPENDENCIES: "true"
+      # Cache Electron/Electron-Builder downloads inside the workspace so we can
+      # persist them via actions/cache across runs.
+      ELECTRON_CACHE: ${{ github.workspace }}/_ci/electron-cache
+      ELECTRON_BUILDER_CACHE: ${{ github.workspace }}/_ci/electron-builder-cache
+      # Some tools still look for GH_TOKEN even when publish is disabled.
+      GH_TOKEN: ${{ github.token }}
+      # Ensure Python uses UTF-8 where possible (Windows runners may default to legacy codepages).
+      PYTHONUTF8: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: "9"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Cache Electron downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            _ci/electron-cache
+            _ci/electron-builder-cache
+          key: ${{ runner.os }}-electron-${{ hashFiles('pnpm-lock.yaml', 'apps/desktop/package.json') }}
+
+      - name: Install Linux build deps
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg libfuse2 libarchive-tools imagemagick
+
+      - name: Download yt-dlp (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p _ci/ytdlp
+          curl -fsSL -o _ci/ytdlp/yt-dlp https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux
+          chmod +x _ci/ytdlp/yt-dlp
+          echo "$PWD/_ci/ytdlp" >> "$GITHUB_PATH"
+          _ci/ytdlp/yt-dlp --version
+
+      - name: Prepare Linux icon (>=256x256)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f apps/desktop/resources/icon.ico
+          convert apps/desktop/resources/icon.ico -resize 512x512 apps/desktop/resources/icon.png
+          identify apps/desktop/resources/icon.png
+
+      - name: Download ffmpeg (macOS, relocatable)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p _ci/ffmpeg
+          cd _ci/ffmpeg
+          # Use a standalone build to avoid Homebrew dylib dependencies when bundling into the app.
+          # Prefer GitHub release assets (darwin-arm64/x64) over third-party zip endpoints.
+
+          arch="$(uname -m)"
+          case "$arch" in
+            arm64|aarch64) gh_arch="arm64" ;;
+            x86_64) gh_arch="x64" ;;
+            *) echo "::error::Unsupported macOS arch: $arch"; exit 1 ;;
+          esac
+
+          base="https://github.com/eugeneware/ffmpeg-static/releases/latest/download"
+          ffmpeg_url="$base/ffmpeg-darwin-$gh_arch"
+          ffprobe_url="$base/ffprobe-darwin-$gh_arch"
+          echo "[ffmpeg] arch=$arch url=$ffmpeg_url"
+          echo "[ffprobe] arch=$arch url=$ffprobe_url"
+
+          curl -fsSL -L --retry 3 --retry-delay 2 -o ffmpeg "$ffmpeg_url"
+          curl -fsSL -L --retry 3 --retry-delay 2 -o ffprobe "$ffprobe_url"
+          chmod +x ffmpeg ffprobe
+
+          ls -la ffmpeg ffprobe
+          file ffmpeg ffprobe || true
+
+          echo "$PWD" >> "$GITHUB_PATH"
+          ./ffmpeg -version | head -n 1
+          ./ffprobe -version | head -n 1
+
+      - name: Download yt-dlp (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p _ci/ytdlp
+          curl -fsSL -o _ci/ytdlp/yt-dlp https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos
+          chmod +x _ci/ytdlp/yt-dlp
+          echo "$PWD/_ci/ytdlp" >> "$GITHUB_PATH"
+          _ci/ytdlp/yt-dlp --version
+
+      - name: Download Windows ffmpeg
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path .\_ci\ffmpeg | Out-Null
+          $zip = Join-Path $PWD "_ci\ffmpeg\ffmpeg.zip"
+          # gyan.dev provides stable Windows builds.
+          Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" -OutFile $zip
+          Expand-Archive -Path $zip -DestinationPath .\_ci\ffmpeg -Force
+          $ffmpegExe = Get-ChildItem -Path .\_ci\ffmpeg -Recurse -Filter ffmpeg.exe -File | Select-Object -First 1
+          if (-not $ffmpegExe) { throw "ffmpeg.exe not found after extraction" }
+          $bin = Split-Path -Parent $ffmpegExe.FullName
+
+          # Make it available in later steps.
+          "${bin}" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          # Also make it available within THIS step.
+          $env:Path = "${bin};$env:Path"
+
+          & $ffmpegExe.FullName -version
+
+      - name: Download yt-dlp (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path .\_ci\ytdlp | Out-Null
+          $exe = Join-Path $PWD "_ci\ytdlp\yt-dlp.exe"
+          Invoke-WebRequest -Uri "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" -OutFile $exe
+          # Make it available in later steps.
+          "$(Split-Path -Parent $exe)" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          # Also make it available within THIS step.
+          $env:Path = "$(Split-Path -Parent $exe);$env:Path"
+          & $exe --version
+
+      - name: Install Node dependencies (workspace)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Electron downloads can be flaky on CI; retry to reduce transient failures.
+          for attempt in 1 2 3; do
+            echo "pnpm install attempt ${attempt}/3"
+            if pnpm -r install --frozen-lockfile; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "pnpm install failed after 3 attempts" >&2
+              exit 1
+            fi
+            sleep $((attempt * 15))
+          done
+
+      - name: Build Electron main process
+        shell: bash
+        run: pnpm -C apps/desktop compile
+
+      - name: Build Next.js (standalone)
+        shell: bash
+        run: pnpm -C apps/web build
+
+      # Next standalone output + pnpm workspace can end up with a non-resolvable
+      # node_modules layout (only `.pnpm/` is present). Hydrate a classic
+      # node_modules in the standalone app directory so runtime `require()`
+      # works in packaged installers (e.g. styled-jsx).
+      - name: Hydrate Next standalone node_modules (npm)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd apps/web/.next/standalone/apps/web
+          npm config set progress false
+          # Ensure we don't keep a pnpm-style node_modules tree/symlinks from the standalone output.
+          rm -rf node_modules || true
+          npm install --omit=dev --omit=optional --no-package-lock --loglevel=error
+          standalone_dir="$PWD"
+          if [ "${RUNNER_OS:-}" = "Windows" ]; then
+            standalone_dir="$(pwd -W)"
+          fi
+          node "$GITHUB_WORKSPACE/scripts/ci/check-next-standalone-deps.mjs" "$standalone_dir"
+          # The root standalone node_modules is a pnpm virtual store only and is
+          # not used at runtime (server.js chdir's into apps/web). Remove it to
+          # avoid shipping a large, non-resolvable tree.
+          rm -rf ../../node_modules || true
+
+      - name: Package backend (PyInstaller)
+        shell: bash
+        run: |
+          cd services/core
+          uv run python scripts/build_backend.py
+
+      - name: Build Desktop installer (electron-builder)
+        if: runner.os != 'Linux'
+        shell: bash
+        run: pnpm -C apps/desktop exec -- electron-builder --publish=never
+
+      - name: Build Desktop installer (electron-builder) [Linux]
+        if: runner.os == 'Linux'
+        shell: bash
+        run: pnpm -C apps/desktop exec -- electron-builder --publish=never --config.linux.icon=resources/icon.png
+
+      - name: Build Desktop unpacked (electron-builder --dir)
+        if: runner.os != 'Linux'
+        shell: bash
+        run: pnpm -C apps/desktop exec -- electron-builder --dir --publish=never
+
+      - name: Build Desktop unpacked (electron-builder --dir) [Linux]
+        if: runner.os == 'Linux'
+        shell: bash
+        run: pnpm -C apps/desktop exec -- electron-builder --dir --publish=never --config.linux.icon=resources/icon.png
+
+      - name: Verify packaged frontend assets (unpacked)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = (Get-Location).Path
+          $webRoot = Join-Path $root 'apps/desktop/release/win-unpacked/resources/web/apps/web'
+          $serverJs = Join-Path $webRoot 'server.js'
+          $buildId = Join-Path $webRoot '.next/BUILD_ID'
+          $staticDir = Join-Path $webRoot '.next/static'
+          Write-Host "[verify-build] webRoot=$webRoot"
+          Write-Host "[verify-build] server.js exists=$([bool](Test-Path -LiteralPath $serverJs)) path=$serverJs"
+          Write-Host "[verify-build] BUILD_ID exists=$([bool](Test-Path -LiteralPath $buildId)) path=$buildId"
+          Write-Host "[verify-build] static exists=$([bool](Test-Path -LiteralPath $staticDir)) path=$staticDir"
+          if (Test-Path -LiteralPath $webRoot) {
+            $entries = Get-ChildItem -LiteralPath $webRoot | Select-Object -ExpandProperty Name
+            Write-Host "[verify-build] webRoot entries=$($entries -join ',')"
+          }
+          if (Test-Path -LiteralPath $buildId) {
+            $val = (Get-Content -LiteralPath $buildId -TotalCount 1)
+            Write-Host "[verify-build] BUILD_ID value=$val"
+          }
+          if (-not (Test-Path -LiteralPath $buildId) -or -not (Test-Path -LiteralPath $staticDir)) {
+            throw "Packaged frontend assets missing in unpacked build"
+          }
+
+      - name: Generate update metadata (latest*.yml)
+        shell: bash
+        run: node scripts/ci/generate-update-yml.mjs apps/desktop/release
+
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.os }}
+          if-no-files-found: error
+          # v4 defaults to excluding hidden files/dirs (e.g. `.next/**`).
+          # Our packaged Next runtime depends on `.next/BUILD_ID` and `.next/static`.
+          include-hidden-files: true
+          path: |
+            apps/desktop/release/**/*.exe
+            apps/desktop/release/**/*.exe.blockmap
+            apps/desktop/release/**/latest*.yml
+            apps/desktop/release/**/*.dmg
+            apps/desktop/release/**/*.zip
+            apps/desktop/release/**/*.AppImage
+            apps/desktop/release/**/*.tar.gz
+            apps/desktop/release/win-unpacked/**
+            apps/desktop/release/linux-unpacked/**
+            apps/desktop/release/mac*/**
+
+  smoke:
+    name: Smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    needs: build
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && github.base_ref == 'main' && github.head_ref == 'dev')
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+
+    env:
+      PYTHONUTF8: "1"
+      # Smoke input (URL)
+      SMOKE_SOURCE_TYPE: "bilibili"
+      SMOKE_URL: "https://b23.tv/279Yz1P"
+      # Optional: base64-encoded cookies.txt for yt-dlp (helps bypass YouTube bot checks).
+      # Provide as Actions secret `YTDLP_COOKIES_B64`.
+      SMOKE_YTDLP_COOKIES_B64: ${{ secrets.YTDLP_COOKIES_B64 }}
+      # Keep smoke stable/fast-ish.
+      TRANSCRIBE_MODEL_SIZE: "tiny"
+      TRANSCRIBE_DEVICE: "cpu"
+      TRANSCRIBE_COMPUTE_TYPE: "int8"
+      LLM_TIMEOUT_S: "180"
+      LLM_PREFLIGHT_TIMEOUT_S: "60"
+      LLM_MAX_ATTEMPTS: "3"
+      LLM_PLAN_MAX_SEGMENTS: "40"
+      LLM_PLAN_MAX_CHARS: "8000"
+      # LLM config must be provided via Actions secrets.
+      LLM_API_BASE: ${{ secrets.LLM_API_BASE }}
+      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+      LLM_MODEL: ${{ secrets.LLM_MODEL }}
+      LLM_API_KIND: ${{ secrets.LLM_API_KIND }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Setup Node.js (for yt-dlp JS runtime)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: desktop-${{ matrix.os }}
+          # upload-artifact may strip the common prefix (apps/desktop/release)
+          # so download directly into the expected release directory.
+          path: apps/desktop/release
+
+      - name: Verify packaged frontend assets (downloaded)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = (Get-Location).Path
+          $webRoot = Join-Path $root 'apps/desktop/release/win-unpacked/resources/web/apps/web'
+          $serverJs = Join-Path $webRoot 'server.js'
+          $buildId = Join-Path $webRoot '.next/BUILD_ID'
+          $staticDir = Join-Path $webRoot '.next/static'
+          Write-Host "[verify-dl] webRoot=$webRoot"
+          Write-Host "[verify-dl] server.js exists=$([bool](Test-Path -LiteralPath $serverJs)) path=$serverJs"
+          Write-Host "[verify-dl] BUILD_ID exists=$([bool](Test-Path -LiteralPath $buildId)) path=$buildId"
+          Write-Host "[verify-dl] static exists=$([bool](Test-Path -LiteralPath $staticDir)) path=$staticDir"
+          if (Test-Path -LiteralPath $webRoot) {
+            $entries = Get-ChildItem -LiteralPath $webRoot | Select-Object -ExpandProperty Name
+            Write-Host "[verify-dl] webRoot entries=$($entries -join ',')"
+          }
+          if (Test-Path -LiteralPath $buildId) {
+            $val = (Get-Content -LiteralPath $buildId -TotalCount 1)
+            Write-Host "[verify-dl] BUILD_ID value=$val"
+          }
+
+      - name: Install Linux runtime deps (xvfb)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          # Runtime deps for smoke run:
+          # - xvfb: headless Electron UI
+          # - ffmpeg: provides libav* shared libs required by packaged ffmpeg invocations
+          sudo apt-get install -y xvfb ffmpeg
+
+      - name: Smoke (Desktop + Backend closed-loop)
+        if: runner.os != 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/ci/smoke_desktop_closed_loop.py \
+            --source-type "$SMOKE_SOURCE_TYPE" \
+            --url "$SMOKE_URL" \
+            --timeout-sec 1800 \
+            --out "_ci/smoke/${{ matrix.os }}"
+
+      - name: Smoke (Desktop + Backend closed-loop) [Linux]
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          xvfb-run -a python scripts/ci/smoke_desktop_closed_loop.py \
+            --source-type "$SMOKE_SOURCE_TYPE" \
+            --url "$SMOKE_URL" \
+            --timeout-sec 1800 \
+            --out "_ci/smoke/${{ matrix.os }}"
+
+      - name: Sanitize smoke logs (remove cookies before upload)
+        if: always()
+        shell: pwsh
+        run: |
+          # Remove the cookies directory so auth tokens are never stored in artifacts.
+          $cookiesDir = "_ci/smoke/${{ matrix.os }}/data/cookies"
+          if (Test-Path $cookiesDir) {
+            Remove-Item -Recurse -Force $cookiesDir
+            Write-Host "Removed $cookiesDir"
+          } else {
+            Write-Host "No cookies dir found, nothing to remove"
+          }
+
+      - name: Upload smoke logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-${{ matrix.os }}
+          if-no-files-found: warn
+          path: |
+            _ci/smoke/${{ matrix.os }}/**
+            !_ci/smoke/${{ matrix.os }}/data/cookies/**

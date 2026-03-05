@@ -1,6 +1,6 @@
 {
     "name": "desktop",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "private": true,
     "description": "Video Helper Desktop Application",
     "repository": {
@@ -54,8 +54,17 @@
                 ]
             },
             {
-                "from": "../web/.next/standalone",
-                "to": "web",
+                "from": "../web/.next/standalone/apps/web",
+                "to": "web/apps/web",
+                "filter": [
+                    "**/*",
+                    "!**/.next",
+                    "!**/.next/**"
+                ]
+            },
+            {
+                "from": "../web/.next/standalone/apps/web/.next",
+                "to": "web/apps/web/.next",
                 "filter": [
                     "**/*"
                 ]
