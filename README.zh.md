@@ -38,6 +38,16 @@
     - **包管理**: [uv](https://github.com/astral-sh/uv)
     - **AI 流水线**: 集成 whisper (转录)、LLM (分析/总结)
 
+### 架构图
+
+![项目整体架构](docs/assets/overview.png)
+
+*图：项目整体架构。*
+
+![核心视频分析流](docs/assets/core-flow.png)
+
+*图：项目核心视频分析流程。*
+
 ## 🚀 快速开始
 
 根据您的使用场景，选择以下**三种方式**之一：
@@ -50,7 +60,7 @@
 
 | Windows | MacOS | Linux |
 | :---: | :---: | :---: |
-| <img src="https://simpleicons.org/icons/windows11.svg" width="36" height="36" alt="Windows" /> | <img src="https://simpleicons.org/icons/apple.svg" width="36" height="36" alt="macOS" /> | <img src="https://simpleicons.org/icons/linux.svg" width="36" height="36" alt="Linux" /> |
+| <img src="https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/windows.svg" width="36" height="36" alt="Windows" /> | <img src="https://simpleicons.org/icons/apple.svg" width="36" height="36" alt="macOS" /> | <img src="https://simpleicons.org/icons/linux.svg" width="36" height="36" alt="Linux" /> |
 | [Setup.exe](https://github.com/LDJ-creat/video-helper/releases/latest) | [dmg/zip](https://github.com/LDJ-creat/video-helper/releases/latest) | [AppImage](https://github.com/LDJ-creat/video-helper/releases/latest) |
 
 ---
