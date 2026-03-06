@@ -180,6 +180,10 @@ powershell -ExecutionPolicy Bypass -File apps\desktop\scripts\build-all.ps1
 4. **下载**：后台利用 `.blockmap` 进行差量下载（仅下载变化的数据块，体积远小于完整安装包）。
 5. **安装**：用户点击"立即重启安装"，应用退出并自动执行新版本安装程序完成升级。
 
+> [!NOTE]
+> `electron-updater` 的 `update-not-available` 事件回调里，`info.version` 表示“远端最新版本”（来自 `latest.yml`），
+> 并不是本地安装版本。排查版本号是否一致时，请以应用实际版本（例如 `app.getVersion()` / 安装包属性 / 应用内关于页）为准。
+
 | 事件 | 日志位置 |
 |------|---------|
 | 更新检测 / 下载进度 | `%APPDATA%\video-helper\logs\desktop.log` |
