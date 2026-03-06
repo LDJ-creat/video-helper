@@ -38,6 +38,16 @@ This project uses Monorepo architecture to manage frontend and backend, ensuring
     - **Package Management**: [uv](https://github.com/astral-sh/uv)
     - **AI Pipeline**: Integrates whisper (transcription), LLM (analysis/summarization)
 
+### Architecture diagrams
+
+![System architecture overview](docs/assets/overview.png)
+
+*Figure: System architecture overview.*
+
+![Core video analysis flow](docs/assets/core-flow.png)
+
+*Figure: Core video analysis flow.*
+
 ## 🚀 Getting Started
 
 Choose **one of three options** based on your use case:
