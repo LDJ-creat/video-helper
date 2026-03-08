@@ -22,14 +22,31 @@ import { useTranslations } from "next-intl";
 
 function JobProgress({ jobId, projectId }: { jobId: string; projectId: string }) {
     const router = useRouter();
+    const searchParams = useSearchParams();
     const queryClient = useQueryClient();
     const t = useTranslations("Results.progress");
+
+    const didNavigateRef = useRef(false);
+
+    const buildResultUrl = useCallback(() => {
+        const params = new URLSearchParams(searchParams?.toString() || "");
+        params.delete("jobId");
+        const qs = params.toString();
+        return qs ? `/projects/${projectId}/results?${qs}` : `/projects/${projectId}/results`;
+    }, [projectId, searchParams]);
+
+    const navigateToResult = useCallback(() => {
+        if (didNavigateRef.current) return;
+        didNavigateRef.current = true;
+        queryClient.invalidateQueries({ queryKey: queryKeys.result(projectId) });
+        router.replace(buildResultUrl(), { scroll: false });
+    }, [buildResultUrl, projectId, queryClient, router]);
 
     const { connectionMode } = useJobSse({
         jobId,
         onEvent: (event) => {
             if (event.type === "state" && event.stage === "assemble_result" && event.message === "status=succeeded") {
-                queryClient.invalidateQueries({ queryKey: queryKeys.result(projectId) });
+                navigateToResult();
             }
         }
     });
@@ -41,9 +58,9 @@ function JobProgress({ jobId, projectId }: { jobId: string; projectId: string })
     // Auto-refresh result when job succeeds via polling (backup to SSE)
     useEffect(() => {
         if (job?.status === "succeeded") {
-            queryClient.invalidateQueries({ queryKey: queryKeys.result(projectId) });
+            navigateToResult();
         }
-    }, [job?.status, projectId, queryClient]);
+    }, [job?.status, navigateToResult]);
 
     const progressPercent = Math.round((job?.progress || 0) * 100);
     const statusMessage = job?.stage ? t("processing", { stage: job.stage }) : t("preparing");
@@ -151,23 +168,23 @@ export default function ResultPage() {
     const playerContainerRef = useRef<HTMLDivElement>(null);
     const [videoElement, setVideoElement] = useState<HTMLVideoElement | null>(null);
 
+    const videoPlayerCallbackRef = useCallback((instance: VideoPlayerRef | null) => {
+        videoPlayerRef.current = instance;
+        const element = instance?.getVideoElement() ?? null;
+        setVideoElement((prev) => (prev === element ? prev : element));
+    }, []);
+
     // State
     const [isFloatingVisible, setIsFloatingVisible] = useState(false);
     const [isDismissed, setIsDismissed] = useState(false); // Track if user dismissed the floating player
-    const [activeTab, setActiveTab] = useState<"mindmap" | "chat" | "exercises">("mindmap");
-
-    // Sync activeTab from URL on initial load or change
-    useEffect(() => {
-        const tab = searchParams?.get("tab");
-        if (tab === "chat" || tab === "exercises" || tab === "mindmap") {
-            setActiveTab(tab);
-        }
-    }, [searchParams]);
+    const activeTabParam = searchParams?.get("tab");
+    const activeTab: "mindmap" | "chat" | "exercises" =
+        activeTabParam === "chat" || activeTabParam === "exercises" || activeTabParam === "mindmap"
+            ? activeTabParam
+            : "mindmap";
 
     // Handle Tab change with URL updates
     const handleTabChange = (tab: "mindmap" | "chat" | "exercises") => {
-        setActiveTab(tab);
-
         // Update URL
         const params = new URLSearchParams(searchParams?.toString() || "");
         params.set("tab", tab);
@@ -210,14 +227,6 @@ export default function ResultPage() {
         // Cleanup when component unmounts or element changes
         return () => observer.disconnect();
     }, [isDismissed]); // Re-run when isDismissed changes
-
-    // Get video element reference
-    useEffect(() => {
-        const video = videoPlayerRef.current?.getVideoElement();
-        if (video) {
-            setVideoElement(video);
-        }
-    }, [result]);
 
     // Handle seek
     const handleSeek = (timeMs: number) => {
@@ -319,7 +328,7 @@ export default function ResultPage() {
                             className={`shrink-0 bg-black rounded-xl overflow-hidden shadow-lg border border-stone-800 transition-opacity duration-300 ${isFloatingVisible ? 'opacity-20 pointer-events-none grayscale' : 'opacity-100'}`}
                         >
                             <VideoPlayer
-                                ref={videoPlayerRef}
+                                ref={videoPlayerCallbackRef}
                                 src={videoSrc}
                             />
                         </div>
