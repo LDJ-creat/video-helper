@@ -18,6 +18,7 @@ import { useEffect, useRef, useState, useCallback, useImperativeHandle, forwardR
 import { useTranslations } from "next-intl";
 import { ContentBlock, Highlight, Keyframe } from "@/lib/contracts/resultTypes";
 import { useSaveContentBlocks, useUploadAsset } from "@/lib/api/resultQueries";
+import { TextSelection } from "@tiptap/pm/state";
 
 const AUTOSAVE_DELAY_MS = 2000;
 
@@ -107,13 +108,18 @@ const NavigationExtension = Extension.create({
 /* ── React Node Views ── */
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const HeadingBlock = ({ node, editor }: { node: any, editor: any }) => {
+const HeadingBlock = ({ node, editor, HTMLAttributes }: { node: any, editor: any, HTMLAttributes: any }) => {
     const t = useTranslations("Notes");
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const hasTime = (node as any).attrs.startMs !== null && (node as any).attrs.startMs !== undefined;
+    const blockId = node?.attrs?.blockId as string | null | undefined;
 
     return (
-        <NodeViewWrapper className="flex items-baseline gap-3 group -ml-12 pl-1 transition-colors rounded-lg hover:bg-stone-50/50 mt-8 scroll-mt-24">
+        <NodeViewWrapper
+            {...HTMLAttributes}
+            data-block-id={blockId ?? undefined}
+            className={`flex items-baseline gap-3 group -ml-12 pl-1 transition-colors rounded-lg hover:bg-stone-50/50 mt-8 scroll-mt-24 ${HTMLAttributes?.class ?? ''}`.trim()}
+        >
             <div
                 contentEditable={false}
                 className={`flex-shrink-0 w-[60px] flex justify-center items-center h-7 ${hasTime ? 'cursor-pointer' : 'pointer-events-none'}`}
@@ -131,7 +137,7 @@ const HeadingBlock = ({ node, editor }: { node: any, editor: any }) => {
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const ParagraphBlock = ({ node, updateAttributes, editor, getPos }: { node: any, updateAttributes: any, editor: any, getPos: any }) => {
+const ParagraphBlock = ({ node, updateAttributes, editor, getPos, HTMLAttributes }: { node: any, updateAttributes: any, editor: any, getPos: any, HTMLAttributes: any }) => {
     const t = useTranslations("Notes");
     // Calculate highlight index within current block (top-level nodes only)
     const highlightIndex = (() => {
@@ -158,6 +164,7 @@ const ParagraphBlock = ({ node, updateAttributes, editor, getPos }: { node: any,
     })();
     const hasTime = node.attrs.timeMs !== null && node.attrs.timeMs !== undefined;
     const keyframes = (node.attrs.keyframes || []) as Keyframe[];
+    const highlightId = node?.attrs?.highlightId as string | null | undefined;
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [zoomedImage, setZoomedImage] = useState<string | null>(null);
 
@@ -189,7 +196,11 @@ const ParagraphBlock = ({ node, updateAttributes, editor, getPos }: { node: any,
 
     return (
         <>
-            <NodeViewWrapper className="flex items-start gap-3 2xl:gap-5 group -ml-12 2xl:-ml-16 pl-1 transition-colors rounded-lg hover:bg-stone-50/50 mb-6 relative scroll-mt-24">
+            <NodeViewWrapper
+                {...HTMLAttributes}
+                data-highlight-id={highlightId ?? undefined}
+                className={`flex items-start gap-3 2xl:gap-5 group -ml-12 2xl:-ml-16 pl-1 transition-colors rounded-lg hover:bg-stone-50/50 mb-6 relative scroll-mt-24 ${HTMLAttributes?.class ?? ''}`.trim()}
+            >
                 <input
                     type="file"
                     multiple
@@ -236,6 +247,8 @@ const ParagraphBlock = ({ node, updateAttributes, editor, getPos }: { node: any,
                                     <img
                                         src={kf.contentUrl}
                                         alt={t("keyframe")}
+                                        loading="lazy"
+                                        decoding="async"
                                         className="rounded-lg border border-stone-200 shadow-sm w-full h-auto object-cover bg-stone-50 cursor-zoom-in hover:opacity-95 transition-opacity"
                                         draggable={false}
                                         onClick={() => setZoomedImage(kf.contentUrl)}
@@ -391,6 +404,35 @@ export const NoteEditor = forwardRef<NoteEditorRef, NoteEditorProps>(({
 
     const saveHandlerRef = useRef<(() => Promise<void>) | undefined>(undefined);
 
+    const scrollAnimFrameRef = useRef<number | null>(null);
+
+    const animateScrollTop = useCallback((container: HTMLElement, targetTop: number, durationMs = 420) => {
+        // Prefer native smooth scrolling (usually smoother + less main-thread work).
+        // Keep the same function signature so callers don't change.
+        if (scrollAnimFrameRef.current !== null) {
+            cancelAnimationFrame(scrollAnimFrameRef.current);
+            scrollAnimFrameRef.current = null;
+        }
+
+        const reducedMotion = typeof window !== 'undefined'
+            && window.matchMedia
+            && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+        const maxTop = container.scrollHeight - container.clientHeight;
+        const clampedTarget = Math.max(0, Math.min(targetTop, Math.max(0, maxTop)));
+
+        if (reducedMotion || durationMs <= 0 || Math.abs(clampedTarget - container.scrollTop) < 2) {
+            container.scrollTop = clampedTarget;
+            return;
+        }
+
+        try {
+            container.scrollTo({ top: clampedTarget, behavior: 'smooth' });
+        } catch {
+            container.scrollTop = clampedTarget;
+        }
+    }, []);
+
     const UploadExtension = Extension.create({
         name: 'uploadKeyframes',
         addCommands() {
@@ -497,6 +539,17 @@ export const NoteEditor = forwardRef<NoteEditorRef, NoteEditorProps>(({
         },
     });
 
+    const setSelectionWithoutScrolling = useCallback((pos: number) => {
+        if (!editor) return;
+        try {
+            const tr = editor.state.tr.setSelection(TextSelection.create(editor.state.doc, pos));
+            // Don't call tr.scrollIntoView() — avoids ProseMirror instant scroll.
+            editor.view.dispatch(tr);
+        } catch {
+            // ignore
+        }
+    }, [editor]);
+
     const handleSave = useCallback(async () => {
         if (!editor || !hasPendingChangesRef.current) return;
 
@@ -538,32 +591,128 @@ export const NoteEditor = forwardRef<NoteEditorRef, NoteEditorProps>(({
     useImperativeHandle(ref, () => ({
         scrollToBlock: (blockId: string) => {
             if (!editor) return;
+            const element = document.querySelector(`[data-block-id="${blockId}"]`) as HTMLElement;
+            const getContainer = (targetEl: HTMLElement) => (
+                (targetEl.closest('.overflow-y-auto') as HTMLElement | null)
+                ?? (document.scrollingElement as HTMLElement | null)
+            );
+
+            const computeDesiredTop = (targetEl: HTMLElement, container: HTMLElement, block: ScrollLogicalPosition) => {
+                const topPos = targetEl.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop;
+                if (block === 'center') {
+                    return topPos - (container.clientHeight / 2) + (targetEl.clientHeight / 2);
+                }
+
+                const scrollMarginTop = Number.parseFloat(getComputedStyle(targetEl).scrollMarginTop || '0') || 0;
+                return topPos - scrollMarginTop - 12;
+            };
+
+            const scrollElementIntoView = (targetEl: HTMLElement, block: ScrollLogicalPosition, durationMs?: number) => {
+                const container = getContainer(targetEl);
+                if (container) {
+                    const desiredTop = computeDesiredTop(targetEl, container, block);
+                    if (Math.abs(container.scrollTop - desiredTop) > 8) {
+                        animateScrollTop(container, desiredTop, durationMs);
+                    }
+                } else {
+                    targetEl.scrollIntoView({ behavior: 'smooth', block });
+                }
+            };
+
             let pos = -1;
             editor.state.doc.descendants((node, position) => {
-                if (node.attrs.blockId === blockId) {
-                    pos = position;
-                    return false;
-                }
+                if (node.attrs?.blockId === blockId) { pos = position; return false; }
             });
+
+            // Resolve target element AFTER we know pos, to avoid double-scroll.
+            let targetEl: HTMLElement | null = element || null;
+            if (!targetEl && pos >= 0) {
+                try {
+                    const domAtPos = editor.view.domAtPos(pos);
+                    const domNode = domAtPos.node;
+                    targetEl = (domNode.nodeType === Node.TEXT_NODE ? domNode.parentElement : domNode) as HTMLElement | null;
+                } catch {
+                    targetEl = null;
+                }
+            }
+
+            if (targetEl) {
+                scrollElementIntoView(targetEl, 'start');
+            }
+
             if (pos >= 0) {
-                const dom = editor.view.domAtPos(pos).node as HTMLElement;
-                dom.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                editor.commands.setTextSelection(pos);
+                // Apply selection on next frame without focusing to avoid hard scroll.
+                requestAnimationFrame(() => setSelectionWithoutScrolling(pos));
+
+                // Layout-shift correction (e.g., images above load later)
+                const correct = (delayMs: number) => {
+                    window.setTimeout(() => {
+                        const liveEl = (document.querySelector(`[data-block-id="${blockId}"]`) as HTMLElement | null) || targetEl;
+                        if (!liveEl) return;
+                        scrollElementIntoView(liveEl, 'start', 240);
+                    }, delayMs);
+                };
+                correct(180);
+                correct(700);
             }
         },
         scrollToHighlight: (highlightId: string) => {
             if (!editor) return;
+            const element = document.querySelector(`[data-highlight-id="${highlightId}"]`) as HTMLElement;
+            const getContainer = (targetEl: HTMLElement) => (
+                (targetEl.closest('.overflow-y-auto') as HTMLElement | null)
+                ?? (document.scrollingElement as HTMLElement | null)
+            );
+
+            const computeDesiredTop = (targetEl: HTMLElement, container: HTMLElement) => {
+                const topPos = targetEl.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop;
+                return topPos - (container.clientHeight / 2) + (targetEl.clientHeight / 2);
+            };
+
+            const scrollElementIntoView = (targetEl: HTMLElement, durationMs?: number) => {
+                const container = getContainer(targetEl);
+                if (container) {
+                    const desiredTop = computeDesiredTop(targetEl, container);
+                    if (Math.abs(container.scrollTop - desiredTop) > 8) {
+                        animateScrollTop(container, desiredTop, durationMs);
+                    }
+                } else {
+                    targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            };
+
             let pos = -1;
             editor.state.doc.descendants((node, position) => {
-                if (node.attrs.highlightId === highlightId) {
-                    pos = position;
-                    return false;
-                }
+                if (node.attrs?.highlightId === highlightId) { pos = position; return false; }
             });
+
+            let targetEl: HTMLElement | null = element || null;
+            if (!targetEl && pos >= 0) {
+                try {
+                    const domAtPos = editor.view.domAtPos(pos);
+                    const domNode = domAtPos.node;
+                    targetEl = (domNode.nodeType === Node.TEXT_NODE ? domNode.parentElement : domNode) as HTMLElement | null;
+                } catch {
+                    targetEl = null;
+                }
+            }
+
+            if (targetEl) {
+                scrollElementIntoView(targetEl);
+            }
+
             if (pos >= 0) {
-                const dom = editor.view.domAtPos(pos).node as HTMLElement;
-                dom.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                editor.commands.setTextSelection(pos);
+                requestAnimationFrame(() => setSelectionWithoutScrolling(pos));
+
+                const correct = (delayMs: number) => {
+                    window.setTimeout(() => {
+                        const liveEl = (document.querySelector(`[data-highlight-id="${highlightId}"]`) as HTMLElement | null) || targetEl;
+                        if (!liveEl) return;
+                        scrollElementIntoView(liveEl, 240);
+                    }, delayMs);
+                };
+                correct(180);
+                correct(700);
             }
         },
     }));
