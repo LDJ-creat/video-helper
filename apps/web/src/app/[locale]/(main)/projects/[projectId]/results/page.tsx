@@ -320,8 +320,8 @@ export default function ResultPage() {
                         </div>
                     </div>
 
-                    {/* Right Pane: Video + Note - Natural Scroll */}
-                    <div className="flex flex-col space-y-6">
+                    {/* Right Pane: Video + Note - Independent Scroll */}
+                    <div className="flex flex-col space-y-6 lg:sticky lg:top-6 lg:h-[calc(100vh-3rem)] overflow-y-auto pb-10 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
                         {/* Video Player Container */}
                         <div
                             ref={playerContainerCallbackRef}
@@ -334,7 +334,7 @@ export default function ResultPage() {
                         </div>
 
                         {/* Note Editor */}
-                        <div className="bg-white rounded-xl border border-stone-200 shadow-sm flex-1 flex flex-col">
+                        <div className="bg-white rounded-xl border border-stone-200 shadow-sm flex-none flex flex-col">
                             <NoteEditor
                                 ref={noteEditorRef}
                                 projectId={projectId}

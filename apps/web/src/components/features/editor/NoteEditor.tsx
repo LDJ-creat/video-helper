@@ -110,7 +110,7 @@ const HeadingBlock = ({ node, editor }: { node: any, editor: any }) => {
     const hasTime = node.attrs.startMs !== null && node.attrs.startMs !== undefined;
 
     return (
-        <NodeViewWrapper className="flex items-baseline gap-3 group -ml-12 pl-1 transition-colors rounded-lg hover:bg-stone-50/50 mt-8">
+        <NodeViewWrapper className="flex items-baseline gap-3 group -ml-12 pl-1 transition-colors rounded-lg hover:bg-stone-50/50 mt-8 scroll-mt-24">
             <div
                 contentEditable={false}
                 className={`flex-shrink-0 w-[60px] flex justify-center items-center h-7 ${hasTime ? 'cursor-pointer' : 'pointer-events-none'}`}
@@ -185,7 +185,7 @@ const ParagraphBlock = ({ node, updateAttributes, editor, getPos }: { node: any,
 
     return (
         <>
-            <NodeViewWrapper className="flex items-start gap-3 group -ml-12 pl-1 transition-colors rounded-lg hover:bg-stone-50/50 mb-6 relative">
+            <NodeViewWrapper className="flex items-start gap-3 group -ml-12 pl-1 transition-colors rounded-lg hover:bg-stone-50/50 mb-6 relative scroll-mt-24">
                 <input
                     type="file"
                     multiple
@@ -570,7 +570,7 @@ export const NoteEditor = forwardRef<NoteEditorRef, NoteEditorProps>(({
     if (!editor) return <div>{t("loading")}</div>;
 
     return (
-        <div className="flex flex-col h-full bg-white relative rounded-xl">
+        <div className="flex flex-col bg-white relative rounded-xl">
             <div className="flex items-center justify-between border-b border-stone-100 px-4 py-3 bg-white sticky top-0 z-10 rounded-t-xl">
                 <div className="text-sm font-medium text-stone-600">
                     {t("editorTitle")} ({editor.storage.characterCount?.words?.() || 0} {t("words")})
@@ -581,7 +581,7 @@ export const NoteEditor = forwardRef<NoteEditorRef, NoteEditorProps>(({
                     {saveStatus === "error" && <span className="text-rose-600">{t("saveFailed")}</span>}
                 </div>
             </div>
-            <div className="flex-1 overflow-y-auto">
+            <div className="flex-1">
                 <EditorContent editor={editor} />
             </div>
         </div>

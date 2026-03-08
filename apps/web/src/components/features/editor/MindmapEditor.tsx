@@ -168,6 +168,7 @@ export function MindmapEditor({
     const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
     const t = useTranslations("Mindmap");
     const saveTimerRef = useRef<NodeJS.Timeout | null>(null);
+    const clickTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const hasPendingChangesRef = useRef(false);
     const router = useRouter();
 
@@ -371,13 +372,24 @@ export function MindmapEditor({
         });
     }, []);
 
-    // ✅ UPDATED: Handle click to navigate
+    // ✅ UPDATED: Handle click to navigate with timeout to prevent navigation on double click
     const onNodeClick: NodeMouseHandler = useCallback((event, node) => {
-        setSelectedNodeId(node.id);
-        if (node.data?.targetBlockId && onNodeNavigation) {
-            onNodeNavigation(node.data.targetBlockId, node.data.targetHighlightId || undefined);
+        if (clickTimeoutRef.current) {
+            clearTimeout(clickTimeoutRef.current);
         }
+        clickTimeoutRef.current = setTimeout(() => {
+            setSelectedNodeId(node.id);
+            if (node.data?.targetBlockId && onNodeNavigation) {
+                onNodeNavigation(node.data.targetBlockId, node.data.targetHighlightId || undefined);
+            }
+        }, 250);
     }, [onNodeNavigation]);
+
+    const onNodeDoubleClick: NodeMouseHandler = useCallback((event, node) => {
+        if (clickTimeoutRef.current) {
+            clearTimeout(clickTimeoutRef.current);
+        }
+    }, []);
 
     const onPaneClick = useCallback(() => {
         setContextMenu(null);
@@ -534,6 +546,7 @@ export function MindmapEditor({
                     onConnect={onConnect}
                     onNodeContextMenu={onNodeContextMenu}
                     onNodeClick={onNodeClick}
+                    onNodeDoubleClick={onNodeDoubleClick}
                     onPaneClick={onPaneClick}
                     nodeTypes={nodeTypes}
                     fitView
