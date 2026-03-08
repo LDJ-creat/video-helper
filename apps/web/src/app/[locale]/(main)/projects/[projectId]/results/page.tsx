@@ -22,14 +22,31 @@ import { useTranslations } from "next-intl";
 
 function JobProgress({ jobId, projectId }: { jobId: string; projectId: string }) {
     const router = useRouter();
+    const searchParams = useSearchParams();
     const queryClient = useQueryClient();
     const t = useTranslations("Results.progress");
+
+    const didNavigateRef = useRef(false);
+
+    const buildResultUrl = useCallback(() => {
+        const params = new URLSearchParams(searchParams?.toString() || "");
+        params.delete("jobId");
+        const qs = params.toString();
+        return qs ? `/projects/${projectId}/results?${qs}` : `/projects/${projectId}/results`;
+    }, [projectId, searchParams]);
+
+    const navigateToResult = useCallback(() => {
+        if (didNavigateRef.current) return;
+        didNavigateRef.current = true;
+        queryClient.invalidateQueries({ queryKey: queryKeys.result(projectId) });
+        router.replace(buildResultUrl(), { scroll: false });
+    }, [buildResultUrl, projectId, queryClient, router]);
 
     const { connectionMode } = useJobSse({
         jobId,
         onEvent: (event) => {
             if (event.type === "state" && event.stage === "assemble_result" && event.message === "status=succeeded") {
-                queryClient.invalidateQueries({ queryKey: queryKeys.result(projectId) });
+                navigateToResult();
             }
         }
     });
@@ -41,9 +58,9 @@ function JobProgress({ jobId, projectId }: { jobId: string; projectId: string })
     // Auto-refresh result when job succeeds via polling (backup to SSE)
     useEffect(() => {
         if (job?.status === "succeeded") {
-            queryClient.invalidateQueries({ queryKey: queryKeys.result(projectId) });
+            navigateToResult();
         }
-    }, [job?.status, projectId, queryClient]);
+    }, [job?.status, navigateToResult]);
 
     const progressPercent = Math.round((job?.progress || 0) * 100);
     const statusMessage = job?.stage ? t("processing", { stage: job.stage }) : t("preparing");
@@ -151,23 +168,23 @@ export default function ResultPage() {
     const playerContainerRef = useRef<HTMLDivElement>(null);
     const [videoElement, setVideoElement] = useState<HTMLVideoElement | null>(null);
 
+    const videoPlayerCallbackRef = useCallback((instance: VideoPlayerRef | null) => {
+        videoPlayerRef.current = instance;
+        const element = instance?.getVideoElement() ?? null;
+        setVideoElement((prev) => (prev === element ? prev : element));
+    }, []);
+
     // State
     const [isFloatingVisible, setIsFloatingVisible] = useState(false);
     const [isDismissed, setIsDismissed] = useState(false); // Track if user dismissed the floating player
-    const [activeTab, setActiveTab] = useState<"mindmap" | "chat" | "exercises">("mindmap");
-
-    // Sync activeTab from URL on initial load or change
-    useEffect(() => {
-        const tab = searchParams?.get("tab");
-        if (tab === "chat" || tab === "exercises" || tab === "mindmap") {
-            setActiveTab(tab);
-        }
-    }, [searchParams]);
+    const activeTabParam = searchParams?.get("tab");
+    const activeTab: "mindmap" | "chat" | "exercises" =
+        activeTabParam === "chat" || activeTabParam === "exercises" || activeTabParam === "mindmap"
+            ? activeTabParam
+            : "mindmap";
 
     // Handle Tab change with URL updates
     const handleTabChange = (tab: "mindmap" | "chat" | "exercises") => {
-        setActiveTab(tab);
-
         // Update URL
         const params = new URLSearchParams(searchParams?.toString() || "");
         params.set("tab", tab);
@@ -210,14 +227,6 @@ export default function ResultPage() {
         // Cleanup when component unmounts or element changes
         return () => observer.disconnect();
     }, [isDismissed]); // Re-run when isDismissed changes
-
-    // Get video element reference
-    useEffect(() => {
-        const video = videoPlayerRef.current?.getVideoElement();
-        if (video) {
-            setVideoElement(video);
-        }
-    }, [result]);
 
     // Handle seek
     const handleSeek = (timeMs: number) => {
@@ -264,32 +273,32 @@ export default function ResultPage() {
                         <div className="flex border-b border-stone-200 bg-stone-50/50">
                             <button
                                 onClick={() => handleTabChange("mindmap")}
-                                className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 border-b-2 transition-colors ${activeTab === "mindmap"
+                                className={`flex-1 py-3 2xl:py-5 text-sm 2xl:text-xl font-medium flex items-center justify-center gap-2 2xl:gap-4 border-b-2 transition-colors ${activeTab === "mindmap"
                                     ? "border-orange-500 text-orange-700 bg-white"
                                     : "border-transparent text-stone-600 hover:text-stone-900 hover:bg-stone-100"
                                     }`}
                             >
-                                <BrainCircuit size={16} />
+                                <BrainCircuit className="w-4 h-4 2xl:w-6 2xl:h-6" />
                                 {t("tabs.mindmap")}
                             </button>
                             <button
                                 onClick={() => handleTabChange("chat")}
-                                className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 border-b-2 transition-colors ${activeTab === "chat"
+                                className={`flex-1 py-3 2xl:py-5 text-sm 2xl:text-xl font-medium flex items-center justify-center gap-2 2xl:gap-4 border-b-2 transition-colors ${activeTab === "chat"
                                     ? "border-orange-500 text-orange-700 bg-white"
                                     : "border-transparent text-stone-600 hover:text-stone-900 hover:bg-stone-100"
                                     }`}
                             >
-                                <MessageSquare size={16} />
+                                <MessageSquare className="w-4 h-4 2xl:w-6 2xl:h-6" />
                                 {t("tabs.chat")}
                             </button>
                             <button
                                 onClick={() => handleTabChange("exercises")}
-                                className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 border-b-2 transition-colors ${activeTab === "exercises"
+                                className={`flex-1 py-3 2xl:py-5 text-sm 2xl:text-xl font-medium flex items-center justify-center gap-2 2xl:gap-4 border-b-2 transition-colors ${activeTab === "exercises"
                                     ? "border-orange-500 text-orange-700 bg-white"
                                     : "border-transparent text-stone-600 hover:text-stone-900 hover:bg-stone-100"
                                     }`}
                             >
-                                <Layout size={16} />
+                                <Layout className="w-4 h-4 2xl:w-6 2xl:h-6" />
                                 {t("tabs.exercises")}
                             </button>
                         </div>
@@ -311,21 +320,21 @@ export default function ResultPage() {
                         </div>
                     </div>
 
-                    {/* Right Pane: Video + Note - Natural Scroll */}
-                    <div className="flex flex-col space-y-6">
+                    {/* Right Pane: Video + Note - Independent Scroll */}
+                    <div className="flex flex-col space-y-6 lg:sticky lg:top-6 lg:h-[calc(100vh-3rem)] overflow-y-auto pb-10 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
                         {/* Video Player Container */}
                         <div
                             ref={playerContainerCallbackRef}
                             className={`shrink-0 bg-black rounded-xl overflow-hidden shadow-lg border border-stone-800 transition-opacity duration-300 ${isFloatingVisible ? 'opacity-20 pointer-events-none grayscale' : 'opacity-100'}`}
                         >
                             <VideoPlayer
-                                ref={videoPlayerRef}
+                                ref={videoPlayerCallbackRef}
                                 src={videoSrc}
                             />
                         </div>
 
                         {/* Note Editor */}
-                        <div className="bg-white rounded-xl border border-stone-200 shadow-sm flex-1 flex flex-col">
+                        <div className="bg-white rounded-xl border border-stone-200 shadow-sm flex-none flex flex-col">
                             <NoteEditor
                                 ref={noteEditorRef}
                                 projectId={projectId}

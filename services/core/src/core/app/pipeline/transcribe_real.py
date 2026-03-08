@@ -184,10 +184,16 @@ def map_transcribe_error(exc: Exception) -> dict:
 			}
 		if exc.details.get("blocked") is True and isinstance(exc.details.get("httpStatus"), int):
 			status = int(exc.details.get("httpStatus"))
+			# Include non-sensitive cookie diagnostics to help operators understand
+			# whether cookies were actually detected on this machine.
+			cookie_diag: dict = {}
+			for k in ("cookiesProvided", "cookiesFromBrowser", "cookiesFileExists", "cookiesFileBytes"):
+				if k in exc.details:
+					cookie_diag[k] = exc.details.get(k)
 			return {
 				"code": ErrorCode.JOB_STAGE_FAILED,
 				"message": f"Source blocked by provider (HTTP {status}). Provide cookies for yt-dlp.",
-				"details": {"reason": "content_blocked", "source": exc.details.get("source"), "httpStatus": status},
+				"details": {"reason": "content_blocked", "source": exc.details.get("source"), "httpStatus": status, **cookie_diag},
 			}
 	if isinstance(exc, YtDlpError) and exc.kind == "output_not_found":
 		return {

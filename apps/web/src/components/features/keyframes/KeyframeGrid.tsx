@@ -3,7 +3,6 @@
 import type { Keyframe } from "@/lib/contracts/resultTypes";
 import { formatTime, msToSeconds } from "@/lib/utils/timeUtils";
 import { endpoints } from "@/lib/api/endpoints";
-import Image from "next/image";
 type KeyframeGridProps = {
     keyframes: Keyframe[];
     onKeyframeClick: (timeMs: number) => void;
@@ -39,6 +38,7 @@ export function KeyframeGrid({ keyframes, onKeyframeClick, isLoading = false }: 
                 >
                     {/* 关键帧图片 */}
                     <div className="aspect-video bg-stone-100 overflow-hidden">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
                             src={endpoints.assetContent(keyframe.assetId)}
                             alt="关键帧"

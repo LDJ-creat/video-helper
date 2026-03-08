@@ -52,7 +52,7 @@ export default function ProjectsPage() {
 
     if (isLoading) {
         return (
-            <main className="mx-auto max-w-6xl p-6 sm:p-10">
+            <main className="mx-auto w-full max-w-[1800px] p-6 sm:p-10">
                 <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
                     {[1, 2, 3].map((i) => (
                         <div key={i} className="h-48 animate-pulse rounded-xl bg-stone-100" />
@@ -64,7 +64,7 @@ export default function ProjectsPage() {
 
     if (error) {
         return (
-            <main className="mx-auto max-w-6xl p-6 sm:p-10">
+            <main className="mx-auto w-full max-w-[1800px] p-6 sm:p-10">
                 <div className="rounded-lg bg-red-50 p-4 text-red-600">
                     {t("loading")} {String(error)}
                 </div>
@@ -75,17 +75,17 @@ export default function ProjectsPage() {
     const projects = projectsData?.pages.flatMap((page) => page.items) ?? [];
 
     return (
-        <main className="mx-auto max-w-6xl space-y-8 p-6 sm:p-10">
+        <main className="mx-auto w-full max-w-[1800px] space-y-8 p-6 sm:p-10">
             <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                    <h1 className="text-3xl font-bold tracking-tight text-stone-900">
+                    <h1 className="text-3xl 2xl:text-5xl font-bold tracking-tight text-stone-900">
                         {t("title")}
                     </h1>
-                    <p className="mt-2 text-stone-600">
+                    <p className="mt-2 text-stone-600 2xl:text-xl 2xl:mt-4">
                         {t("subtitle")}
                     </p>
                 </div>
-                <div className="w-full sm:w-72">
+                <div className="w-full sm:w-72 2xl:w-96">
                     <SearchInput
                         onSearch={setSearchQuery}
                         placeholder={t("searchPlaceholder")}
@@ -121,16 +121,16 @@ export default function ProjectsPage() {
                             </Link>
                         </div>
                     ) : (
-                        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                        <div className="grid gap-6 2xl:gap-10 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                             {projects.map((project) => (
                                 <Link
                                     key={project.projectId}
                                     href={`/projects/${project.projectId}/results`}
-                                    className="group relative flex flex-col justify-between overflow-hidden rounded-xl border border-stone-200 bg-white p-6 shadow-sm transition-all hover:border-stone-300 hover:shadow-md active:scale-[0.99]"
+                                    className="group relative flex flex-col justify-between overflow-hidden rounded-xl 2xl:rounded-2xl border border-stone-200 bg-white p-6 2xl:p-8 shadow-sm transition-all hover:border-stone-300 hover:shadow-md active:scale-[0.99]"
                                 >
-                                    <div className="space-y-4">
+                                    <div className="space-y-4 2xl:space-y-6">
                                         <div className="flex items-start justify-between">
-                                            <div className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${project.sourceType === 'youtube' ? 'bg-red-50 text-red-700' :
+                                            <div className={`rounded-full px-2.5 py-0.5 2xl:px-4 2xl:py-1 text-xs 2xl:text-sm font-medium ${project.sourceType === 'youtube' ? 'bg-red-50 text-red-700' :
                                                 project.sourceType === 'bilibili' ? 'bg-pink-50 text-pink-700' :
                                                     project.sourceType === 'url' ? 'bg-blue-50 text-blue-700' :
                                                         'bg-blue-50 text-blue-700'
@@ -151,18 +151,18 @@ export default function ProjectsPage() {
                                         </div>
 
                                         <div>
-                                            <h3 className="font-semibold text-stone-900 line-clamp-2 leading-relaxed">
+                                            <h3 className="font-semibold text-stone-900 line-clamp-2 leading-relaxed text-base 2xl:text-2xl">
                                                 {project.title || t("untitled")}
                                             </h3>
-                                            <p className="mt-2 text-xs text-stone-500 font-mono">
+                                            <p className="mt-2 2xl:mt-4 text-xs 2xl:text-sm text-stone-500 font-mono">
                                                 {t("updated")} {new Date(project.updatedAtMs).toLocaleDateString()}
                                             </p>
                                         </div>
                                     </div>
 
-                                    <div className="mt-6 flex items-center text-sm font-medium text-stone-900 opacity-60 transition-opacity group-hover:opacity-100">
+                                    <div className="mt-6 2xl:mt-10 flex items-center text-sm 2xl:text-lg font-medium text-stone-900 opacity-60 transition-opacity group-hover:opacity-100">
                                         {t("viewResults")}
-                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 ml-1">
+                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 2xl:w-6 2xl:h-6 ml-1 2xl:ml-2">
                                             <path fillRule="evenodd" d="M3 10a.75.75 0 01.75-.75h10.638L10.23 5.29a.75.75 0 111.04-1.08l5.5 5.25a.75.75 0 010 1.08l-5.5 5.25a.75.75 0 11-1.04-1.08l4.158-3.96H3.75A.75.75 0 013 10z" clipRule="evenodd" />
                                         </svg>
                                     </div>

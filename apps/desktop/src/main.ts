@@ -619,6 +619,9 @@ function initAutoUpdater(): void {
         return;
     }
 
+    const currentVersion = app.getVersion();
+    safeLog('updater', `Auto-updater enabled. Current app version: ${currentVersion}`);
+
     // Configure logging
     // Our CI currently creates GitHub prereleases. Allow prerelease updates so
     // users can receive fixes without manual uninstall/reinstall.
@@ -632,7 +635,7 @@ function initAutoUpdater(): void {
     });
 
     autoUpdater.on('update-available', (info) => {
-        safeLog('updater', `Update available: ${info.version}`);
+        safeLog('updater', `Update available. Current: ${currentVersion}. Latest: ${info.version}`);
         updateState = { status: 'available', version: info.version };
         mainWindow?.webContents.send('update-available', info.version);
         // Start download automatically after notifying the renderer
@@ -640,8 +643,9 @@ function initAutoUpdater(): void {
     });
 
     autoUpdater.on('update-not-available', (info) => {
-        safeLog('updater', `No update available. Current version: ${info.version}`);
-        updateState = { status: 'idle', version: info.version };
+        // Note: `info.version` here is the *latest* version on the update server.
+        safeLog('updater', `No update available. Current: ${currentVersion}. Latest: ${info.version}`);
+        updateState = { status: 'idle', version: currentVersion };
     });
 
     autoUpdater.on('download-progress', (progress) => {

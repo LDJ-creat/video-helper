@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/immutability */
 import { useRef, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { formatTime } from "@/lib/utils/timeUtils";
@@ -17,11 +18,32 @@ export function FloatingPlayer({ videoElement, isVisible, onExpand, onClose }: F
     const [isPlaying, setIsPlaying] = useState(false);
     const [playbackRate, setPlaybackRate] = useState(1);
     const [showSpeedMenu, setShowSpeedMenu] = useState(false);
+    const [currentTime, setCurrentTime] = useState(0);
+    const [duration, setDuration] = useState(0);
 
-    // Drag state
-    const [position, setPosition] = useState({ x: window.innerWidth - 340, y: 100 });
+    // Layout state
+    const [position, setPosition] = useState(() => {
+        const defaultWidth = 720;
+        if (typeof window === 'undefined') return { x: 40, y: 100 };
+
+        // Target: Just to the left of the right half (NoteEditor component)
+        // Right half starts at window.innerWidth / 2.
+        // We want to avoid overlapping the edge of NoteEditor, so we place the right 
+        // edge of the floating player a little bit to the left of the center line (e.g., 20px gap)
+        const x = Math.max(20, (window.innerWidth / 2) - defaultWidth - 20);
+
+        // Vertically center it with a slight upward bias
+        const videoHeight = defaultWidth * (9 / 16);
+        const y = Math.max(80, (window.innerHeight - videoHeight) / 2 - 40);
+
+        return { x, y };
+    });
+    const [size, setSize] = useState({ width: 720 });
     const [isDragging, setIsDragging] = useState(false);
+    const [isResizing, setIsResizing] = useState(false);
+
     const dragStartPos = useRef({ x: 0, y: 0 });
+    const resizeStartPos = useRef({ x: 0, width: 0 });
 
     // Drag handlers
     const handleMouseDown = (e: React.MouseEvent) => {
@@ -34,30 +56,45 @@ export function FloatingPlayer({ videoElement, isVisible, onExpand, onClose }: F
         }
     };
 
-    const handleMouseMove = (e: MouseEvent) => {
-        if (isDragging) {
-            setPosition({
-                x: e.clientX - dragStartPos.current.x,
-                y: e.clientY - dragStartPos.current.y
-            });
-        }
+    const handleResizeMouseDown = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        e.preventDefault();
+        setIsResizing(true);
+        resizeStartPos.current = {
+            x: e.clientX,
+            width: size.width
+        };
     };
 
-    const handleMouseUp = () => {
-        setIsDragging(false);
-    };
-
-    // Setup drag event listeners
+    // Setup drag and resize event listeners
     useEffect(() => {
-        if (isDragging) {
-            document.addEventListener('mousemove', handleMouseMove);
-            document.addEventListener('mouseup', handleMouseUp);
+        const handleGlobalMouseMove = (e: MouseEvent) => {
+            if (isDragging) {
+                setPosition({
+                    x: e.clientX - dragStartPos.current.x,
+                    y: e.clientY - dragStartPos.current.y
+                });
+            } else if (isResizing) {
+                const deltaX = e.clientX - resizeStartPos.current.x;
+                const newWidth = Math.max(280, Math.min(1200, resizeStartPos.current.width + deltaX));
+                setSize({ width: newWidth });
+            }
+        };
+
+        const handleGlobalMouseUp = () => {
+            if (isDragging) setIsDragging(false);
+            if (isResizing) setIsResizing(false);
+        };
+
+        if (isDragging || isResizing) {
+            document.addEventListener('mousemove', handleGlobalMouseMove);
+            document.addEventListener('mouseup', handleGlobalMouseUp);
             return () => {
-                document.removeEventListener('mousemove', handleMouseMove);
-                document.removeEventListener('mouseup', handleMouseUp);
+                document.removeEventListener('mousemove', handleGlobalMouseMove);
+                document.removeEventListener('mouseup', handleGlobalMouseUp);
             };
         }
-    }, [isDragging, position]);
+    }, [isDragging, isResizing, position, size]);
 
     useEffect(() => {
         setIsMounted(true);
@@ -66,29 +103,30 @@ export function FloatingPlayer({ videoElement, isVisible, onExpand, onClose }: F
     // Control main video playback to prevent audio overlap
     useEffect(() => {
         if (!videoElement) return;
+        const video = videoElement;
 
         if (isVisible) {
             // FloatingPlayer is visible - mute the main video to avoid audio overlap
             // Store the original muted state and playing state
-            const wasPlaying = !videoElement.paused;
-            const wasMuted = videoElement.muted;
+            const wasPlaying = !video.paused;
+            const wasMuted = video.muted;
 
-            videoElement.dataset.wasPlayingBeforeFloat = String(wasPlaying);
-            videoElement.dataset.wasMutedBeforeFloat = String(wasMuted);
+            video.dataset.wasPlayingBeforeFloat = String(wasPlaying);
+            video.dataset.wasMutedBeforeFloat = String(wasMuted);
 
             // Mute the main video so even if it plays, there's no audio
-            videoElement.muted = true;
+            video.muted = true;
         } else {
             // FloatingPlayer is hidden - restore main video state
-            const wasPlaying = videoElement.dataset.wasPlayingBeforeFloat === 'true';
-            const wasMuted = videoElement.dataset.wasMutedBeforeFloat === 'true';
+            const wasPlaying = video.dataset.wasPlayingBeforeFloat === 'true';
+            const wasMuted = video.dataset.wasMutedBeforeFloat === 'true';
 
             // Restore muted state
-            videoElement.muted = wasMuted;
+            video.muted = wasMuted;
 
             // Resume playing if it was playing before
-            if (wasPlaying && videoElement.paused) {
-                videoElement.play().catch(() => { });
+            if (wasPlaying && video.paused) {
+                video.play().catch(() => { });
             }
         }
     }, [isVisible, videoElement]);
@@ -99,22 +137,44 @@ export function FloatingPlayer({ videoElement, isVisible, onExpand, onClose }: F
         // Sync initial state
         setIsPlaying(!videoElement.paused);
         setPlaybackRate(videoElement.playbackRate);
+        setCurrentTime(videoElement.currentTime);
+        setDuration(videoElement.duration || 0);
 
         // Add listeners to sync UI state
         const handlePlay = () => setIsPlaying(true);
         const handlePause = () => setIsPlaying(false);
         const handleRateChange = () => setPlaybackRate(videoElement.playbackRate);
+        const handleTimeUpdate = () => {
+            setCurrentTime(videoElement.currentTime);
+            if (videoElement.duration) setDuration(videoElement.duration);
+        };
+        const handleLoadedMetadata = () => {
+            if (videoElement.duration) setDuration(videoElement.duration);
+        };
 
         videoElement.addEventListener("play", handlePlay);
         videoElement.addEventListener("pause", handlePause);
         videoElement.addEventListener("ratechange", handleRateChange);
+        videoElement.addEventListener("timeupdate", handleTimeUpdate);
+        videoElement.addEventListener("loadedmetadata", handleLoadedMetadata);
 
         return () => {
             videoElement.removeEventListener("play", handlePlay);
             videoElement.removeEventListener("pause", handlePause);
             videoElement.removeEventListener("ratechange", handleRateChange);
+            videoElement.removeEventListener("timeupdate", handleTimeUpdate);
+            videoElement.removeEventListener("loadedmetadata", handleLoadedMetadata);
         };
     }, [isVisible, videoElement]);
+
+    const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
+        e.stopPropagation();
+        if (!videoElement) return;
+        const video = videoElement;
+        const time = parseFloat(e.target.value);
+        video.currentTime = time;
+        setCurrentTime(time);
+    };
 
     const handlePlayPause = (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -129,7 +189,8 @@ export function FloatingPlayer({ videoElement, isVisible, onExpand, onClose }: F
     const handleSpeedChange = (rate: number, e: React.MouseEvent) => {
         e.stopPropagation();
         if (!videoElement) return;
-        videoElement.playbackRate = rate;
+        const video = videoElement;
+        video.playbackRate = rate;
         setShowSpeedMenu(false);
     }
 
@@ -140,10 +201,11 @@ export function FloatingPlayer({ videoElement, isVisible, onExpand, onClose }: F
     const floatingContent = (
         <div
             ref={containerRef}
-            className="fixed z-[9999] shadow-2xl shadow-stone-900/50 rounded-lg overflow-hidden border border-stone-700 w-80 bg-black select-none"
+            className="fixed z-[9999] shadow-2xl shadow-stone-900/50 rounded-lg overflow-hidden border border-stone-700 bg-black select-none"
             style={{
                 top: `${position.y}px`,
                 left: `${position.x}px`,
+                width: `${size.width}px`,
                 cursor: isDragging ? 'grabbing' : 'default'
             }}
             onMouseDown={handleMouseDown}
@@ -211,8 +273,23 @@ export function FloatingPlayer({ videoElement, isVisible, onExpand, onClose }: F
                 </div>
             </div>
 
+            {/* Progress Bar */}
+            <div className="bg-stone-900 border-t border-stone-800 px-3 pt-2 pb-1 flex items-center gap-2" onMouseDown={(e) => e.stopPropagation()}>
+                <span className="text-[10px] font-mono text-stone-400 min-w-[32px] text-right">{formatTime(currentTime)}</span>
+                <input
+                    type="range"
+                    min="0"
+                    max={duration || 0}
+                    step="0.1"
+                    value={currentTime}
+                    onChange={handleSeek}
+                    className="flex-1 h-1 bg-stone-700 rounded-lg appearance-none cursor-pointer accent-orange-600 hover:accent-orange-500 hover:h-1.5 transition-all"
+                />
+                <span className="text-[10px] font-mono text-stone-400 min-w-[32px]">{formatTime(duration)}</span>
+            </div>
+
             {/* Controls */}
-            <div className="bg-stone-900 px-3 py-2 flex items-center justify-between border-t border-stone-800">
+            <div className="bg-stone-900 pl-3 pr-8 pb-2 pt-1 flex items-center justify-between relative">
                 <div className="flex items-center gap-3">
                     {/* Play/Pause */}
                     <button
@@ -272,6 +349,17 @@ export function FloatingPlayer({ videoElement, isVisible, onExpand, onClose }: F
                         </svg>
                     </button>
                 </div>
+            </div>
+
+            {/* Resize Handle */}
+            <div
+                className="absolute bottom-0 right-0 w-8 h-8 cursor-se-resize flex items-center justify-center bg-stone-800/80 text-stone-400 hover:text-white hover:bg-orange-500/90 rounded-tl-xl backdrop-blur-sm transition-all z-50 shadow-sm border-t border-l border-stone-700/60"
+                onMouseDown={handleResizeMouseDown}
+                title="拖拽调节大小"
+            >
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 15l-6 6M21 8l-13 13M21 1l-20 20" />
+                </svg>
             </div>
         </div>
     );

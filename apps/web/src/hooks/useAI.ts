@@ -10,7 +10,6 @@ import {
     fetchQuizSessionDetail
 } from "../lib/api/ai";
 import { queryKeys } from "../lib/api/queryKeys";
-import type { ChatSession, ChatMessage, Quiz, QuizSession, QuizDetail } from "../lib/api/ai";
 
 // --- Chat Hooks ---
 

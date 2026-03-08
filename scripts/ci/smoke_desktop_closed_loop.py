@@ -41,6 +41,52 @@ def _post_json(url: str, payload: dict[str, Any], *, timeout_s: float = 10.0) ->
 	return json.loads(body.decode("utf-8"))
 
 
+def _post_multipart_form(
+	url: str,
+	*,
+	fields: dict[str, str],
+	file_field: str,
+	file_path: Path,
+	file_name: str | None = None,
+	file_content_type: str = "application/octet-stream",
+	timeout_s: float = 30.0,
+) -> Any:
+	# Minimal multipart encoder (stdlib only) for CI portability.
+	boundary = f"----videohelper-smoke-{_now_ms()}"
+	crlf = "\r\n"
+	parts: list[bytes] = []
+
+	for k, v in (fields or {}).items():
+		parts.append(f"--{boundary}{crlf}".encode("utf-8"))
+		parts.append(f"Content-Disposition: form-data; name=\"{k}\"{crlf}{crlf}".encode("utf-8"))
+		parts.append(str(v).encode("utf-8"))
+		parts.append(crlf.encode("utf-8"))
+
+	name = file_name or file_path.name
+	content = file_path.read_bytes()
+	parts.append(f"--{boundary}{crlf}".encode("utf-8"))
+	parts.append(
+		(
+			f"Content-Disposition: form-data; name=\"{file_field}\"; filename=\"{name}\"{crlf}"
+			f"Content-Type: {file_content_type}{crlf}{crlf}"
+		).encode("utf-8")
+	)
+	parts.append(content)
+	parts.append(crlf.encode("utf-8"))
+	parts.append(f"--{boundary}--{crlf}".encode("utf-8"))
+
+	body = b"".join(parts)
+	headers = {
+		"Content-Type": f"multipart/form-data; boundary={boundary}",
+		"Accept": "application/json",
+		"Content-Length": str(len(body)),
+	}
+	req = Request(url, data=body, headers=headers, method="POST")
+	with urlopen(req, timeout=timeout_s) as resp:
+		resp_body = resp.read()
+	return json.loads(resp_body.decode("utf-8"))
+
+
 def _http_get_bytes(url: str, *, timeout_s: float = 10.0, headers: dict[str, str] | None = None) -> tuple[int, bytes]:
 	h = headers or {}
 	req = Request(url, headers=h, method="GET")
@@ -325,16 +371,53 @@ def wait_for_http_ready(url: str, *, timeout_s: int, expect_json_keys: tuple[str
 	raise TimeoutError(f"timed out waiting for {url}. lastError={last_err}")
 
 
-def closed_loop_validate(*, api_base: str, source_type: str, source_url: str, timeout_s: int) -> dict[str, Any]:
+def closed_loop_validate(
+	*,
+	api_base: str,
+	source_type: str,
+	source_url: str | None,
+	source_file: Path | None,
+	timeout_s: int,
+) -> dict[str, Any]:
 	api_base = api_base.rstrip("/")
 	start_ms = _now_ms()
 	print(f"[smoke] closed-loop start tsMs={start_ms}")
 
-	created = _post_json(
-		f"{api_base}/api/v1/jobs",
-		{"sourceType": source_type, "sourceUrl": source_url},
-		timeout_s=30.0,
-	)
+	created: Any
+	st = (source_type or "").strip().lower()
+	if st == "upload":
+		if source_file is None:
+			raise ValueError("source_file is required for sourceType=upload")
+		p = source_file.expanduser().resolve()
+		if not p.exists() or not p.is_file():
+			raise FileNotFoundError(f"upload file not found: {p}")
+		print(f"[smoke] upload file: {p} bytes={p.stat().st_size}")
+		suf = p.suffix.lower()
+		ct = "application/octet-stream"
+		if suf == ".mp4":
+			ct = "video/mp4"
+		elif suf == ".mov":
+			ct = "video/quicktime"
+		elif suf == ".webm":
+			ct = "video/webm"
+		elif suf == ".mkv":
+			ct = "video/x-matroska"
+		created = _post_multipart_form(
+			f"{api_base}/api/v1/jobs",
+			fields={"sourceType": "upload", "title": "smoke-fixture"},
+			file_field="file",
+			file_path=p,
+			file_content_type=ct,
+			timeout_s=60.0,
+		)
+	else:
+		if not (source_url or "").strip():
+			raise ValueError("source_url is required for non-upload source types")
+		created = _post_json(
+			f"{api_base}/api/v1/jobs",
+			{"sourceType": source_type, "sourceUrl": source_url},
+			timeout_s=30.0,
+		)
 	if not isinstance(created, dict) or not created.get("jobId") or not created.get("projectId"):
 		raise RuntimeError(f"create job returned unexpected JSON: {_safe_snippet(json.dumps(created, ensure_ascii=False))}")
 	job_id = str(created["jobId"])
@@ -585,7 +668,8 @@ def main() -> int:
 	parser.add_argument("--frontend-base", default="http://127.0.0.1:3000")
 	parser.add_argument("--timeout-sec", type=int, default=1800)
 	parser.add_argument("--source-type", default="bilibili")
-	parser.add_argument("--url", default=" https://b23.tv/279Yz1P")
+	parser.add_argument("--url", default="https://b23.tv/279Yz1P")
+	parser.add_argument("--file", default="", help="Local media file for sourceType=upload")
 	parser.add_argument(
 		"--env-file",
 		default="",
@@ -657,6 +741,17 @@ def main() -> int:
 		# Prefer Android client extraction paths which can be more resilient.
 		child_env.setdefault("YTDLP_EXTRACTOR_ARGS", "youtube:player_client=android")
 
+	# Best-effort hardening for Bilibili on CI runners.
+	# Bilibili frequently returns HTTP 412 (Precondition Failed) for datacenter IPs
+	# unless a browser-like UA/Referer (and sometimes cookies) are provided.
+	url_low = (args.url or "").lower()
+	if _env_get(child_env, "CI").lower() == "true" and ("bilibili.com" in url_low or "b23.tv" in url_low):
+		child_env.setdefault("YTDLP_REFERER", "https://www.bilibili.com/")
+		child_env.setdefault(
+			"YTDLP_USER_AGENT",
+			"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+		)
+
 	# Optional: inject yt-dlp cookies for providers that require auth (YouTube bot check).
 	_maybe_write_ytdlp_cookies(env=child_env, data_dir=data_dir)
 
@@ -718,10 +813,14 @@ def main() -> int:
 		print("[ok] frontend ready")
 
 		# Closed-loop.
+		source_url = str(args.url) if (args.url or "").strip() else None
+		source_file_arg = (args.file or "").strip() or (child_env.get("SMOKE_FILE") or "").strip()
+		source_file = Path(source_file_arg).expanduser() if source_file_arg else None
 		summary = closed_loop_validate(
 			api_base=str(args.api_base),
 			source_type=str(args.source_type),
-			source_url=str(args.url),
+			source_url=source_url,
+			source_file=source_file,
 			timeout_s=int(args.timeout_sec),
 		)
 		(out_dir / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
