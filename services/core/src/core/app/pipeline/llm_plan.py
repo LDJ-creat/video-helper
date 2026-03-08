@@ -817,7 +817,7 @@ def build_plan_request(
         "Write high-quality notes: blocks are coherent modules; highlights are the key knowledge points. "
         "Do NOT over-split: prefer fewer, more complete highlights; merge nearby points when they belong together. "
         "Highlight text may be refined/summarized (not verbatim transcript). Skip trivial content. "
-        "Keyframes are OPTIONAL: include only when screenshots meaningfully help learning (slide/diagram/code/formula/UI). "
+        "Keyframes are OPTIONAL but CRUCIAL for understanding: actively evaluate if a screenshot (slide/diagram/code/formula/UI) is necessary. DO NOT skip it if it helps learning. "
         "If keyframes are present, set keyframes item timeMs (int, ms) within that highlight's [startMs,endMs). "
         "Schema keys MUST be exactly: schemaVersion, contentBlocks, mindmap. All times MUST be int ms. "
         "contentBlocks[] item: {blockId:str, idx:int, title:str, startMs:int, endMs:int, highlights:[...]}. "
