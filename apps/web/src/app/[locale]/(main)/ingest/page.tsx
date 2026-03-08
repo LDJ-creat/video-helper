@@ -14,12 +14,12 @@ export default function IngestPage() {
     const [activeTab, setActiveTab] = useState<TabType>("url");
 
     return (
-        <div className="mx-auto max-w-3xl space-y-8 p-6 sm:p-10">
-            <div className="space-y-2">
-                <h1 className="text-3xl font-bold tracking-tight text-stone-900">
+        <div className="mx-auto max-w-4xl 2xl:max-w-6xl space-y-8 2xl:space-y-12 p-6 sm:p-10 2xl:p-16">
+            <div className="space-y-2 2xl:space-y-4">
+                <h1 className="text-3xl 2xl:text-5xl font-bold tracking-tight text-stone-900">
                     {t("title")}
                 </h1>
-                <p className="text-lg text-stone-600">
+                <p className="text-lg 2xl:text-2xl text-stone-600">
                     {t("subtitle")}
                 </p>
             </div>
@@ -32,7 +32,7 @@ export default function IngestPage() {
                 <div className="flex border-b border-stone-100 bg-stone-50/50">
                     <button
                         onClick={() => setActiveTab("url")}
-                        className={`flex-1 py-4 text-sm font-medium transition-all ${activeTab === "url"
+                        className={`flex-1 py-4 2xl:py-6 text-sm 2xl:text-xl font-medium transition-all ${activeTab === "url"
                             ? "border-b-2 border-stone-800 bg-white text-stone-900 shadow-sm"
                             : "text-stone-500 hover:bg-stone-100 hover:text-stone-700"
                             }`}
@@ -41,7 +41,7 @@ export default function IngestPage() {
                     </button>
                     <button
                         onClick={() => setActiveTab("upload")}
-                        className={`flex-1 py-4 text-sm font-medium transition-all ${activeTab === "upload"
+                        className={`flex-1 py-4 2xl:py-6 text-sm 2xl:text-xl font-medium transition-all ${activeTab === "upload"
                             ? "border-b-2 border-stone-800 bg-white text-stone-900 shadow-sm"
                             : "text-stone-500 hover:bg-stone-100 hover:text-stone-700"
                             }`}
@@ -143,9 +143,9 @@ function CookiesUploadSection() {
             <button
                 type="button"
                 onClick={() => setExpanded((v) => !v)}
-                className="flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-stone-100"
+                className="flex w-full items-center justify-between px-4 py-3 2xl:px-8 2xl:py-6 text-left transition-colors hover:bg-stone-100"
             >
-                <span className="flex items-center gap-2 text-sm font-medium text-stone-700">
+                <span className="flex items-center gap-2 text-sm 2xl:text-xl font-medium text-stone-700">
                     {/* Cookie SVG icon */}
                     <svg className="w-4 h-4 text-stone-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M12 3C7.03 3 3 7.03 3 12s4.03 9 9 9 9-4.03 9-9" />
@@ -153,9 +153,9 @@ function CookiesUploadSection() {
                     </svg>
                     {t("sectionTitle")}
                 </span>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 2xl:gap-4">
                     <span
-                        className={`rounded-full px-2 py-0.5 text-xs font-medium ${hasFile
+                        className={`rounded-full px-2 py-0.5 2xl:px-4 2xl:py-1.5 text-xs 2xl:text-base font-medium ${hasFile
                             ? "bg-green-100 text-green-700"
                             : "bg-stone-200 text-stone-500"
                             }`}
@@ -163,7 +163,7 @@ function CookiesUploadSection() {
                         {hasFile ? t("statusConfigured") : t("statusNotConfigured")}
                     </span>
                     <svg
-                        className={`h-4 w-4 text-stone-400 transition-transform ${expanded ? "rotate-180" : ""}`}
+                        className={`h-4 w-4 2xl:h-6 2xl:w-6 text-stone-400 transition-transform ${expanded ? "rotate-180" : ""}`}
                         fill="none"
                         viewBox="0 0 24 24"
                         stroke="currentColor"
@@ -204,18 +204,18 @@ function CookiesUploadSection() {
                         onDragOver={handleDragOver}
                         onDrop={handleDrop}
                         onClick={() => fileInputRef.current?.click()}
-                        className={`flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed cursor-pointer py-6 px-4 transition-colors ${isDragging
+                        className={`flex flex-col items-center justify-center gap-2 2xl:gap-6 rounded-lg 2xl:rounded-2xl border-2 border-dashed cursor-pointer py-6 px-4 2xl:min-h-[400px] 2xl:px-12 transition-colors ${isDragging
                             ? "border-blue-400 bg-blue-50"
                             : "border-stone-300 bg-white hover:bg-stone-50 hover:border-stone-400"
                             }`}
                     >
-                        <svg className={`w-8 h-8 ${isDragging ? "text-blue-400" : "text-stone-400"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                        <svg className={`w-8 h-8 2xl:w-20 2xl:h-20 ${isDragging ? "text-blue-400" : "text-stone-400"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                             <path strokeLinecap="round" strokeLinejoin="round" d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                         </svg>
-                        <p className="text-sm text-stone-600">
+                        <p className="text-sm 2xl:text-2xl text-stone-600">
                             {isDragging ? "松开以上传" : t("labelFile")}
                         </p>
-                        <p className="text-xs text-stone-400">拖拽或点击，支持 .txt 格式</p>
+                        <p className="text-xs 2xl:text-lg text-stone-400">拖拽或点击，支持 .txt 格式</p>
                         <input
                             ref={fileInputRef}
                             type="file"
@@ -279,9 +279,9 @@ function UrlForm() {
         : null;
 
     return (
-        <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="space-y-2">
-                <label htmlFor="url" className="block text-sm font-medium text-stone-700">
+        <form onSubmit={handleSubmit} className="space-y-6 2xl:space-y-10">
+            <div className="space-y-2 2xl:space-y-4">
+                <label htmlFor="url" className="block text-sm 2xl:text-xl font-medium text-stone-700">
                     {t("labelUrl")} <span className="text-red-500">*</span>
                 </label>
                 <input
@@ -290,7 +290,7 @@ function UrlForm() {
                     value={sourceUrl}
                     onChange={(e) => setSourceUrl(e.target.value)}
                     placeholder={t("placeholderUrl") || "https://..."}
-                    className="block w-full rounded-lg border border-stone-200 bg-white px-4 py-3 text-stone-900 placeholder-stone-400 focus:border-stone-500 focus:outline-none focus:ring-2 focus:ring-stone-200"
+                    className="block w-full rounded-lg border border-stone-200 bg-white px-4 py-3 2xl:px-6 2xl:py-5 2xl:text-xl text-stone-900 placeholder-stone-400 focus:border-stone-500 focus:outline-none focus:ring-2 focus:ring-stone-200"
                 />
                 {sourceUrl && !isValidUrl(sourceUrl) && (
                     <p className="text-sm text-red-500">
@@ -299,8 +299,8 @@ function UrlForm() {
                 )}
             </div>
 
-            <div className="space-y-2">
-                <label htmlFor="title" className="block text-sm font-medium text-stone-700">
+            <div className="space-y-2 2xl:space-y-4">
+                <label htmlFor="title" className="block text-sm 2xl:text-xl font-medium text-stone-700">
                     {t("labelTitle")}
                 </label>
                 <input
@@ -309,19 +309,19 @@ function UrlForm() {
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
                     placeholder={t("placeholderTitle")}
-                    className="block w-full rounded-lg border border-stone-200 bg-white px-4 py-3 text-stone-900 placeholder-stone-400 focus:border-stone-500 focus:outline-none focus:ring-2 focus:ring-stone-200"
+                    className="block w-full rounded-lg border border-stone-200 bg-white px-4 py-3 2xl:px-6 2xl:py-5 2xl:text-xl text-stone-900 placeholder-stone-400 focus:border-stone-500 focus:outline-none focus:ring-2 focus:ring-stone-200"
                 />
             </div>
 
-            <div className="space-y-2">
-                <label htmlFor="outputLanguage" className="block text-sm font-medium text-stone-700">
+            <div className="space-y-2 2xl:space-y-4">
+                <label htmlFor="outputLanguage" className="block text-sm 2xl:text-xl font-medium text-stone-700">
                     {t("labelLang")}
                 </label>
                 <select
                     id="outputLanguage"
                     value={outputLanguage}
                     onChange={(e) => setOutputLanguage(e.target.value)}
-                    className="block w-full rounded-lg border border-stone-200 bg-white px-4 py-3 text-stone-900 focus:border-stone-500 focus:outline-none focus:ring-2 focus:ring-stone-200"
+                    className="block w-full rounded-lg border border-stone-200 bg-white px-4 py-3 2xl:px-6 2xl:py-5 2xl:text-xl text-stone-900 focus:border-stone-500 focus:outline-none focus:ring-2 focus:ring-stone-200"
                 >
                     <option value="zh-Hans">{t("options.zhHans")}</option>
                     <option value="en">{t("options.en")}</option>
@@ -344,7 +344,7 @@ function UrlForm() {
             <button
                 type="submit"
                 disabled={!canSubmit || mutation.isPending}
-                className="w-full rounded-lg bg-stone-800 px-4 py-3 text-base font-medium text-white transition-all hover:bg-stone-900 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-stone-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                className="w-full rounded-lg bg-stone-800 px-4 py-3 2xl:py-5 text-base 2xl:text-2xl font-medium text-white transition-all hover:bg-stone-900 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-stone-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
             >
                 {mutation.isPending ? t("submitting") : t("submit")}
             </button>

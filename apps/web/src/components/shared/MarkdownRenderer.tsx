@@ -24,8 +24,8 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, className 
                     ul: ({ children }) => <ul className="list-disc pl-4 mb-2">{children}</ul>,
                     ol: ({ children }) => <ol className="list-decimal pl-4 mb-2">{children}</ol>,
                     li: ({ children }) => <li className="mb-1">{children}</li>,
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     code: ({ inline, className, children, ...props }: any) => {
-                        const match = /language-(\w+)/.exec(className || '');
                         return !inline ? (
                             <div className="my-2 p-3 bg-stone-100 rounded-lg overflow-x-auto border border-stone-200">
                                 <code className={`${className} text-stone-800 font-mono text-xs`} {...props}>

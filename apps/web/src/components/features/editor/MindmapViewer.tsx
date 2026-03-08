@@ -130,8 +130,8 @@ export function MindmapViewer({ mindmap, isLoading = false, onNodeClick }: Mindm
 
     // Build edges
     const edges: Edge[] = mindmap.edges.map((edge) => {
-        const source = edge.source || (edge as any).from;
-        const target = edge.target || (edge as any).to;
+        const source = edge.source || (edge as { from?: string }).from;
+        const target = edge.target || (edge as { to?: string }).to;
         return {
             id: edge.id || `edge-${source}-${target}`,
             source: String(source),
@@ -160,22 +160,22 @@ export function MindmapViewer({ mindmap, isLoading = false, onNodeClick }: Mindm
 
     if (isLoading) {
         return (
-            <div className="w-full h-[500px] bg-stone-100 rounded-lg animate-pulse flex items-center justify-center">
-                <p className="text-stone-500">{t("loading")}</p>
+            <div className="w-full h-[500px] 2xl:h-[800px] bg-stone-100 rounded-lg animate-pulse flex items-center justify-center">
+                <p className="text-stone-500 2xl:text-lg">{t("loading")}</p>
             </div>
         );
     }
 
     if (layoutedNodes.length === 0) {
         return (
-            <div className="w-full h-[500px] bg-white rounded-lg border border-stone-200 flex items-center justify-center">
-                <p className="text-stone-500">{t("noMindmap")}</p>
+            <div className="w-full h-[500px] 2xl:h-[800px] bg-white rounded-lg border border-stone-200 flex items-center justify-center">
+                <p className="text-stone-500 2xl:text-lg">{t("noMindmap")}</p>
             </div>
         );
     }
 
     return (
-        <div className="w-full h-[500px] bg-[#FDFBF7] rounded-lg border border-stone-200 overflow-hidden">
+        <div className="w-full h-[500px] 2xl:h-[800px] bg-[#FDFBF7] rounded-lg border border-stone-200 overflow-hidden">
             <ReactFlow
                 nodes={layoutedNodes}
                 edges={edges}

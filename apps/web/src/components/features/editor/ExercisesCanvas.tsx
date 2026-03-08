@@ -3,7 +3,7 @@ import { useParams } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocale, useTranslations } from "next-intl";
 import { useQuizGenerator, useQuizSave, useQuizSessions, useQuizDetail, useQuizItemUpdate } from "@/hooks/useAI";
-import { Loader2, CheckCircle2, XCircle, BrainCircuit, RefreshCw, Save, History, ChevronLeft, ChevronRight, Calendar, BookOpen, Languages, PlusCircle } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, BrainCircuit, RefreshCw, History, ChevronLeft, ChevronRight, Calendar, BookOpen, Languages, PlusCircle } from "lucide-react";
 import type { Quiz, QuizItem, QuizSession } from "@/lib/api/ai";
 import { fetchQuizSessionDetail } from "@/lib/api/ai";
 import { queryKeys } from "@/lib/api/queryKeys";
@@ -52,7 +52,9 @@ export function ExercisesCanvas({ projectId: propProjectId }: ExercisesCanvasPro
         if (!isLoadingHistory && historySessions && !quiz && !viewingSessionId && !quizFinished && !hasDismissedAutoResume) {
             const latestInProgress = historySessions.find(s => s.score === null);
             if (latestInProgress) {
-                setViewingSessionId(latestInProgress.id);
+                setTimeout(() => {
+                    setViewingSessionId(latestInProgress.id);
+                }, 0);
             }
         }
     }, [historySessions, isLoadingHistory, quiz, viewingSessionId, quizFinished, hasDismissedAutoResume]);
@@ -79,19 +81,21 @@ export function ExercisesCanvas({ projectId: propProjectId }: ExercisesCanvasPro
             });
 
             // Initialize active quiz state
-            setQuiz({
-                sessionId: historyDetail.sessionId,
-                items: historyDetail.items
-            });
-            setAnswers(newAnswers);
-            setCurrentQuestionIndex(firstUnansweredIndex);
+            setTimeout(() => {
+                setQuiz({
+                    sessionId: historyDetail.sessionId,
+                    items: historyDetail.items
+                });
+                setAnswers(newAnswers);
+                setCurrentQuestionIndex(firstUnansweredIndex);
 
-            // Clear feedback state for the current question
-            setSelectedOption(null);
-            setShowFeedback(false);
+                // Clear feedback state for the current question
+                setSelectedOption(null);
+                setShowFeedback(false);
 
-            // Clear viewing state so we switch from detail view to active view
-            setViewingSessionId(null);
+                // Clear viewing state so we switch from detail view to active view
+                setViewingSessionId(null);
+            }, 0);
         }
     }, [historyDetail, viewingSessionId]);
 
@@ -423,33 +427,33 @@ export function ExercisesCanvas({ projectId: propProjectId }: ExercisesCanvasPro
 
     const renderStartScreen = () => (
         <div className="flex flex-col items-center justify-center p-8 h-full text-center bg-stone-50">
-            <div className="w-16 h-16 bg-white rounded-2xl shadow-sm border border-stone-100 flex items-center justify-center mb-6 text-orange-600">
-                <BrainCircuit size={32} />
+            <div className="w-16 h-16 2xl:w-24 2xl:h-24 bg-white rounded-2xl 2xl:rounded-3xl shadow-sm border border-stone-100 flex items-center justify-center mb-6 2xl:mb-8 text-orange-600">
+                <BrainCircuit className="w-8 h-8 2xl:w-12 2xl:h-12" />
             </div>
-            <h3 className="text-xl font-bold text-stone-900 mb-2">{t("title")}</h3>
-            <p className="text-stone-500 max-w-sm mb-8 leading-relaxed">
+            <h3 className="text-xl 2xl:text-3xl font-bold text-stone-900 mb-2 2xl:mb-4">{t("title")}</h3>
+            <p className="text-stone-500 max-w-sm 2xl:max-w-2xl 2xl:text-xl mb-8 2xl:mb-12 leading-relaxed">
                 {t("description")}
             </p>
 
-            <div className="w-full max-w-xs space-y-4">
+            <div className="w-full max-w-xs 2xl:max-w-md space-y-4 2xl:space-y-6">
                 <div className="relative">
                     <input
                         type="text"
                         placeholder={t("topicPlaceholder")}
                         value={topic}
                         onChange={e => setTopic(e.target.value)}
-                        className="w-full px-4 py-3 border border-stone-200 bg-white rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all shadow-sm"
+                        className="w-full px-4 py-3 2xl:px-6 2xl:py-5 border border-stone-200 bg-white rounded-xl 2xl:rounded-2xl text-sm 2xl:text-xl focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all shadow-sm"
                     />
                 </div>
 
                 <div className="relative">
-                    <div className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none">
-                        <Languages size={16} />
+                    <div className="absolute left-4 2xl:left-6 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none">
+                        <Languages className="w-4 h-4 2xl:w-6 2xl:h-6" />
                     </div>
                     <select
                         value={outputLanguage}
                         onChange={(e) => setOutputLanguage(e.target.value)}
-                        className="w-full pl-10 pr-4 py-3 border border-stone-200 bg-white rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all shadow-sm appearance-none cursor-pointer"
+                        className="w-full pl-10 pr-4 py-3 2xl:pl-14 2xl:pr-6 2xl:py-5 border border-stone-200 bg-white rounded-xl 2xl:rounded-2xl text-sm 2xl:text-xl focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all shadow-sm appearance-none cursor-pointer"
                     >
                         <option value="zh-Hans">{tLang("options.zhHans")}</option>
                         <option value="en">{tLang("options.en")}</option>
@@ -461,9 +465,9 @@ export function ExercisesCanvas({ projectId: propProjectId }: ExercisesCanvasPro
                     type="button"
                     onClick={handleGenerate}
                     disabled={generateMutation.isPending}
-                    className="w-full py-3 bg-stone-900 text-white rounded-xl font-medium hover:bg-stone-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-stone-900/10"
+                    className="w-full py-3 2xl:py-5 bg-stone-900 text-white rounded-xl 2xl:rounded-2xl font-medium text-base 2xl:text-xl hover:bg-stone-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-stone-900/10"
                 >
-                    {generateMutation.isPending ? <Loader2 className="animate-spin" /> : <RefreshCw size={18} />}
+                    {generateMutation.isPending ? <Loader2 className="animate-spin w-4 h-4 2xl:w-6 2xl:h-6" /> : <RefreshCw className="w-4 h-4 2xl:w-6 2xl:h-6" />}
                     {t("generateBtn")}
                 </button>
             </div>
@@ -484,20 +488,20 @@ export function ExercisesCanvas({ projectId: propProjectId }: ExercisesCanvasPro
         const isLastQuestion = currentQuestionIndex === quiz.items.length - 1;
         mainContent = (
             <div className="h-full flex flex-col bg-stone-50 overflow-hidden">
-                <div className="bg-white border-b border-stone-200 px-6 py-4 flex justify-between items-center shadow-sm z-10">
+                <div className="bg-white border-b border-stone-200 px-6 py-4 2xl:px-10 2xl:py-6 flex justify-between items-center shadow-sm z-10">
                     <div className="flex items-center gap-4">
                         {renderHeaderToggle()}
                         <button
                             type="button"
                             onClick={startNewQuiz}
-                            className="text-stone-400 hover:text-orange-600 transition-colors flex items-center gap-1 text-xs font-medium"
+                            className="text-stone-400 hover:text-orange-600 transition-colors flex items-center gap-1 2xl:gap-2 text-xs 2xl:text-lg font-medium"
                             title={tLang("placeholderTitle")}
                         >
-                            <PlusCircle size={18} />
+                            <PlusCircle className="w-4 h-4 2xl:w-6 2xl:h-6" />
                             <span>{t("startNew")}</span>
                         </button>
-                        <div className="w-px h-4 bg-stone-200" />
-                        <span className="text-sm font-bold text-stone-400 uppercase tracking-wider">
+                        <div className="w-px h-4 2xl:h-6 bg-stone-200" />
+                        <span className="text-sm 2xl:text-lg font-bold text-stone-400 uppercase tracking-wider">
                             Q<span className="text-stone-900">{currentQuestionIndex + 1}</span> / {quiz.items.length}
                         </span>
                     </div>
@@ -511,13 +515,13 @@ export function ExercisesCanvas({ projectId: propProjectId }: ExercisesCanvasPro
                     </div>
                 </div>
 
-                <div className="flex-1 overflow-y-auto p-6 md:p-8 lg:p-12 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-                    <div className="max-w-3xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                        <h2 className="text-2xl font-semibold text-stone-900 leading-relaxed">
+                <div className="flex-1 overflow-y-auto p-6 md:p-8 lg:p-12 2xl:p-16 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                    <div className="max-w-3xl 2xl:max-w-5xl mx-auto space-y-8 2xl:space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                        <h2 className="text-2xl 2xl:text-4xl font-semibold text-stone-900 leading-relaxed">
                             {currentQ.question}
                         </h2>
 
-                        <div className="space-y-4">
+                        <div className="space-y-4 2xl:space-y-6">
                             {currentQ.options.map((option, idx) => {
                                 const isSelected = selectedOption === option;
                                 const isCorrectAnswer = option === currentQ.correctAnswer;
@@ -549,20 +553,20 @@ export function ExercisesCanvas({ projectId: propProjectId }: ExercisesCanvasPro
                                         key={idx}
                                         onClick={() => handleOptionSelect(option)}
                                         disabled={showFeedback}
-                                        className={`w-full text-left p-5 rounded-2xl border-2 transition-all flex justify-between items-center group ${borderClass} ${bgClass}`}
+                                        className={`w-full text-left p-5 2xl:p-8 rounded-2xl 2xl:rounded-3xl border-2 transition-all flex justify-between items-center group ${borderClass} ${bgClass}`}
                                     >
-                                        <div className="flex items-center gap-3">
+                                        <div className="flex items-center gap-3 2xl:gap-5">
                                             <span className={`
-                                                w-6 h-6 rounded-full border-2 flex items-center justify-center text-xs font-bold transition-colors
+                                                w-6 h-6 2xl:w-10 2xl:h-10 rounded-full border-2 flex items-center justify-center text-xs 2xl:text-lg font-bold transition-colors
                                                 ${isSelected ? "border-orange-500 text-orange-600" : "border-stone-300 text-stone-400 group-hover:border-stone-400"}
                                                 ${showFeedback && isCorrectAnswer ? "border-green-500 text-green-600 bg-green-100" : ""}
                                                 ${showFeedback && isUserWrong ? "border-red-500 text-red-600 bg-red-100" : ""}
                                             `}>
                                                 {String.fromCharCode(65 + idx)}
                                             </span>
-                                            <span className="text-stone-800 text-base font-medium">{option}</span>
+                                            <span className="text-stone-800 text-base 2xl:text-2xl font-medium">{option}</span>
                                         </div>
-                                        {icon}
+                                        {icon && <div className="[&>svg]:w-5 [&>svg]:h-5 2xl:[&>svg]:w-8 2xl:[&>svg]:h-8">{icon}</div>}
                                     </button>
                                 );
                             })}
@@ -570,10 +574,10 @@ export function ExercisesCanvas({ projectId: propProjectId }: ExercisesCanvasPro
 
                         {/* Explanation Area */}
                         {showFeedback && (
-                            <div className="p-6 bg-blue-50/80 border border-blue-100 rounded-2xl text-blue-900 text-sm leading-relaxed animate-in fade-in slide-in-from-bottom-2 duration-300 flex gap-4">
-                                <BookOpen size={24} className="shrink-0 text-blue-600" />
+                            <div className="p-6 2xl:p-10 bg-blue-50/80 border border-blue-100 rounded-2xl 2xl:rounded-3xl text-blue-900 text-sm 2xl:text-xl leading-relaxed animate-in fade-in slide-in-from-bottom-2 duration-300 flex gap-4 2xl:gap-6">
+                                <BookOpen className="shrink-0 text-blue-600 w-6 h-6 2xl:w-10 2xl:h-10" />
                                 <div>
-                                    <span className="font-bold block mb-1 text-blue-700">{t("explanationTitle")}</span>
+                                    <span className="font-bold block mb-1 2xl:mb-2 text-blue-700">{t("explanationTitle")}</span>
                                     {currentQ.explanation}
                                 </div>
                             </div>
@@ -581,14 +585,14 @@ export function ExercisesCanvas({ projectId: propProjectId }: ExercisesCanvasPro
                     </div>
                 </div>
 
-                <div className="p-6 border-t border-stone-200 bg-white flex justify-end items-center z-10">
+                <div className="p-6 2xl:p-8 border-t border-stone-200 bg-white flex justify-end items-center z-10">
 
                     {!showFeedback ? (
                         <button
                             type="button"
                             onClick={handleSubmitAnswer}
                             disabled={!selectedOption}
-                            className="px-8 py-3 bg-stone-900 text-white rounded-xl font-medium hover:bg-stone-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-stone-900/10"
+                            className="px-8 py-3 2xl:px-12 2xl:py-5 bg-stone-900 text-white rounded-xl 2xl:rounded-2xl font-medium 2xl:text-xl hover:bg-stone-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-stone-900/10"
                         >
                             {t("submit")}
                         </button>
@@ -596,10 +600,10 @@ export function ExercisesCanvas({ projectId: propProjectId }: ExercisesCanvasPro
                         <button
                             type="button"
                             onClick={handleNext}
-                            className="px-8 py-3 bg-orange-600 text-white rounded-xl font-medium hover:bg-orange-700 transition-all flex items-center gap-2 shadow-lg shadow-orange-600/20"
+                            className="px-8 py-3 2xl:px-12 2xl:py-5 bg-orange-600 text-white rounded-xl 2xl:rounded-2xl font-medium 2xl:text-xl hover:bg-orange-700 transition-all flex items-center gap-2 2xl:gap-3 shadow-lg shadow-orange-600/20"
                         >
                             {isLastQuestion ? t("complete") : t("next")}
-                            <span className="bg-white/20 p-1 rounded-md"><ChevronRight size={16} /></span>
+                            <span className="bg-white/20 p-1 2xl:p-2 rounded-md 2xl:rounded-lg"><ChevronRight className="w-4 h-4 2xl:w-6 2xl:h-6" /></span>
                         </button>
                     )}
                 </div>
@@ -625,7 +629,7 @@ export function ExercisesCanvas({ projectId: propProjectId }: ExercisesCanvasPro
                         <History size={18} />
                     </button>
                 )}
-                <div className="flex-1 overscroll-none overflow-hidden h-full">
+                <div className="flex-1 overflow-hidden h-full">
                     {mainContent}
                 </div>
             </div>

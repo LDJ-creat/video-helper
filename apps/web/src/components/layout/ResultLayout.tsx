@@ -15,7 +15,7 @@ export function ResultLayout({ children, className = "" }: ResultLayoutProps) {
         <div className={`min-h-screen bg-[#FDFBF7] ${className}`}>
             {/* Header */}
             <header className="bg-white border-b border-stone-200 px-6 py-4">
-                <div className="max-w-screen-2xl mx-auto flex items-center justify-between">
+                <div className="w-full mx-auto flex items-center justify-between">
                     <h1 className="text-2xl font-bold tracking-tight text-stone-900">
                         {t("pageTitle")}
                     </h1>
@@ -31,7 +31,7 @@ export function ResultLayout({ children, className = "" }: ResultLayoutProps) {
             </header>
 
             {/* Main Content */}
-            <main className="max-w-screen-2xl mx-auto px-6 py-6">
+            <main className="w-full mx-auto px-6 py-6">
                 {children}
             </main>
         </div>

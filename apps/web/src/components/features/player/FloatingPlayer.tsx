@@ -17,11 +17,17 @@ export function FloatingPlayer({ videoElement, isVisible, onExpand, onClose }: F
     const [isPlaying, setIsPlaying] = useState(false);
     const [playbackRate, setPlaybackRate] = useState(1);
     const [showSpeedMenu, setShowSpeedMenu] = useState(false);
+    const [currentTime, setCurrentTime] = useState(0);
+    const [duration, setDuration] = useState(0);
 
-    // Drag state
-    const [position, setPosition] = useState({ x: window.innerWidth - 340, y: 100 });
+    // Layout state
+    const [position, setPosition] = useState({ x: window.innerWidth - 440, y: 100 });
+    const [size, setSize] = useState({ width: 400 });
     const [isDragging, setIsDragging] = useState(false);
+    const [isResizing, setIsResizing] = useState(false);
+
     const dragStartPos = useRef({ x: 0, y: 0 });
+    const resizeStartPos = useRef({ x: 0, width: 0 });
 
     // Drag handlers
     const handleMouseDown = (e: React.MouseEvent) => {
@@ -34,30 +40,45 @@ export function FloatingPlayer({ videoElement, isVisible, onExpand, onClose }: F
         }
     };
 
-    const handleMouseMove = (e: MouseEvent) => {
-        if (isDragging) {
-            setPosition({
-                x: e.clientX - dragStartPos.current.x,
-                y: e.clientY - dragStartPos.current.y
-            });
-        }
+    const handleResizeMouseDown = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        e.preventDefault();
+        setIsResizing(true);
+        resizeStartPos.current = {
+            x: e.clientX,
+            width: size.width
+        };
     };
 
-    const handleMouseUp = () => {
-        setIsDragging(false);
-    };
-
-    // Setup drag event listeners
+    // Setup drag and resize event listeners
     useEffect(() => {
-        if (isDragging) {
-            document.addEventListener('mousemove', handleMouseMove);
-            document.addEventListener('mouseup', handleMouseUp);
+        const handleGlobalMouseMove = (e: MouseEvent) => {
+            if (isDragging) {
+                setPosition({
+                    x: e.clientX - dragStartPos.current.x,
+                    y: e.clientY - dragStartPos.current.y
+                });
+            } else if (isResizing) {
+                const deltaX = e.clientX - resizeStartPos.current.x;
+                const newWidth = Math.max(280, Math.min(800, resizeStartPos.current.width + deltaX));
+                setSize({ width: newWidth });
+            }
+        };
+
+        const handleGlobalMouseUp = () => {
+            if (isDragging) setIsDragging(false);
+            if (isResizing) setIsResizing(false);
+        };
+
+        if (isDragging || isResizing) {
+            document.addEventListener('mousemove', handleGlobalMouseMove);
+            document.addEventListener('mouseup', handleGlobalMouseUp);
             return () => {
-                document.removeEventListener('mousemove', handleMouseMove);
-                document.removeEventListener('mouseup', handleMouseUp);
+                document.removeEventListener('mousemove', handleGlobalMouseMove);
+                document.removeEventListener('mouseup', handleGlobalMouseUp);
             };
         }
-    }, [isDragging, position]);
+    }, [isDragging, isResizing, position, size]);
 
     useEffect(() => {
         setIsMounted(true);
@@ -99,22 +120,43 @@ export function FloatingPlayer({ videoElement, isVisible, onExpand, onClose }: F
         // Sync initial state
         setIsPlaying(!videoElement.paused);
         setPlaybackRate(videoElement.playbackRate);
+        setCurrentTime(videoElement.currentTime);
+        setDuration(videoElement.duration || 0);
 
         // Add listeners to sync UI state
         const handlePlay = () => setIsPlaying(true);
         const handlePause = () => setIsPlaying(false);
         const handleRateChange = () => setPlaybackRate(videoElement.playbackRate);
+        const handleTimeUpdate = () => {
+            setCurrentTime(videoElement.currentTime);
+            if (videoElement.duration) setDuration(videoElement.duration);
+        };
+        const handleLoadedMetadata = () => {
+            if (videoElement.duration) setDuration(videoElement.duration);
+        };
 
         videoElement.addEventListener("play", handlePlay);
         videoElement.addEventListener("pause", handlePause);
         videoElement.addEventListener("ratechange", handleRateChange);
+        videoElement.addEventListener("timeupdate", handleTimeUpdate);
+        videoElement.addEventListener("loadedmetadata", handleLoadedMetadata);
 
         return () => {
             videoElement.removeEventListener("play", handlePlay);
             videoElement.removeEventListener("pause", handlePause);
             videoElement.removeEventListener("ratechange", handleRateChange);
+            videoElement.removeEventListener("timeupdate", handleTimeUpdate);
+            videoElement.removeEventListener("loadedmetadata", handleLoadedMetadata);
         };
     }, [isVisible, videoElement]);
+
+    const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
+        e.stopPropagation();
+        if (!videoElement) return;
+        const time = parseFloat(e.target.value);
+        videoElement.currentTime = time;
+        setCurrentTime(time);
+    };
 
     const handlePlayPause = (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -140,10 +182,11 @@ export function FloatingPlayer({ videoElement, isVisible, onExpand, onClose }: F
     const floatingContent = (
         <div
             ref={containerRef}
-            className="fixed z-[9999] shadow-2xl shadow-stone-900/50 rounded-lg overflow-hidden border border-stone-700 w-80 bg-black select-none"
+            className="fixed z-[9999] shadow-2xl shadow-stone-900/50 rounded-lg overflow-hidden border border-stone-700 bg-black select-none"
             style={{
                 top: `${position.y}px`,
                 left: `${position.x}px`,
+                width: `${size.width}px`,
                 cursor: isDragging ? 'grabbing' : 'default'
             }}
             onMouseDown={handleMouseDown}
@@ -211,8 +254,23 @@ export function FloatingPlayer({ videoElement, isVisible, onExpand, onClose }: F
                 </div>
             </div>
 
+            {/* Progress Bar */}
+            <div className="bg-stone-900 border-t border-stone-800 px-3 pt-2 pb-1 flex items-center gap-2" onMouseDown={(e) => e.stopPropagation()}>
+                <span className="text-[10px] font-mono text-stone-400 min-w-[32px] text-right">{formatTime(currentTime)}</span>
+                <input
+                    type="range"
+                    min="0"
+                    max={duration || 0}
+                    step="0.1"
+                    value={currentTime}
+                    onChange={handleSeek}
+                    className="flex-1 h-1 bg-stone-700 rounded-lg appearance-none cursor-pointer accent-orange-600 hover:accent-orange-500 hover:h-1.5 transition-all"
+                />
+                <span className="text-[10px] font-mono text-stone-400 min-w-[32px]">{formatTime(duration)}</span>
+            </div>
+
             {/* Controls */}
-            <div className="bg-stone-900 px-3 py-2 flex items-center justify-between border-t border-stone-800">
+            <div className="bg-stone-900 pl-3 pr-5 pb-2 pt-1 flex items-center justify-between relative">
                 <div className="flex items-center gap-3">
                     {/* Play/Pause */}
                     <button
@@ -272,6 +330,16 @@ export function FloatingPlayer({ videoElement, isVisible, onExpand, onClose }: F
                         </svg>
                     </button>
                 </div>
+            </div>
+
+            {/* Resize Handle */}
+            <div
+                className="absolute bottom-0 right-0 w-4 h-4 cursor-se-resize flex items-end justify-end p-0.5 opacity-50 hover:opacity-100 transition-opacity z-50 group-hover:opacity-100"
+                onMouseDown={handleResizeMouseDown}
+            >
+                <svg className="w-3 h-3 text-stone-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 15l-6 6M21 8l-13 13M21 1l-20 20" />
+                </svg>
             </div>
         </div>
     );

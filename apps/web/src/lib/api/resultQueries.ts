@@ -8,8 +8,7 @@ import {
     updateHighlightKeyframe,
     uploadAsset,
 } from "./resultApi";
-import type { Mindmap, ContentBlock, UpdateResultResponse } from "../contracts/resultTypes";
-import type { UploadAssetResponse } from "./resultApi";
+import type { Mindmap, ContentBlock } from "../contracts/resultTypes";
 
 /* ── Query hook ── */
 
@@ -25,7 +24,6 @@ export function useLatestResult(projectId: string, options?: { enabled?: boolean
 /* ── Mutation hooks (editing) ── */
 
 export function useSaveMindmap(projectId: string) {
-    const queryClient = useQueryClient();
     return useMutation({
         mutationFn: (mindmap: Mindmap) => saveMindmap(projectId, mindmap),
         onSuccess: () => {

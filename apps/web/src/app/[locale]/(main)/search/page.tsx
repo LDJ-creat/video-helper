@@ -21,7 +21,7 @@ export default function SearchPage() {
     } = useSearch(query);
 
     return (
-        <main className="p-6 max-w-4xl mx-auto">
+        <main className="p-6 max-w-5xl mx-auto">
             <h1 className="text-2xl font-bold mb-6">{t("title")}</h1>
 
             <div className="mb-6">

@@ -28,7 +28,7 @@ export function AIChat() {
 
     // Data Fetching
     const { data: sessions, isLoading: isLoadingSessions } = useChatSessions(projectId);
-    const { data: messages, isLoading: isLoadingMessages } = useSessionMessages(activeSessionId);
+    const { data: messages } = useSessionMessages(activeSessionId);
 
     // If we just finished streaming and the assistant message is now persisted,
     // clear the local streamed bubble to avoid duplicates.
@@ -209,11 +209,11 @@ export function AIChat() {
         <div className="flex h-full bg-stone-50 overflow-hidden relative">
             {/* Sidebar - Session List */}
             <div
-                className={`border-r border-stone-200 bg-stone-100 flex flex-col transition-all duration-300 ease-in-out ${isSidebarOpen ? "w-64 opacity-100" : "w-0 opacity-0 overflow-hidden"
+                className={`border-r border-stone-200 bg-stone-100 flex flex-col transition-all duration-300 ease-in-out ${isSidebarOpen ? "w-64 2xl:w-80 opacity-100" : "w-0 opacity-0 overflow-hidden"
                     }`}
             >
-                <div className="p-4 border-b border-stone-200 flex justify-between items-center">
-                    <span className="text-sm font-semibold text-stone-500">{t("sidebarTitle")}</span>
+                <div className="p-4 2xl:p-6 border-b border-stone-200 flex justify-between items-center">
+                    <span className="text-sm 2xl:text-lg font-semibold text-stone-500">{t("sidebarTitle")}</span>
                     <button onClick={handleNewSession} className="p-1 hover:bg-stone-200 rounded text-stone-600" title={t("newChat")}>
                         <Plus size={18} />
                     </button>
@@ -228,7 +228,7 @@ export function AIChat() {
                         <button
                             key={session.id}
                             onClick={() => setActiveSessionId(session.id)}
-                            className={`w-full text-left px-3 py-2 rounded-md text-sm truncate transition-colors ${activeSessionId === session.id
+                            className={`w-full text-left px-3 py-2 2xl:px-5 2xl:py-4 rounded-md text-sm 2xl:text-lg truncate transition-colors ${activeSessionId === session.id
                                 ? "bg-white text-orange-700 font-medium shadow-sm ring-1 ring-stone-200"
                                 : "text-stone-600 hover:bg-stone-200"
                                 }`}
@@ -247,22 +247,22 @@ export function AIChat() {
             {/* Main Chat Area */}
             <div className="flex-1 flex flex-col bg-white min-w-0">
                 {/* Chat Header */}
-                <div className="h-14 border-b border-stone-200 flex items-center px-4 justify-between bg-white shrink-0">
-                    <div className="flex items-center gap-2">
+                <div className="h-14 2xl:h-20 border-b border-stone-200 flex items-center px-4 2xl:px-8 justify-between bg-white shrink-0">
+                    <div className="flex items-center gap-2 2xl:gap-4">
                         <button
                             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                            className={`p-2 hover:bg-stone-100 rounded-lg text-stone-600 transition-colors ${isSidebarOpen ? 'bg-stone-100' : ''}`}
+                            className={`p-2 2xl:p-3 hover:bg-stone-100 rounded-lg text-stone-600 transition-colors ${isSidebarOpen ? 'bg-stone-100' : ''}`}
                             title={isSidebarOpen ? t("collapseSidebar") : t("expandHistory")}
                         >
-                            <MessageSquare size={20} />
+                            <MessageSquare className="w-5 h-5 2xl:w-7 2xl:h-7" />
                         </button>
-                        <span className="font-medium text-stone-700">{t("assistant")}</span>
+                        <span className="font-medium text-stone-700 2xl:text-xl">{t("assistant")}</span>
                     </div>
                     <button
                         onClick={handleNewSession}
-                        className="text-xs flex items-center gap-1 px-3 py-1.5 bg-stone-900 text-white rounded-md hover:bg-stone-800 transition-colors"
+                        className="text-xs 2xl:text-base flex items-center gap-1 2xl:gap-2 px-3 py-1.5 2xl:px-5 2xl:py-3 bg-stone-900 text-white rounded-md hover:bg-stone-800 transition-colors"
                     >
-                        <Plus size={14} />
+                        <Plus className="w-3.5 h-3.5 2xl:w-5 2xl:h-5" />
                         {t("newChat")}
                     </button>
                 </div>
@@ -280,13 +280,13 @@ export function AIChat() {
                     )}
 
                     {messages?.map(msg => (
-                        <div key={msg.id} className={`flex gap-3 ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+                        <div key={msg.id} className={`flex gap-3 2xl:gap-5 ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
                             {msg.role === "assistant" && (
-                                <div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center shrink-0 mt-1">
-                                    <Bot size={16} className="text-orange-600" />
+                                <div className="w-8 h-8 2xl:w-12 2xl:h-12 rounded-full bg-orange-100 flex items-center justify-center shrink-0 mt-1">
+                                    <Bot className="text-orange-600 w-4 h-4 2xl:w-6 2xl:h-6" />
                                 </div>
                             )}
-                            <div className={`max-w-[85%] rounded-2xl px-5 py-3 text-sm leading-relaxed shadow-sm ${msg.role === "user"
+                            <div className={`max-w-[85%] rounded-2xl 2xl:rounded-3xl px-5 py-3 2xl:px-8 2xl:py-5 text-sm 2xl:text-lg leading-relaxed shadow-sm ${msg.role === "user"
                                 ? "bg-stone-900 text-white rounded-br-none"
                                 : "bg-white border border-stone-200 text-stone-800 rounded-bl-none"
                                 }`}>
@@ -297,8 +297,8 @@ export function AIChat() {
                                 )}
                             </div>
                             {msg.role === "user" && (
-                                <div className="w-8 h-8 rounded-full bg-stone-200 flex items-center justify-center shrink-0 mt-1">
-                                    <User size={16} className="text-stone-500" />
+                                <div className="w-8 h-8 2xl:w-12 2xl:h-12 rounded-full bg-stone-200 flex items-center justify-center shrink-0 mt-1">
+                                    <User className="text-stone-500 w-4 h-4 2xl:w-6 2xl:h-6" />
                                 </div>
                             )}
                         </div>
@@ -318,11 +318,11 @@ export function AIChat() {
 
                     {/* Streaming Content Bubble */}
                     {(streamedContent || (isStreaming && !streamedContent)) && (
-                        <div className="flex gap-3 justify-start">
-                            <div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center shrink-0 mt-1">
-                                <Bot size={16} className="text-orange-600" />
+                        <div className="flex gap-3 2xl:gap-5 justify-start">
+                            <div className="w-8 h-8 2xl:w-12 2xl:h-12 rounded-full bg-orange-100 flex items-center justify-center shrink-0 mt-1">
+                                <Bot className="text-orange-600 w-4 h-4 2xl:w-6 2xl:h-6" />
                             </div>
-                            <div className="max-w-[85%] rounded-2xl rounded-bl-none px-5 py-3 text-sm leading-relaxed bg-white border border-stone-200 text-stone-800 shadow-sm">
+                            <div className="max-w-[85%] rounded-2xl 2xl:rounded-3xl rounded-bl-none px-5 py-3 2xl:px-8 2xl:py-5 text-sm 2xl:text-lg leading-relaxed bg-white border border-stone-200 text-stone-800 shadow-sm">
                                 <MarkdownRenderer content={streamedContent} isStreaming={isStreaming} />
                             </div>
                         </div>
@@ -332,23 +332,22 @@ export function AIChat() {
                 </div>
 
                 {/* Input Area */}
-                <div className="p-4 border-t border-stone-200 bg-stone-50 shrink-0">
-                    <div className="relative max-w-4xl mx-auto">
+                <div className="p-4 2xl:p-6 border-t border-stone-200 bg-stone-50 shrink-0">
+                    <div className="relative max-w-4xl 2xl:max-w-6xl mx-auto">
                         <textarea
                             value={input}
                             onChange={e => setInput(e.target.value)}
                             onKeyDown={handleKeyDown}
                             placeholder={t("inputPlaceholder")}
-                            className="w-full pl-4 pr-12 py-3 rounded-xl border border-stone-300 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent resize-none shadow-sm text-sm"
+                            className="w-full pl-4 pr-12 py-3 2xl:pl-6 2xl:pr-16 2xl:py-5 rounded-xl 2xl:rounded-2xl border border-stone-300 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent resize-none shadow-sm text-sm 2xl:text-xl"
                             rows={1}
-                            style={{ minHeight: "44px", maxHeight: "120px" }}
                         />
                         <button
                             onClick={handleSend}
                             disabled={!input.trim() || isStreaming}
-                            className="absolute right-2 bottom-2 p-2 bg-stone-900 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-stone-800 transition-all"
+                            className="absolute right-2 bottom-2 2xl:right-3 2xl:bottom-3 p-2 2xl:p-3 bg-stone-900 text-white rounded-lg 2xl:rounded-xl disabled:opacity-50 disabled:cursor-not-allowed hover:bg-stone-800 transition-all"
                         >
-                            {isStreaming ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                            {isStreaming ? <Loader2 className="animate-spin w-4 h-4 2xl:w-6 2xl:h-6" /> : <Send className="w-4 h-4 2xl:w-6 2xl:h-6" />}
                         </button>
                     </div>
                 </div>

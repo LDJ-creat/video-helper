@@ -273,32 +273,32 @@ export default function ResultPage() {
                         <div className="flex border-b border-stone-200 bg-stone-50/50">
                             <button
                                 onClick={() => handleTabChange("mindmap")}
-                                className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 border-b-2 transition-colors ${activeTab === "mindmap"
+                                className={`flex-1 py-3 2xl:py-5 text-sm 2xl:text-xl font-medium flex items-center justify-center gap-2 2xl:gap-4 border-b-2 transition-colors ${activeTab === "mindmap"
                                     ? "border-orange-500 text-orange-700 bg-white"
                                     : "border-transparent text-stone-600 hover:text-stone-900 hover:bg-stone-100"
                                     }`}
                             >
-                                <BrainCircuit size={16} />
+                                <BrainCircuit className="w-4 h-4 2xl:w-6 2xl:h-6" />
                                 {t("tabs.mindmap")}
                             </button>
                             <button
                                 onClick={() => handleTabChange("chat")}
-                                className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 border-b-2 transition-colors ${activeTab === "chat"
+                                className={`flex-1 py-3 2xl:py-5 text-sm 2xl:text-xl font-medium flex items-center justify-center gap-2 2xl:gap-4 border-b-2 transition-colors ${activeTab === "chat"
                                     ? "border-orange-500 text-orange-700 bg-white"
                                     : "border-transparent text-stone-600 hover:text-stone-900 hover:bg-stone-100"
                                     }`}
                             >
-                                <MessageSquare size={16} />
+                                <MessageSquare className="w-4 h-4 2xl:w-6 2xl:h-6" />
                                 {t("tabs.chat")}
                             </button>
                             <button
                                 onClick={() => handleTabChange("exercises")}
-                                className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 border-b-2 transition-colors ${activeTab === "exercises"
+                                className={`flex-1 py-3 2xl:py-5 text-sm 2xl:text-xl font-medium flex items-center justify-center gap-2 2xl:gap-4 border-b-2 transition-colors ${activeTab === "exercises"
                                     ? "border-orange-500 text-orange-700 bg-white"
                                     : "border-transparent text-stone-600 hover:text-stone-900 hover:bg-stone-100"
                                     }`}
                             >
-                                <Layout size={16} />
+                                <Layout className="w-4 h-4 2xl:w-6 2xl:h-6" />
                                 {t("tabs.exercises")}
                             </button>
                         </div>
