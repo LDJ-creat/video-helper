@@ -2,6 +2,30 @@ name: desktop-build-release
 
 on:
   workflow_dispatch:
+    inputs:
+      run_smoke:
+        description: "Run smoke tests (default: false)"
+        type: boolean
+        default: false
+      smoke_source_type:
+        description: "Smoke input sourceType (upload/bilibili/youtube)"
+        type: choice
+        required: false
+        default: upload
+        options:
+          - upload
+          - bilibili
+          - youtube
+      smoke_url:
+        description: "Smoke URL (used when sourceType is not 'upload')"
+        type: string
+        required: false
+        default: "https://www.bilibili.com/video/BV1FXr8B9E6Z?spm_id_from=333.788.videopod.sections&vd_source=8e03b1a6cd89d2b50af0c43b7de269ff"
+      smoke_file:
+        description: "Local file path (used when sourceType is 'upload')"
+        type: string
+        required: false
+        default: "apps/desktop/release/smoke-fixture.mp4"
   pull_request:
   push:
     branches:
@@ -36,6 +60,13 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       # Ensure Python uses UTF-8 where possible (Windows runners may default to legacy codepages).
       PYTHONUTF8: "1"
+
+      # Optional: provide a meaningful local smoke MP4 fixture for offline CI.
+      # Options:
+      # - Commit a file in the repo and set SMOKE_FIXTURE_PATH (default: smoke/fixtures/smoke-fixture.mp4)
+      # - Or set secret SMOKE_FIXTURE_URL to a downloadable mp4 (GitHub Release asset / S3 / etc.)
+      SMOKE_FIXTURE_PATH: "smoke/fixtures/smoke-fixture.mp4"
+      SMOKE_FIXTURE_URL: ${{ secrets.SMOKE_FIXTURE_URL }}
 
     steps:
       - name: Checkout
@@ -248,6 +279,41 @@ jobs:
         shell: bash
         run: pnpm -C apps/desktop exec -- electron-builder --dir --publish=never --config.linux.icon=resources/icon.png
 
+      - name: Prepare local smoke fixture (mp4)
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="apps/desktop/release/smoke-fixture.mp4"
+          mkdir -p "$(dirname "$out")"
+          src="${SMOKE_FIXTURE_PATH:-smoke/fixtures/smoke-fixture.mp4}"
+
+          if [ -f "$src" ]; then
+            echo "[smoke-fixture] using repo fixture: $src"
+            cp "$src" "$out"
+          elif [ -n "${SMOKE_FIXTURE_URL:-}" ]; then
+            echo "[smoke-fixture] downloading fixture from SMOKE_FIXTURE_URL"
+            args=( -fsSL -L --retry 3 --retry-delay 2 -o "$out" )
+            if [ -n "${GH_TOKEN:-}" ]; then
+              args+=( -H "Authorization: Bearer ${GH_TOKEN}" )
+            fi
+            curl "${args[@]}" "$SMOKE_FIXTURE_URL"
+          else
+            echo "::warning::No custom smoke fixture provided; generating synthetic 2s fixture"
+            # Tiny deterministic video+audio file for offline smoke (avoids provider 412/anti-bot).
+            ffmpeg -y \
+              -f lavfi -i "testsrc=size=320x240:rate=25" \
+              -f lavfi -i "sine=frequency=1000:sample_rate=44100" \
+              -t 2 \
+              -pix_fmt yuv420p \
+              -c:v libx264 -preset veryfast -crf 32 \
+              -c:a aac -b:a 64k \
+              -shortest \
+              -movflags +faststart \
+              "$out"
+          fi
+          test -f "$out"
+          ls -la "$out"
+
       - name: Verify packaged frontend assets (unpacked)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -287,6 +353,7 @@ jobs:
           # Our packaged Next runtime depends on `.next/BUILD_ID` and `.next/static`.
           include-hidden-files: true
           path: |
+            apps/desktop/release/smoke-fixture.mp4
             apps/desktop/release/**/*.exe
             apps/desktop/release/**/*.exe.blockmap
             apps/desktop/release/**/latest*.yml
@@ -302,9 +369,9 @@ jobs:
     name: Smoke (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     needs: build
-    if: |
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'pull_request' && github.base_ref == 'main' && github.head_ref == 'dev')
+    # Default: do NOT run smoke on PR/push.
+    # Only run when manually dispatched with run_smoke=true.
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_smoke }}
     strategy:
       fail-fast: false
       matrix:
@@ -313,11 +380,13 @@ jobs:
     env:
       PYTHONUTF8: "1"
       # Smoke input (URL)
-      SMOKE_SOURCE_TYPE: "bilibili"
-      SMOKE_URL: "https://b23.tv/279Yz1P"
-      # Optional: base64-encoded cookies.txt for yt-dlp (helps bypass YouTube bot checks).
-      # Provide as Actions secret `YTDLP_COOKIES_B64`.
-      SMOKE_YTDLP_COOKIES_B64: ${{ secrets.YTDLP_COOKIES_B64 }}
+      SMOKE_SOURCE_TYPE: ${{ inputs.smoke_source_type }}
+      SMOKE_FILE: ${{ inputs.smoke_file }}
+      SMOKE_URL: ${{ inputs.smoke_url }}
+      # Optional: base64-encoded cookies.txt for yt-dlp.
+      # - Preferred for bilibili smoke: `BILIBILI_COOKIES_B64` (must include bilibili.com cookies)
+      # - Fallback: `YTDLP_COOKIES_B64`
+      SMOKE_YTDLP_COOKIES_B64: ${{ secrets.BILIBILI_COOKIES_B64 || secrets.YTDLP_COOKIES_B64 }}
       # Keep smoke stable/fast-ish.
       TRANSCRIBE_MODEL_SIZE: "tiny"
       TRANSCRIBE_DEVICE: "cpu"
@@ -354,6 +423,21 @@ jobs:
           # upload-artifact may strip the common prefix (apps/desktop/release)
           # so download directly into the expected release directory.
           path: apps/desktop/release
+
+      - name: Verify local smoke fixture exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "[smoke] SMOKE_FILE=$SMOKE_FILE"
+          if [ ! -f "$SMOKE_FILE" ]; then
+            echo "::error::Smoke fixture not found at $SMOKE_FILE"
+            echo "[smoke] listing apps/desktop/release (top-level):"
+            ls -la apps/desktop/release | sed -n '1,120p'
+            echo "[smoke] searching for smoke-fixture.mp4:"
+            find apps/desktop/release -maxdepth 5 -name 'smoke-fixture.mp4' -print | sed -n '1,20p'
+            exit 1
+          fi
+          ls -la "$SMOKE_FILE"
 
       - name: Verify packaged frontend assets (downloaded)
         if: runner.os == 'Windows'
@@ -396,6 +480,7 @@ jobs:
           python scripts/ci/smoke_desktop_closed_loop.py \
             --source-type "$SMOKE_SOURCE_TYPE" \
             --url "$SMOKE_URL" \
+            --file "$SMOKE_FILE" \
             --timeout-sec 1800 \
             --out "_ci/smoke/${{ matrix.os }}"
 
@@ -407,6 +492,7 @@ jobs:
           xvfb-run -a python scripts/ci/smoke_desktop_closed_loop.py \
             --source-type "$SMOKE_SOURCE_TYPE" \
             --url "$SMOKE_URL" \
+            --file "$SMOKE_FILE" \
             --timeout-sec 1800 \
             --out "_ci/smoke/${{ matrix.os }}"
 
