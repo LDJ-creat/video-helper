@@ -1,7 +1,6 @@
 ﻿"use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import ReactFlow, {
     Node,
     Edge,
@@ -156,14 +155,12 @@ function getLayoutedElements(nodes: Node[], edges: Edge[]): Node[] {
 
 export function MindmapEditor({
     projectId,
-    resultId,
     initialMindmap,
     onSaveSuccess,
     onSaveError,
     onNodeNavigation,
 }: MindmapEditorProps) {
     const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
-    const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
     const t = useTranslations("Mindmap");
     const saveTimerRef = useRef<NodeJS.Timeout | null>(null);
     const clickTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -448,7 +445,6 @@ export function MindmapEditor({
             await saveMindmap(mindmapData);
             hasPendingChangesRef.current = false;
             setSaveStatus("saved");
-            setLastSavedAt(new Date());
             onSaveSuccess?.();
         } catch (error) {
             console.error("Save mindmap error:", error instanceof Error ? error.message : error);

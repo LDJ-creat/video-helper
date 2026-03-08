@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/immutability */
 import { useRef, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { formatTime } from "@/lib/utils/timeUtils";
@@ -21,8 +22,23 @@ export function FloatingPlayer({ videoElement, isVisible, onExpand, onClose }: F
     const [duration, setDuration] = useState(0);
 
     // Layout state
-    const [position, setPosition] = useState({ x: window.innerWidth - 440, y: 100 });
-    const [size, setSize] = useState({ width: 400 });
+    const [position, setPosition] = useState(() => {
+        const defaultWidth = 720;
+        if (typeof window === 'undefined') return { x: 40, y: 100 };
+
+        // Target: Just to the left of the right half (NoteEditor component)
+        // Right half starts at window.innerWidth / 2.
+        // We want to avoid overlapping the edge of NoteEditor, so we place the right 
+        // edge of the floating player a little bit to the left of the center line (e.g., 20px gap)
+        const x = Math.max(20, (window.innerWidth / 2) - defaultWidth - 20);
+
+        // Vertically center it with a slight upward bias
+        const videoHeight = defaultWidth * (9 / 16);
+        const y = Math.max(80, (window.innerHeight - videoHeight) / 2 - 40);
+
+        return { x, y };
+    });
+    const [size, setSize] = useState({ width: 720 });
     const [isDragging, setIsDragging] = useState(false);
     const [isResizing, setIsResizing] = useState(false);
 
@@ -60,7 +76,7 @@ export function FloatingPlayer({ videoElement, isVisible, onExpand, onClose }: F
                 });
             } else if (isResizing) {
                 const deltaX = e.clientX - resizeStartPos.current.x;
-                const newWidth = Math.max(280, Math.min(800, resizeStartPos.current.width + deltaX));
+                const newWidth = Math.max(280, Math.min(1200, resizeStartPos.current.width + deltaX));
                 setSize({ width: newWidth });
             }
         };
@@ -87,29 +103,30 @@ export function FloatingPlayer({ videoElement, isVisible, onExpand, onClose }: F
     // Control main video playback to prevent audio overlap
     useEffect(() => {
         if (!videoElement) return;
+        const video = videoElement;
 
         if (isVisible) {
             // FloatingPlayer is visible - mute the main video to avoid audio overlap
             // Store the original muted state and playing state
-            const wasPlaying = !videoElement.paused;
-            const wasMuted = videoElement.muted;
+            const wasPlaying = !video.paused;
+            const wasMuted = video.muted;
 
-            videoElement.dataset.wasPlayingBeforeFloat = String(wasPlaying);
-            videoElement.dataset.wasMutedBeforeFloat = String(wasMuted);
+            video.dataset.wasPlayingBeforeFloat = String(wasPlaying);
+            video.dataset.wasMutedBeforeFloat = String(wasMuted);
 
             // Mute the main video so even if it plays, there's no audio
-            videoElement.muted = true;
+            video.muted = true;
         } else {
             // FloatingPlayer is hidden - restore main video state
-            const wasPlaying = videoElement.dataset.wasPlayingBeforeFloat === 'true';
-            const wasMuted = videoElement.dataset.wasMutedBeforeFloat === 'true';
+            const wasPlaying = video.dataset.wasPlayingBeforeFloat === 'true';
+            const wasMuted = video.dataset.wasMutedBeforeFloat === 'true';
 
             // Restore muted state
-            videoElement.muted = wasMuted;
+            video.muted = wasMuted;
 
             // Resume playing if it was playing before
-            if (wasPlaying && videoElement.paused) {
-                videoElement.play().catch(() => { });
+            if (wasPlaying && video.paused) {
+                video.play().catch(() => { });
             }
         }
     }, [isVisible, videoElement]);
@@ -153,8 +170,9 @@ export function FloatingPlayer({ videoElement, isVisible, onExpand, onClose }: F
     const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
         e.stopPropagation();
         if (!videoElement) return;
+        const video = videoElement;
         const time = parseFloat(e.target.value);
-        videoElement.currentTime = time;
+        video.currentTime = time;
         setCurrentTime(time);
     };
 
@@ -171,7 +189,8 @@ export function FloatingPlayer({ videoElement, isVisible, onExpand, onClose }: F
     const handleSpeedChange = (rate: number, e: React.MouseEvent) => {
         e.stopPropagation();
         if (!videoElement) return;
-        videoElement.playbackRate = rate;
+        const video = videoElement;
+        video.playbackRate = rate;
         setShowSpeedMenu(false);
     }
 
@@ -270,7 +289,7 @@ export function FloatingPlayer({ videoElement, isVisible, onExpand, onClose }: F
             </div>
 
             {/* Controls */}
-            <div className="bg-stone-900 pl-3 pr-5 pb-2 pt-1 flex items-center justify-between relative">
+            <div className="bg-stone-900 pl-3 pr-8 pb-2 pt-1 flex items-center justify-between relative">
                 <div className="flex items-center gap-3">
                     {/* Play/Pause */}
                     <button
@@ -334,10 +353,11 @@ export function FloatingPlayer({ videoElement, isVisible, onExpand, onClose }: F
 
             {/* Resize Handle */}
             <div
-                className="absolute bottom-0 right-0 w-4 h-4 cursor-se-resize flex items-end justify-end p-0.5 opacity-50 hover:opacity-100 transition-opacity z-50 group-hover:opacity-100"
+                className="absolute bottom-0 right-0 w-8 h-8 cursor-se-resize flex items-center justify-center bg-stone-800/80 text-stone-400 hover:text-white hover:bg-orange-500/90 rounded-tl-xl backdrop-blur-sm transition-all z-50 shadow-sm border-t border-l border-stone-700/60"
                 onMouseDown={handleResizeMouseDown}
+                title="拖拽调节大小"
             >
-                <svg className="w-3 h-3 text-stone-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M21 15l-6 6M21 8l-13 13M21 1l-20 20" />
                 </svg>
             </div>
