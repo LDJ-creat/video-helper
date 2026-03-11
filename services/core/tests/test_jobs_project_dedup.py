@@ -46,7 +46,8 @@ class TestJobsProjectDedup(unittest.TestCase):
                 SessionLocal = get_sessionmaker()
                 now_ms = int(time.time() * 1000)
                 with SessionLocal() as session:
-                    set_llm_active(session, provider_id="nvidia", model_id="minimaxai/minimax-m2.1", now_ms=now_ms)
+                    # Keep provider/model consistent with core.llm.catalog.
+                    set_llm_active(session, provider_id="nvidia", model_id="minimaxai/minimax-m2.5", now_ms=now_ms)
                     token = encrypt_api_key("test-api-key")
                     upsert_llm_provider_secret_ciphertext(session, provider_id="nvidia", ciphertext_b64=token, now_ms=now_ms)
                     session.commit()

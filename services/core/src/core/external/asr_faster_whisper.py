@@ -6,6 +6,8 @@ from pathlib import Path
 import logging
 import os
 import re
+import time
+from contextlib import contextmanager
 
 from core.db.session import get_data_dir
 
@@ -13,6 +15,11 @@ logger = logging.getLogger(__name__)
 
 
 _WIN_ABS_PATH_RE = re.compile(r"[A-Za-z]:\\[^\s\"']+")
+
+
+_HF_DEFAULT_ENDPOINT = "https://huggingface.co"
+_HF_MIRROR_ENDPOINT = "https://hf-mirror.com"
+_ASR_DOWNLOAD_MAX_ATTEMPTS = 3
 
 
 def _scrub_error_text(text: str) -> str:
@@ -192,6 +199,199 @@ def _safe_env_hints() -> dict:
 	return out
 
 
+def _normalize_hf_endpoint(value: str | None) -> str | None:
+	if not isinstance(value, str):
+		return None
+	v = value.strip()
+	if not v:
+		return None
+	# Keep a canonical form (no trailing slash) for stable comparisons/logs.
+	while v.endswith("/"):
+		v = v[:-1]
+	return v or None
+
+
+def _candidate_hf_endpoints() -> list[str]:
+	"""Return ordered unique endpoints to try for Hugging Face downloads.
+
+	Order:
+	1) User/operator configured HF_ENDPOINT (if present)
+	2) Official huggingface.co
+	3) hf-mirror.com (China-friendly mirror)
+	"""
+	seen: set[str] = set()
+	out: list[str] = []
+	for raw in (
+		_normalize_hf_endpoint(os.environ.get("HF_ENDPOINT")),
+		_HF_DEFAULT_ENDPOINT,
+		_HF_MIRROR_ENDPOINT,
+	):
+		v = _normalize_hf_endpoint(raw)
+		if not v or v in seen:
+			continue
+		seen.add(v)
+		out.append(v)
+	return out
+
+
+def _looks_transient_network_error(exc: Exception) -> bool:
+	"""Heuristic: only retry on likely transient download/network errors."""
+	name = type(exc).__name__
+	mod = type(exc).__module__
+	msg = str(exc).lower()
+
+	# Some libraries wrap requests/urllib3 errors in a generic RuntimeError.
+	if any(k in msg for k in (
+		"connectionerror",
+		"readtimeout",
+		"connecttimeout",
+		"timeout",
+		"timed out",
+		"max retries exceeded",
+		"name resolution",
+		"temporary failure",
+		"connection reset",
+		"connection refused",
+		"proxyerror",
+		"sslerror",
+		"tls",
+		"eof occurred",
+	)):
+		return True
+
+	# Common requests/urllib3 exceptions.
+	if name in {
+		"ConnectionError",
+		"ConnectTimeout",
+		"ReadTimeout",
+		"Timeout",
+		"TimeoutError",
+		"SSLError",
+		"ProxyError",
+		"ChunkedEncodingError",
+	}:
+		return True
+	if any(m in (mod or "") for m in ("requests", "urllib3", "httpx", "huggingface_hub")):
+		if any(k in msg for k in ("timeout", "timed out", "connection", "max retries", "name resolution", "ssl")):
+			return True
+
+	# Hugging Face hub may wrap network issues into a generic RuntimeError.
+	if any(k in msg for k in (
+		"temporary failure",
+		"connection aborted",
+		"connection reset",
+		"connection refused",
+		"tls",
+		"eof occurred",
+		"502",
+		"503",
+		"504",
+		"gateway timeout",
+		"bad gateway",
+		"service unavailable",
+		"read timed out",
+		"connect timed out",
+	)):
+		return True
+
+	return False
+
+
+@contextmanager
+def _temp_env(updates: dict[str, str | None]):
+	old: dict[str, str | None] = {}
+	try:
+		for k, v in updates.items():
+			old[k] = os.environ.get(k)
+			if v is None:
+				os.environ.pop(k, None)
+			else:
+				os.environ[k] = v
+		yield
+	finally:
+		for k, prev in old.items():
+			if prev is None:
+				os.environ.pop(k, None)
+			else:
+				os.environ[k] = prev
+
+
+def _download_model_with_auto_endpoint(
+	*,
+	download_model,
+	model_size: str,
+	model_dir: Path,
+	data_dir: Path,
+) -> dict:
+	"""Download faster-whisper model with automatic HF endpoint fallback.
+
+	- Tries endpoints in a deterministic order (official -> mirror)
+	- Retries at most 3 times total (across endpoints)
+	- Uses a stable HF cache directory under DATA_DIR unless operator overrides
+	"""
+	endpoints = _candidate_hf_endpoints()
+	endpoints_tried: list[str] = []
+
+	# Keep HF cache under DATA_DIR to improve resumability and avoid per-user caches
+	# in packaged desktop builds. Respect operator overrides when set.
+	hf_home = os.environ.get("HF_HOME")
+	hug_cache = os.environ.get("HUGGINGFACE_HUB_CACHE")
+	cache_updates: dict[str, str | None] = {}
+	if not hf_home and not hug_cache:
+		stable_hf_home = (data_dir / "cache" / "huggingface").resolve()
+		stable_hf_home.mkdir(parents=True, exist_ok=True)
+		cache_updates["HF_HOME"] = str(stable_hf_home)
+
+	last_exc: Exception | None = None
+	for attempt in range(1, _ASR_DOWNLOAD_MAX_ATTEMPTS + 1):
+		endpoint = endpoints[(attempt - 1) % max(1, len(endpoints))] if endpoints else _HF_DEFAULT_ENDPOINT
+		endpoints_tried.append(endpoint)
+		updates = {"HF_ENDPOINT": endpoint, **cache_updates}
+		try:
+			with _temp_env(updates):
+				download_model(model_size, output_dir=str(model_dir), cache_dir=None, local_files_only=False)
+			return {"ok": True, "attempts": attempt, "endpointsTried": endpoints_tried}
+		except Exception as e:
+			last_exc = e
+			transient = _looks_transient_network_error(e)
+			logger.warning(
+				"asr model download failed attempt=%s/%s endpoint=%s transient=%s type=%s",
+				attempt,
+				_ASR_DOWNLOAD_MAX_ATTEMPTS,
+				endpoint,
+				bool(transient),
+				type(e).__name__,
+			)
+
+			# Always rotate endpoints and retry up to max attempts.
+			# Only apply backoff for likely transient network errors.
+			if attempt < _ASR_DOWNLOAD_MAX_ATTEMPTS and transient and not os.environ.get("PYTEST_CURRENT_TEST"):
+				# 0.8s, 1.6s, ...
+				sleep_s = 0.8 * (2 ** (attempt - 1))
+				try:
+					time.sleep(sleep_s)
+				except Exception:
+					pass
+
+	# Failure: raise a structured AsrError with actionable hints.
+	err_text = _scrub_error_text(str(last_exc) if last_exc else "unknown")
+	if len(err_text) > 300:
+		err_text = err_text[:300] + "…"
+	raise AsrError(
+		"model_missing",
+		"failed to download faster-whisper model (auto-tried Hugging Face endpoints)",
+		details={
+			"type": type(last_exc).__name__ if last_exc else "unknown",
+			"error": err_text,
+			"modelSize": model_size,
+			"attempts": _ASR_DOWNLOAD_MAX_ATTEMPTS,
+			"endpointsTried": endpoints_tried,
+			"hint": "Network to Hugging Face may be unstable; the app automatically tries official and https://hf-mirror.com. You can also set HF_ENDPOINT or configure a proxy/VPN, or prefetch the model in Settings.",
+			"env": _safe_env_hints(),
+		},
+	)
+
+
 def prefetch_faster_whisper_model(*, model_size: str = "base") -> dict:
 	"""Best-effort download of faster-whisper model into DATA_DIR.
 
@@ -213,10 +413,18 @@ def prefetch_faster_whisper_model(*, model_size: str = "base") -> dict:
 	model_dir.mkdir(parents=True, exist_ok=True)
 	logger.info("asr prefetch starting model=%s dir=%s", model_size, model_dir_rel or "<unknown>")
 	try:
-		download_model(model_size, output_dir=str(model_dir), cache_dir=None, local_files_only=False)
+		_download_model_with_auto_endpoint(
+			download_model=download_model,
+			model_size=model_size,
+			model_dir=model_dir,
+			data_dir=data_dir,
+		)
 		ok = _looks_like_model_dir(model_dir)
 		logger.info("asr prefetch finished model=%s ok=%s", model_size, bool(ok))
 		return {"ok": bool(ok), "alreadyPresent": False, "modelSize": model_size, "modelDir": model_dir_rel}
+	except AsrError:
+		# Preserve structured error details from the downloader.
+		raise
 	except Exception as e:
 		logger.warning("asr prefetch failed model=%s type=%s", model_size, type(e).__name__)
 		err_text = str(e)
@@ -281,7 +489,12 @@ def transcribe_with_faster_whisper(
 			if type(e).__name__ in {"NoSuchFile", "FileNotFoundError"}:
 				try:
 					logger.info("asr model heal starting model=%s dir=%s", model_size, model_dir_rel or "<unknown>")
-					download_model(model_size, output_dir=str(model_dir), cache_dir=None, local_files_only=False)
+					_download_model_with_auto_endpoint(
+						download_model=download_model,
+						model_size=model_size,
+						model_dir=model_dir,
+						data_dir=data_dir,
+					)
 					logger.info("asr model heal finished model=%s ok=%s", model_size, _looks_like_model_dir(model_dir))
 					model = WhisperModel(str(model_dir), device=device, compute_type=compute_type)
 				except Exception as e2:
@@ -316,7 +529,12 @@ def transcribe_with_faster_whisper(
 		try:
 			model_dir.mkdir(parents=True, exist_ok=True)
 			logger.info("asr model download starting model=%s dir=%s", model_size, model_dir_rel or "<unknown>")
-			download_model(model_size, output_dir=str(model_dir), cache_dir=None, local_files_only=False)
+			_download_model_with_auto_endpoint(
+				download_model=download_model,
+				model_size=model_size,
+				model_dir=model_dir,
+				data_dir=data_dir,
+			)
 			logger.info("asr model download finished model=%s ok=%s", model_size, _looks_like_model_dir(model_dir))
 			model = WhisperModel(str(model_dir), device=device, compute_type=compute_type)
 		except Exception as e:
@@ -324,6 +542,15 @@ def transcribe_with_faster_whisper(
 			# downloaded the model). This still may fail on clean machines.
 			err_type = type(e).__name__
 			err_text = str(e)
+			download_details: dict | None = None
+			if isinstance(e, AsrError):
+				download_details = getattr(e, "details", None) or None
+				# Prefer the underlying error fields when present.
+				try:
+					err_type = str((download_details or {}).get("type") or err_type)
+					err_text = str((download_details or {}).get("error") or err_text)
+				except Exception:
+					pass
 			if len(err_text) > 300:
 				err_text = err_text[:300] + "…"
 			fallback_tried = True
@@ -340,6 +567,7 @@ def transcribe_with_faster_whisper(
 						"modelDir": model_dir_rel,
 						"downloadErrorType": err_type,
 						"downloadError": err_text,
+						"downloadDetails": download_details,
 						"env": _safe_env_hints(),
 					},
 				)
