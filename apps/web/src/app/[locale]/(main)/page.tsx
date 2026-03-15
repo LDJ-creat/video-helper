@@ -20,33 +20,33 @@ export default function Home() {
             <main className="relative z-10 flex w-full flex-col items-center px-6">
 
                 {/* Hero Section */}
-                <div className="flex flex-col items-center text-center w-full max-w-[1800px] space-y-8 2xl:space-y-12 animate-in fade-in slide-in-from-bottom-10 duration-1000">
+                <div className="flex flex-col items-center text-center w-full max-w-[1400px] space-y-8 xl:space-y-10 animate-in fade-in slide-in-from-bottom-10 duration-1000">
 
                     {/* Badge */}
-                    <div className="inline-flex items-center gap-2 rounded-full border border-stone-200 bg-white/80 px-4 py-1.5 2xl:px-6 2xl:py-2.5 text-xs 2xl:text-base font-semibold text-stone-600 shadow-sm backdrop-blur-md">
-                        <Sparkles className="w-3.5 h-3.5 2xl:w-5 2xl:h-5 text-stone-800" />
+                    <div className="inline-flex items-center gap-2 rounded-full border border-stone-200 bg-white/80 px-4 py-1.5 xl:px-5 xl:py-2 text-xs xl:text-sm font-semibold text-stone-600 shadow-sm backdrop-blur-md">
+                        <Sparkles className="w-3.5 h-3.5 xl:w-4 xl:h-4 text-stone-800" />
                         <span>{t('title')}</span>
                     </div>
 
                     {/* Main Title */}
-                    <h1 className="text-5xl font-extrabold tracking-tight text-stone-900 sm:text-6xl lg:text-7xl 2xl:text-8xl">
+                    <h1 className="text-5xl font-extrabold tracking-tight text-stone-900 sm:text-6xl xl:text-7xl">
                         {t('title')}
                     </h1>
 
                     {/* Description */}
-                    <p className="max-w-2xl 2xl:max-w-4xl text-lg 2xl:text-2xl leading-relaxed text-stone-500 sm:text-xl">
+                    <p className="max-w-2xl xl:max-w-3xl text-lg xl:text-xl leading-relaxed text-stone-500">
                         {t('description')}
                     </p>
 
                     {/* Primary CTA */}
-                    <div className="pt-4 2xl:pt-8 w-full max-w-sm 2xl:max-w-md">
+                    <div className="pt-4 xl:pt-6 w-full max-w-sm xl:max-w-md">
                         <Link
                             href="/ingest"
-                            className="group relative flex h-14 2xl:h-20 items-center justify-center gap-3 overflow-hidden rounded-2xl 2xl:rounded-3xl bg-stone-900 px-10 text-lg 2xl:text-2xl font-bold text-white shadow-xl shadow-stone-200 transition-all hover:-translate-y-1 hover:bg-stone-800 active:scale-95"
+                            className="group relative flex h-14 xl:h-16 items-center justify-center gap-3 overflow-hidden rounded-2xl xl:rounded-2xl bg-stone-900 px-10 text-lg xl:text-xl font-bold text-white shadow-xl shadow-stone-200 transition-all hover:-translate-y-1 hover:bg-stone-800 active:scale-95"
                         >
-                            <Video className="w-5 h-5 2xl:w-8 2xl:h-8" />
+                            <Video className="w-5 h-5 xl:w-6 xl:h-6" />
                             {t('cta')}
-                            <ArrowRight className="w-5 h-5 2xl:w-8 2xl:h-8 transition-transform group-hover:translate-x-1" />
+                            <ArrowRight className="w-5 h-5 xl:w-6 xl:h-6 transition-transform group-hover:translate-x-1" />
 
                             {/* Shine Effect */}
                             <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/10 to-transparent transition-transform duration-1000 group-hover:translate-x-full" />
