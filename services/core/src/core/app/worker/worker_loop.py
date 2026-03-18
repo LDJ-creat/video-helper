@@ -17,7 +17,9 @@ from core.app.sse.event_bus import GLOBAL_JOB_EVENT_BUS
 from core.app.logs.job_logs import append_job_log
 from core.app.pipeline.analyze_provider import AnalyzeError
 from core.app.pipeline.keyframes import extract_keyframes_at_times, map_keyframes_error
+from core.app.pipeline.chunk_summaries import ensure_chunk_summaries, estimate_duration_ms, should_use_long_video_path
 from core.app.pipeline.llm_plan import generate_plan, validate_plan
+from core.app.pipeline.keyframe_verify import get_verify_budget, get_verify_mode, verify_and_maybe_adjust_plan_keyframes
 from core.app.pipeline.transcribe_real import map_transcribe_error, run_real_transcribe
 from core.contracts.error_codes import ErrorCode
 from core.db.session import get_sessionmaker
@@ -390,7 +392,63 @@ class PipelineJobProcessor:
                     session.add(job)
                     session.commit()
                 else:
-                    plan = generate_plan(transcript=job.transcript or {}, output_language=getattr(job, "output_language", None))
+                    transcript = job.transcript or {}
+                    # Long-video routing: generate chunk summaries first, then let plan stage consume summaries (reduce).
+                    segments_raw = transcript.get("segments") if isinstance(transcript, dict) else None
+                    seg_dicts = [s for s in segments_raw if isinstance(s, dict)] if isinstance(segments_raw, list) else []
+                    total_chars = 0
+                    for s in seg_dicts:
+                        t = s.get("text")
+                        if isinstance(t, str):
+                            total_chars += len(t)
+
+                    # Prefer project.duration_ms / transcript_meta.durationMs; fall back to segment endMs.
+                    duration_ms = project.duration_ms if isinstance(getattr(project, "duration_ms", None), int) and project.duration_ms else None
+                    if duration_ms is None:
+                        duration_ms = estimate_duration_ms(transcript=transcript, transcript_meta=job.transcript_meta)
+
+                    use_long = should_use_long_video_path(duration_ms=duration_ms, segments=seg_dicts, total_chars=int(total_chars))
+
+                    summaries: list[dict] | None = None
+                    if use_long:
+                        job.stage = "chunk_summaries"
+                        job.progress = max(job.progress or 0.0, 0.55)
+                        job.updated_at_ms = _now_ms()
+                        session.add(job)
+                        session.commit()
+
+                        _log(job_id=job.job_id, project_id=job.project_id, stage=job.stage, level="info", message="chunk_summaries started")
+                        GLOBAL_JOB_EVENT_BUS.emit_state(job_id=job.job_id, project_id=job.project_id, stage=job.stage, message="status=running")
+                        GLOBAL_JOB_EVENT_BUS.emit_progress(job_id=job.job_id, project_id=job.project_id, stage=job.stage, progress=job.progress, message="progress=0.55")
+
+                        summaries = ensure_chunk_summaries(
+                            project_id=project.project_id,
+                            job_id=job.job_id,
+                            transcript=transcript,
+                            transcript_meta=job.transcript_meta,
+                            output_language=getattr(job, "output_language", None),
+                            duration_ms=duration_ms,
+                        )
+
+                        job.progress = max(job.progress or 0.0, 0.6)
+                        job.updated_at_ms = _now_ms()
+                        session.add(job)
+                        session.commit()
+                        _log(job_id=job.job_id, project_id=job.project_id, stage=job.stage, level="info", message=f"chunk_summaries finished count={len(summaries or [])}")
+                        GLOBAL_JOB_EVENT_BUS.emit_state(job_id=job.job_id, project_id=job.project_id, stage=job.stage, message="chunk_summaries=ready")
+                        GLOBAL_JOB_EVENT_BUS.emit_progress(job_id=job.job_id, project_id=job.project_id, stage=job.stage, progress=job.progress, message="progress=0.6")
+
+                        # Switch back to plan stage for reduce.
+                        job.stage = "plan"
+                        job.updated_at_ms = _now_ms()
+                        session.add(job)
+                        session.commit()
+
+                    plan = generate_plan(
+                        transcript=transcript,
+                        summaries=summaries,
+                        output_language=getattr(job, "output_language", None),
+                    )
                 content_blocks = plan.get("contentBlocks") if isinstance(plan, dict) else None
                 mindmap = plan.get("mindmap") if isinstance(plan, dict) else None
                 if not isinstance(content_blocks, list) or not isinstance(mindmap, dict):
@@ -495,6 +553,18 @@ class PipelineJobProcessor:
                     for h in hls:
                         if not isinstance(h, dict):
                             continue
+                        # Backfill the legacy single keyframe too (keep in sync with keyframes list).
+                        kf_single = h.get("keyframe")
+                        if isinstance(kf_single, dict):
+                            tm = kf_single.get("timeMs")
+                            if isinstance(tm, int):
+                                info = keyframes_artifacts.keyframes_by_time.get(int(tm))
+                                if isinstance(info, dict):
+                                    asset_id = info.get("assetId")
+                                    if isinstance(asset_id, str) and asset_id:
+                                        kf_single["assetId"] = asset_id
+                                        kf_single["contentUrl"] = f"/api/v1/assets/{asset_id}/content"
+
                         kfs = h.get("keyframes")
                         if not isinstance(kfs, list):
                             continue
@@ -511,6 +581,94 @@ class PipelineJobProcessor:
                             if isinstance(asset_id, str) and asset_id:
                                 kf["assetId"] = asset_id
                                 kf["contentUrl"] = f"/api/v1/assets/{asset_id}/content"
+
+                        # Keep legacy `keyframe` aligned with first keyframes[] item if present.
+                        if isinstance(h.get("keyframes"), list) and h.get("keyframes"):
+                            first = h.get("keyframes")[0]
+                            if isinstance(first, dict):
+                                h["keyframe"] = dict(first)
+
+                # ---- Optional: keyframe verify / fallback ----
+                verify_mode = get_verify_mode()
+                if verify_mode != "off":
+                    job.stage = "keyframe_verify"
+                    job.progress = max(job.progress or 0.0, 0.975)
+                    job.updated_at_ms = _now_ms()
+                    session.add(job)
+                    session.commit()
+
+                    _log(job_id=job.job_id, project_id=job.project_id, stage=job.stage, level="info", message=f"keyframe_verify started mode={verify_mode}")
+                    GLOBAL_JOB_EVENT_BUS.emit_state(job_id=job.job_id, project_id=job.project_id, stage=job.stage, message="status=running")
+                    GLOBAL_JOB_EVENT_BUS.emit_progress(job_id=job.job_id, project_id=job.project_id, stage=job.stage, progress=job.progress, message="progress=0.975")
+
+                    budget = get_verify_budget()
+                    new_times, verified_count, dropped_count = verify_and_maybe_adjust_plan_keyframes(
+                        session=session,
+                        content_blocks=content_blocks,
+                        output_language=getattr(job, "output_language", None),
+                        mode=verify_mode,
+                        budget=budget,
+                    )
+
+                    if new_times:
+                        more = extract_keyframes_at_times(
+                            session=session,
+                            project=project,
+                            job_id=job.job_id,
+                            times_ms=new_times,
+                            allow_skip_if_placeholder=True,
+                            transcript_meta=job.transcript_meta,
+                        )
+
+                        # Merge artifacts
+                        keyframes_artifacts.asset_refs.extend(list(more.asset_refs or []))
+                        keyframes_artifacts.keyframes_by_time.update(dict(more.keyframes_by_time or {}))
+
+                        # Backfill newly extracted asset refs.
+                        for b in content_blocks:
+                            if not isinstance(b, dict):
+                                continue
+                            hls = b.get("highlights")
+                            if not isinstance(hls, list):
+                                continue
+                            for h in hls:
+                                if not isinstance(h, dict):
+                                    continue
+                                kfs = h.get("keyframes")
+                                if not isinstance(kfs, list):
+                                    continue
+                                for kf in kfs:
+                                    if not isinstance(kf, dict):
+                                        continue
+                                    tm = kf.get("timeMs")
+                                    if not isinstance(tm, int):
+                                        continue
+                                    info = keyframes_artifacts.keyframes_by_time.get(int(tm))
+                                    if not isinstance(info, dict):
+                                        continue
+                                    asset_id = info.get("assetId")
+                                    if isinstance(asset_id, str) and asset_id:
+                                        kf["assetId"] = asset_id
+                                        kf["contentUrl"] = f"/api/v1/assets/{asset_id}/content"
+                                if isinstance(h.get("keyframes"), list) and h.get("keyframes"):
+                                    first = h.get("keyframes")[0]
+                                    if isinstance(first, dict):
+                                        h["keyframe"] = dict(first)
+
+                    job.progress = max(job.progress or 0.0, 0.98)
+                    job.updated_at_ms = _now_ms()
+                    session.add(job)
+                    session.commit()
+
+                    _log(
+                        job_id=job.job_id,
+                        project_id=job.project_id,
+                        stage=job.stage,
+                        level="info",
+                        message=f"keyframe_verify finished verified={verified_count} dropped={dropped_count} retried={len(new_times)}",
+                    )
+                    GLOBAL_JOB_EVENT_BUS.emit_state(job_id=job.job_id, project_id=job.project_id, stage=job.stage, message="keyframe_verify=done")
+                    GLOBAL_JOB_EVENT_BUS.emit_progress(job_id=job.job_id, project_id=job.project_id, stage=job.stage, progress=job.progress, message="progress=0.98")
 
                 # ---- Assemble Result ----
                 job.stage = "assemble_result"
@@ -606,7 +764,7 @@ class PipelineJobProcessor:
                     error = map_keyframes_error(e)
                 elif job.stage == "assemble_result" and isinstance(e, AssembleResultError):
                     error = {"code": ErrorCode.JOB_STAGE_FAILED, "message": str(e), "details": {"reason": e.kind}}
-                elif job.stage in {"plan", "highlights", "mindmap"} and isinstance(e, AnalyzeError):
+                elif job.stage in {"plan", "highlights", "mindmap", "chunk_summaries", "keyframe_verify"} and isinstance(e, AnalyzeError):
                     error = e.to_error()
                 else:
                     error = {"code": ErrorCode.JOB_STAGE_FAILED, "message": str(e), "details": {"reason": "unexpected"}}
