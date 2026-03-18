@@ -55,7 +55,7 @@ function StatusBadge({ configured }: { configured: boolean }) {
 
 function ProviderIcon({ name, configured }: { name: string; configured: boolean }) {
     return (
-        <div className={`flex-shrink-0 w-10 h-10 2xl:w-16 2xl:h-16 rounded-xl 2xl:rounded-2xl flex items-center justify-center font-bold text-base 2xl:text-2xl ${configured
+        <div className={`flex-shrink-0 w-10 h-10 xl:w-12 xl:h-12 rounded-xl xl:rounded-2xl flex items-center justify-center font-bold text-base xl:text-lg ${configured
             ? "bg-emerald-100 text-emerald-700"
             : "bg-stone-100 text-stone-500"
             }`}>
@@ -363,30 +363,30 @@ export function SettingsForm() {
                 <div className="bg-white rounded-2xl border border-stone-200 shadow-sm overflow-hidden">
                     {/* Top accent bar */}
                     <div className="h-1 bg-gradient-to-r from-blue-500 to-blue-400" />
-                    <div className="p-6 2xl:p-10">
-                        <h3 className="text-sm 2xl:text-xl font-semibold text-stone-500 uppercase tracking-wider mb-4 2xl:mb-6">{t("activeConfig")}</h3>
-                        <div className="flex flex-wrap items-center gap-x-6 gap-y-3 2xl:gap-x-10 2xl:gap-y-5 mb-5 2xl:mb-8">
-                            <div className="flex items-center gap-2 2xl:gap-4">
-                                <span className="text-xs 2xl:text-lg text-stone-400 uppercase tracking-wide">{t("provider")}</span>
-                                <span className="font-semibold text-stone-900 2xl:text-2xl">{activeProvider.displayName}</span>
+                    <div className="p-6 xl:p-8">
+                        <h3 className="text-sm xl:text-lg font-semibold text-stone-500 uppercase tracking-wider mb-4 xl:mb-5">{t("activeConfig")}</h3>
+                        <div className="flex flex-wrap items-center gap-x-6 gap-y-3 xl:gap-x-8 xl:gap-y-4 mb-5 xl:mb-6">
+                            <div className="flex items-center gap-2 xl:gap-3">
+                                <span className="text-xs xl:text-sm text-stone-400 uppercase tracking-wide">{t("provider")}</span>
+                                <span className="font-semibold text-stone-900 xl:text-xl">{activeProvider.displayName}</span>
                                 {activeProvider.isCustom && <CustomBadge />}
                                 {activeSettings.hasKey ? (
-                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 2xl:px-4 2xl:py-1.5 bg-emerald-50 text-emerald-700 text-xs 2xl:text-lg rounded-full border border-emerald-200">
-                                        <svg className="w-3 h-3 2xl:w-5 2xl:h-5" fill="currentColor" viewBox="0 0 20 20">
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 xl:px-3 xl:py-1 bg-emerald-50 text-emerald-700 text-xs xl:text-sm rounded-full border border-emerald-200">
+                                        <svg className="w-3 h-3 xl:w-4 xl:h-4" fill="currentColor" viewBox="0 0 20 20">
                                             <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                                         </svg>
                                         {t("configured")}
                                     </span>
                                 ) : (
-                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 2xl:px-4 2xl:py-1.5 bg-amber-50 text-amber-700 text-xs 2xl:text-lg rounded-full border border-amber-200">
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 xl:px-3 xl:py-1 bg-amber-50 text-amber-700 text-xs xl:text-sm rounded-full border border-amber-200">
                                         {t("noApiKey")}
                                     </span>
                                 )}
                             </div>
-                            <div className="w-px h-4 2xl:h-8 bg-stone-200 hidden sm:block" />
-                            <div className="flex items-center gap-2 2xl:gap-4">
-                                <span className="text-xs 2xl:text-lg text-stone-400 uppercase tracking-wide">{t("model")}</span>
-                                <span className="font-semibold text-stone-900 2xl:text-2xl">{activeModel?.displayName || activeSettings.modelId}</span>
+                            <div className="w-px h-4 xl:h-6 bg-stone-200 hidden sm:block" />
+                            <div className="flex items-center gap-2 xl:gap-3">
+                                <span className="text-xs xl:text-sm text-stone-400 uppercase tracking-wide">{t("model")}</span>
+                                <span className="font-semibold text-stone-900 xl:text-xl">{activeModel?.displayName || activeSettings.modelId}</span>
                                 {activeModel?.isCustom && <CustomBadge />}
                             </div>
                         </div>
@@ -406,10 +406,10 @@ export function SettingsForm() {
                                     </>
                                 ) : (
                                     <>
-                                        <svg className="w-4 h-4 2xl:w-6 2xl:h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                        <svg className="w-4 h-4 xl:w-5 xl:h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                             <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
                                         </svg>
-                                        <span className="2xl:text-xl">{t("testConnection")}</span>
+                                        <span className="xl:text-base">{t("testConnection")}</span>
                                     </>
                                 )}
                             </button>
@@ -434,8 +434,8 @@ export function SettingsForm() {
 
             {/* ── Provider Catalog ──────────────────────────────────────── */}
             <div>
-                <h3 className="text-sm 2xl:text-xl font-semibold text-stone-500 uppercase tracking-wider mb-4 2xl:mb-6">{t("availableProviders")}</h3>
-                <div className="space-y-3 2xl:space-y-6">
+                <h3 className="text-sm xl:text-lg font-semibold text-stone-500 uppercase tracking-wider mb-4 xl:mb-5">{t("availableProviders")}</h3>
+                <div className="space-y-3 xl:space-y-4">
                     {catalog?.providers.map((provider) => {
                         const isExpanded = expandedProvider === provider.providerId;
                         const isAddingModel = addingModelFor === provider.providerId;
@@ -457,24 +457,24 @@ export function SettingsForm() {
                                     <div className="h-0.5 bg-gradient-to-r from-blue-500 to-blue-400" />
                                 )}
 
-                                <div className="p-5 2xl:p-8">
+                                <div className="p-5 xl:p-6">
                                     {/* Provider Header */}
-                                    <div className="flex items-start justify-between mb-4 2xl:mb-8">
-                                        <div className="flex items-center gap-3 2xl:gap-6">
+                                    <div className="flex items-start justify-between mb-4 xl:mb-6">
+                                        <div className="flex items-center gap-3 xl:gap-4">
                                             <ProviderIcon name={provider.displayName} configured={provider.hasKey} />
                                             <div>
-                                                <div className="flex items-center gap-2 2xl:gap-3 mb-1">
-                                                    <h4 className="text-sm 2xl:text-2xl font-semibold text-stone-900 leading-none">{provider.displayName}</h4>
+                                                <div className="flex items-center gap-2 xl:gap-2.5 mb-1">
+                                                    <h4 className="text-base md:text-lg xl:text-xl font-semibold text-stone-900 leading-none">{provider.displayName}</h4>
                                                     {provider.isCustom && <CustomBadge />}
                                                 </div>
                                                 {provider.hasKey ? (
-                                                    <p className="text-xs 2xl:text-base text-emerald-600">
+                                                    <p className="text-xs xl:text-sm text-emerald-600">
                                                         {t("apiKeyConfigured")}
                                                         {provider.secretUpdatedAtMs &&
                                                             ` · ${t("updatedAt", { date: new Date(provider.secretUpdatedAtMs as number).toLocaleDateString() })}`}
                                                     </p>
                                                 ) : (
-                                                    <p className="text-xs 2xl:text-base text-amber-600">{t("needsApiKey")}</p>
+                                                    <p className="text-xs xl:text-sm text-amber-600">{t("needsApiKey")}</p>
                                                 )}
                                             </div>
                                         </div>
@@ -485,9 +485,9 @@ export function SettingsForm() {
                                                     onClick={() => handleDeleteCustomProvider(provider.providerId, provider.displayName)}
                                                     disabled={deleteCustomProvider.isPending}
                                                     title={t("deleteProvider")}
-                                                    className="p-1.5 2xl:p-2 text-stone-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                                    className="p-1.5 xl:p-2 text-stone-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                                                 >
-                                                    <svg className="w-4 h-4 2xl:w-6 2xl:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <svg className="w-4 h-4 xl:w-5 xl:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                                                     </svg>
                                                 </button>
@@ -496,15 +496,15 @@ export function SettingsForm() {
                                     </div>
 
                                     {/* Model Selection */}
-                                    <div className="mb-4 2xl:mb-8">
-                                        <label className="block text-xs 2xl:text-lg font-medium text-stone-600 mb-1.5 2xl:mb-3 uppercase tracking-wide">{t("selectModel")}</label>
-                                        <div className="flex items-center gap-2 2xl:gap-4">
+                                    <div className="mb-4 xl:mb-6">
+                                        <label className="block text-xs xl:text-sm font-medium text-stone-600 mb-1.5 xl:mb-2 uppercase tracking-wide">{t("selectModel")}</label>
+                                        <div className="flex items-center gap-2 xl:gap-3">
                                             <select
                                                 value={selectedModel}
                                                 onChange={(e) =>
                                                     setSelectedModels({ ...selectedModels, [provider.providerId]: e.target.value })
                                                 }
-                                                className="flex-1 px-3 py-2 2xl:px-5 2xl:py-4 text-sm 2xl:text-xl border border-stone-200 rounded-xl bg-stone-50 text-stone-800 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent focus:bg-white transition-colors"
+                                                className="flex-1 px-3 py-2 xl:px-4 xl:py-3 text-sm xl:text-base border border-stone-200 rounded-xl bg-stone-50 text-stone-800 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent focus:bg-white transition-colors"
                                             >
                                                 {provider.models.map((model) => (
                                                     <option key={model.modelId} value={model.modelId}>
@@ -585,12 +585,12 @@ export function SettingsForm() {
                                                 </div>
                                             </div>
                                         ) : (
-                                            <div className="flex gap-2 2xl:gap-4 mt-2">
+                                            <div className="flex gap-2 xl:gap-3 mt-2">
                                                 <button
                                                     onClick={() => setExpandedProvider(provider.providerId)}
-                                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 2xl:px-5 2xl:py-3 bg-stone-100 text-stone-700 text-sm 2xl:text-xl font-medium rounded-xl hover:bg-stone-200 transition-colors"
+                                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 xl:px-4 xl:py-2.5 bg-stone-100 text-stone-700 text-sm xl:text-base font-medium rounded-xl hover:bg-stone-200 transition-colors"
                                                 >
-                                                    <svg className="w-3.5 h-3.5 2xl:w-6 2xl:h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                    <svg className="w-3.5 h-3.5 xl:w-5 xl:h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                                         <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                                                     </svg>
                                                     {provider.hasKey ? t("updateApiKey") : t("configApiKey")}
@@ -615,10 +615,10 @@ export function SettingsForm() {
                                     {isCurrentActive ? (
                                         <button
                                             disabled
-                                            className="w-full px-4 py-2.5 2xl:px-6 2xl:py-5 bg-emerald-500 text-white text-sm 2xl:text-xl font-semibold rounded-xl cursor-not-allowed"
+                                            className="w-full px-4 py-2.5 xl:px-5 xl:py-3.5 bg-emerald-500 text-white text-sm xl:text-base font-semibold rounded-xl cursor-not-allowed"
                                         >
-                                            <span className="inline-flex items-center gap-2 2xl:gap-4 justify-center">
-                                                <svg className="w-4 h-4 2xl:w-6 2xl:h-6" fill="currentColor" viewBox="0 0 20 20">
+                                            <span className="inline-flex items-center gap-2 xl:gap-3 justify-center">
+                                                <svg className="w-4 h-4 xl:w-5 xl:h-5" fill="currentColor" viewBox="0 0 20 20">
                                                     <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                                                 </svg>
                                                 {t("selectedProvider")}
@@ -629,12 +629,12 @@ export function SettingsForm() {
                                             <button
                                                 onClick={() => handleSelectProvider(provider)}
                                                 disabled={!provider.hasKey || updateActive.isPending}
-                                                className="w-full px-4 py-2.5 2xl:px-6 2xl:py-5 bg-blue-600 text-white text-sm 2xl:text-xl font-semibold rounded-xl hover:bg-blue-700 disabled:bg-stone-200 disabled:text-stone-400 disabled:cursor-not-allowed transition-colors shadow-sm"
+                                                className="w-full px-4 py-2.5 xl:px-5 xl:py-3.5 bg-blue-600 text-white text-sm xl:text-base font-semibold rounded-xl hover:bg-blue-700 disabled:bg-stone-200 disabled:text-stone-400 disabled:cursor-not-allowed transition-colors shadow-sm"
                                             >
                                                 {updateActive.isPending ? t("selecting") : t("selectProvider")}
                                             </button>
                                             {!provider.hasKey && (
-                                                <p className="mt-2 2xl:mt-4 text-xs 2xl:text-base text-stone-400 text-center">
+                                                <p className="mt-2 xl:mt-3 text-xs xl:text-sm text-stone-400 text-center">
                                                     {t("apiKeyRequiredToSelect")}
                                                 </p>
                                             )}

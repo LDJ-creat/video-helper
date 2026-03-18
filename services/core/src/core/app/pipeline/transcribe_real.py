@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import threading
 import time
+import wave
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -52,6 +53,18 @@ def _env_int(name: str, default: int) -> int:
 def _env_str(name: str) -> str | None:
 	raw = (os.environ.get(name) or "").strip()
 	return raw or None
+
+
+def _wav_duration_s(path: Path) -> float | None:
+	try:
+		with wave.open(str(path), "rb") as wf:
+			frames = wf.getnframes()
+			rate = wf.getframerate()
+			if rate <= 0:
+				return None
+			return float(frames) / float(rate)
+	except Exception:
+		return None
 
 
 def _maybe_set_project_title(*, project: Project) -> None:
@@ -252,7 +265,10 @@ def run_real_transcribe(
 	media_abs: Path | None = plan.media_abs_path
 
 	if plan.requires_download:
-		_progress(0.10, "download=starting")
+		# yt-dlp can be slow for long videos or throttled networks.
+		# subprocess timeout defaults to 20 minutes; make it operator-configurable.
+		timeout_s = float(max(1, _env_int("YTDLP_DOWNLOAD_TIMEOUT_S_WORKER", _env_int("YTDLP_DOWNLOAD_TIMEOUT_S", 20 * 60))))
+		_progress(0.10, f"download=starting timeoutS={int(timeout_s)}")
 		if not plan.download_dir_abs or not plan.source_url:
 			raise ValueError("invalid url source plan")
 		stop_evt = threading.Event()
@@ -274,7 +290,12 @@ def run_real_transcribe(
 		th = threading.Thread(target=_download_heartbeat, name="ytdlp-download-heartbeat", daemon=True)
 		th.start()
 		try:
-			res = download_with_ytdlp(url=plan.source_url, output_dir=plan.download_dir_abs / job_id, base_filename="source")
+			res = download_with_ytdlp(
+				url=plan.source_url,
+				output_dir=plan.download_dir_abs / job_id,
+				base_filename="source",
+				timeout_s=timeout_s,
+			)
 		finally:
 			stop_evt.set()
 		updated_source_path = res.rel_path
@@ -288,26 +309,49 @@ def run_real_transcribe(
 
 	# Extract audio
 	_progress(0.25, "audio=extracting")
+	audio_start = time.perf_counter()
 	audio_result = extract_audio_wav_16k_mono(
 		input_path=media_abs,
 		output_dir=(get_data_dir() / project.project_id / "artifacts" / job_id),
 		base_filename="audio",
 	)
-	_progress(0.35, f"audio=ok wav={audio_result.rel_path}")
+	audio_ms = int(max(0.0, (time.perf_counter() - audio_start) * 1000.0))
+	audio_dur_s = _wav_duration_s(audio_result.abs_path)
+	_progress(0.35, f"audio=ok wav={audio_result.rel_path} ms={audio_ms} durS={int(audio_dur_s) if audio_dur_s else 'unknown'}")
 
 	# ASR
 	_progress(0.40, "asr=starting provider=faster-whisper")
 	model_size = (os.environ.get("TRANSCRIBE_MODEL_SIZE") or "base").strip() or "base"
-	device = (os.environ.get("TRANSCRIBE_DEVICE") or "cpu").strip() or "cpu"
-	compute_type = (os.environ.get("TRANSCRIBE_COMPUTE_TYPE") or "int8").strip() or "int8"
+	device = (os.environ.get("TRANSCRIBE_DEVICE") or "auto").strip() or "auto"
+	compute_type = _env_str("TRANSCRIBE_COMPUTE_TYPE")
+	device_index = _env_int("TRANSCRIBE_DEVICE_INDEX", 0)
+	vad_filter = _env_bool("TRANSCRIBE_VAD_FILTER", True)
+	beam_size = _env_int("TRANSCRIBE_BEAM_SIZE", 0)
+	best_of = _env_int("TRANSCRIBE_BEST_OF", 0)
+	if beam_size <= 0:
+		beam_size = 0
+	if best_of <= 0:
+		best_of = 0
+	asr_start = time.perf_counter()
 	asr = transcribe_with_faster_whisper(
 		audio_path=audio_result.abs_path,
 		model_size=model_size,
 		device=device,
+		device_index=device_index,
 		compute_type=compute_type,
+		vad_filter=vad_filter,
+		beam_size=(beam_size or None),
+		best_of=(best_of or None),
 	)
+	asr_ms = int(max(0.0, (time.perf_counter() - asr_start) * 1000.0))
+	rtf = None
+	if audio_dur_s and audio_dur_s > 0.01:
+		rtf = float(asr_ms) / 1000.0 / float(audio_dur_s)
 	transcript = asr.to_transcript_dict()
-	_progress(0.45, f"asr=ok language={asr.language or 'unknown'}")
+	_progress(
+		0.45,
+		f"asr=ok language={asr.language or 'unknown'} ms={asr_ms} rtf={rtf:.3f}" if rtf is not None else f"asr=ok language={asr.language or 'unknown'} ms={asr_ms}",
+	)
 
 	# Persist transcript file
 	stored = store_transcript_json(project_id=project.project_id, job_id=job_id, transcript=transcript)

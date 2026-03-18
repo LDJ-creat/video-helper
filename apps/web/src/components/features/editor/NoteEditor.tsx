@@ -126,12 +126,12 @@ const HeadingBlock = ({ node, editor, HTMLAttributes }: { node: any, editor: any
             >
                 {hasTime && (
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    <div className="p-1 2xl:p-2 rounded-full text-stone-300 hover:text-blue-600 hover:bg-blue-50 transition-all opacity-0 group-hover:opacity-100" title={t("jumpToVideo")} onClick={() => (editor as any).commands.navigateToTime((node as any).attrs.startMs)}>
-                        <svg className="w-5 h-5 2xl:w-7 2xl:h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                    <div className="p-1 xl:p-1.5 rounded-full text-stone-300 hover:text-blue-600 hover:bg-blue-50 transition-all opacity-0 group-hover:opacity-100" title={t("jumpToVideo")} onClick={() => (editor as any).commands.navigateToTime((node as any).attrs.startMs)}>
+                        <svg className="w-5 h-5 xl:w-6 xl:h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
                     </div>
                 )}
             </div>
-            <NodeViewContent className="flex-1 font-bold text-stone-800 text-xl 2xl:text-3xl" />
+            <NodeViewContent className="flex-1 font-bold text-stone-800 text-xl xl:text-2xl" />
         </NodeViewWrapper>
     );
 };
@@ -199,7 +199,7 @@ const ParagraphBlock = ({ node, updateAttributes, editor, getPos, HTMLAttributes
             <NodeViewWrapper
                 {...HTMLAttributes}
                 data-highlight-id={highlightId ?? undefined}
-                className={`flex items-start gap-3 2xl:gap-5 group -ml-12 2xl:-ml-16 pl-1 transition-colors rounded-lg hover:bg-stone-50/50 mb-6 relative scroll-mt-24 ${HTMLAttributes?.class ?? ''}`.trim()}
+                className={`flex items-start gap-3 xl:gap-4 group -ml-12 xl:-ml-14 pl-1 transition-colors rounded-lg hover:bg-stone-50/50 mb-6 relative scroll-mt-24 ${HTMLAttributes?.class ?? ''}`.trim()}
             >
                 <input
                     type="file"
@@ -212,15 +212,15 @@ const ParagraphBlock = ({ node, updateAttributes, editor, getPos, HTMLAttributes
 
                 <div
                     contentEditable={false}
-                    className={`flex-shrink-0 mt-1 w-[60px] 2xl:w-[80px] flex flex-col items-center gap-1 2xl:gap-2`}
+                    className={`flex-shrink-0 mt-1 w-[60px] xl:w-[70px] flex flex-col items-center gap-1 xl:gap-1.5`}
                 >
                     <div
-                        className={`flex justify-center items-center h-6 2xl:h-8 w-full ${hasTime ? 'cursor-pointer' : ''}`}
+                        className={`flex justify-center items-center h-6 xl:h-7 w-full ${hasTime ? 'cursor-pointer' : ''}`}
                         onClick={hasTime ? () => editor.commands.navigateToTime(node.attrs.timeMs) : undefined}
                     >
                         {hasTime && (
-                            <div className="p-1 2xl:p-1.5 rounded-full text-stone-400 hover:text-blue-600 hover:bg-blue-50 transition-all opacity-0 group-hover:opacity-100" title={t("jumpToVideo")}>
-                                <svg className="w-5 h-5 2xl:w-7 2xl:h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                            <div className="p-1 xl:p-1.5 rounded-full text-stone-400 hover:text-blue-600 hover:bg-blue-50 transition-all opacity-0 group-hover:opacity-100" title={t("jumpToVideo")}>
+                                <svg className="w-5 h-5 xl:w-6 xl:h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
                             </div>
                         )}
                     </div>
@@ -229,10 +229,10 @@ const ParagraphBlock = ({ node, updateAttributes, editor, getPos, HTMLAttributes
                     {hasTime && (
                         <button
                             onClick={handleAddKeyframeClick}
-                            className="opacity-0 group-hover:opacity-100 text-xs text-stone-400 hover:text-orange-500 transition-opacity p-1 2xl:p-1.5"
+                            className="opacity-0 group-hover:opacity-100 text-xs text-stone-400 hover:text-orange-500 transition-opacity p-1 xl:p-1.5"
                             title={t("addImage")}
                         >
-                            <svg className="w-5 h-5 2xl:w-7 2xl:h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></svg>
+                            <svg className="w-5 h-5 xl:w-6 xl:h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></svg>
                         </button>
                     )}
                 </div>
@@ -264,11 +264,11 @@ const ParagraphBlock = ({ node, updateAttributes, editor, getPos, HTMLAttributes
                             ))}
                         </div>
                     )}
-                    <div className="flex items-baseline gap-2 2xl:gap-3">
+                    <div className="flex items-baseline gap-2 xl:gap-2.5">
                         {highlightIndex !== null && (
-                            <span contentEditable={false} className="flex-shrink-0 text-sm 2xl:text-lg font-semibold text-stone-400 select-none leading-relaxed mt-0.5 2xl:mt-1">{highlightIndex}.</span>
+                            <span contentEditable={false} className="flex-shrink-0 text-sm xl:text-base font-semibold text-stone-400 select-none leading-relaxed mt-0.5 xl:mt-1">{highlightIndex}.</span>
                         )}
-                        <NodeViewContent className="flex-1 text-stone-800 text-lg 2xl:text-2xl leading-relaxed outline-none" />
+                        <NodeViewContent className="flex-1 text-stone-800 text-lg xl:text-xl leading-relaxed outline-none" />
                     </div>
                 </div>
             </NodeViewWrapper>
@@ -472,7 +472,7 @@ export const NoteEditor = forwardRef<NoteEditorRef, NoteEditorProps>(({
             scheduleAutosave();
         },
         editorProps: {
-            attributes: { class: "prose prose-stone prose-lg max-w-none focus:outline-none min-h-[300px] px-4 py-3 ml-12 2xl:prose-xl 2xl:px-8 2xl:py-6 2xl:ml-16" },
+            attributes: { class: "prose prose-stone prose-lg max-w-none focus:outline-none min-h-[300px] px-4 py-3 ml-12 xl:px-6 xl:py-5 xl:ml-14" },
             handlePaste: (view, event) => {
                 const items = Array.from(event.clipboardData?.items || []);
                 const imageItems = items.filter(item => item.type.startsWith('image/'));
@@ -730,11 +730,11 @@ export const NoteEditor = forwardRef<NoteEditorRef, NoteEditorProps>(({
 
     return (
         <div className="flex flex-col bg-white relative rounded-xl">
-            <div className="flex items-center justify-between border-b border-stone-100 px-4 py-3 2xl:px-8 2xl:py-6 bg-white sticky top-0 z-10 rounded-t-xl">
-                <div className="text-base 2xl:text-xl font-medium text-stone-600">
+            <div className="flex items-center justify-between border-b border-stone-100 px-4 py-3 xl:px-6 xl:py-5 bg-white sticky top-0 z-10 rounded-t-xl">
+                <div className="text-base xl:text-lg font-medium text-stone-600">
                     {t("editorTitle")} ({editor.storage.characterCount?.words?.() || 0} {t("words")})
                 </div>
-                <div className="flex items-center gap-2 text-base 2xl:text-xl">
+                <div className="flex items-center gap-2 text-base xl:text-lg">
                     {saveStatus === "saving" && <span className="text-stone-400">{t("saving")}</span>}
                     {saveStatus === "saved" && <span className="text-green-600 flex items-center gap-1">{t("saved")}</span>}
                     {saveStatus === "error" && <span className="text-rose-600">{t("saveFailed")}</span>}

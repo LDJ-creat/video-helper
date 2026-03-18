@@ -22,6 +22,9 @@ class PlanHighlight(BaseModel):
     text: str
     startMs: int
     endMs: int
+    # Optional: used to trigger keyframe verification / fallback when enabled.
+    # 0..1 where lower means less confident the keyframe is useful.
+    keyframeConfidence: float | None = None
     # Legacy-compatible: many parts of the app/tests still use a single `keyframe`.
     keyframe: PlanKeyframe | None = None
     # Forward-compatible: allow a list as well; we normalize to keep `keyframe` in sync.
@@ -163,6 +166,30 @@ def _normalize_plan_payload(plan: dict) -> dict:
                         break
                 else:
                     h["text"] = ""
+
+            # keyframeConfidence (optional): accept float/int or common strings.
+            kfc = h.get("keyframeConfidence")
+            if kfc is None:
+                kfc = h.get("keyframe_confidence")
+            if isinstance(kfc, (int, float)):
+                v = float(kfc)
+                if v == v:
+                    h["keyframeConfidence"] = max(0.0, min(1.0, v))
+            elif isinstance(kfc, str):
+                s = kfc.strip().lower()
+                if s in {"low", "l"}:
+                    h["keyframeConfidence"] = 0.2
+                elif s in {"medium", "mid", "m"}:
+                    h["keyframeConfidence"] = 0.5
+                elif s in {"high", "h"}:
+                    h["keyframeConfidence"] = 0.8
+                else:
+                    try:
+                        v = float(s)
+                        if v == v:
+                            h["keyframeConfidence"] = max(0.0, min(1.0, v))
+                    except Exception:
+                        pass
 
             # startMs/endMs + keyframes
             hs = _as_int(h.get("startMs"))
@@ -610,6 +637,22 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    raw = (os.environ.get(name) or "").strip().lower()
+    if raw in {"1", "true", "yes", "y", "on"}:
+        return True
+    if raw in {"0", "false", "no", "n", "off"}:
+        return False
+    return default
+
+
+def _keyframe_verify_enabled() -> bool:
+    # Must match worker_loop behavior:
+    # verify_mode = get_verify_mode(); if verify_mode != "off":
+    mode = (os.environ.get("KEYFRAME_VERIFY_MODE") or "off").strip().lower()
+    return mode != "off"
+
+
 def _json_dumps_compact(obj: object) -> str:
     import json
 
@@ -798,9 +841,31 @@ def build_plan_request(
         segments = []
     seg_dicts = [s for s in segments if isinstance(s, dict)]
 
+    has_summaries = isinstance(summaries, list) and bool(summaries)
+    include_transcript_with_summaries = _env_bool(
+        "LLM_PLAN_INCLUDE_TRANSCRIPT_WITH_SUMMARIES",
+        False,
+    )
+
     max_segments = _env_int("LLM_PLAN_MAX_SEGMENTS", 60)
     max_chars = _env_int("LLM_PLAN_MAX_CHARS", 12_000)
-    excerpt = _sample_segments(seg_dicts, max_segments=max_segments, max_chars=max_chars)
+    excerpt = (
+        _sample_segments(seg_dicts, max_segments=max_segments, max_chars=max_chars)
+        if (not has_summaries or include_transcript_with_summaries)
+        else []
+    )
+    include_transcript_text_with_summaries = _env_bool(
+        "LLM_PLAN_INCLUDE_TRANSCRIPT_TEXT_WITH_SUMMARIES",
+        False,
+    )
+    if has_summaries and include_transcript_with_summaries and (not include_transcript_text_with_summaries):
+        # Long-video reduce: summaries are the primary content.
+        # Keep only timing anchors (startMs/endMs) to avoid spending tokens on raw transcript text.
+        excerpt = [
+            {"startMs": s.get("startMs"), "endMs": s.get("endMs")}
+            for s in excerpt
+            if isinstance(s, dict) and isinstance(s.get("startMs"), int) and isinstance(s.get("endMs"), int)
+        ]
 
     lang = (output_language or "").strip()
     lang_hint = ""
@@ -811,18 +876,36 @@ def build_plan_request(
             + "). This includes block titles, highlight text, and mindmap node labels."
         )
 
+    verify_on = _keyframe_verify_enabled()
+    kfc_requirement = (
+        "If you include keyframes, also include highlight.keyframeConfidence (number 0..1) indicating how confident you are that the keyframe is useful. Use low confidence when unsure. "
+        if verify_on
+        else ""
+    )
+    hl_schema = (
+        "highlights[] item: {highlightId:str, idx:int, text:str, startMs:int, endMs:int, keyframes?:[{timeMs:int}], keyframeConfidence:number}. "
+        if verify_on
+        else "highlights[] item: {highlightId:str, idx:int, text:str, startMs:int, endMs:int, keyframes?:[{timeMs:int}]}. "
+    )
+
     system = (
         "You are a video learning assistant. Goal: help users learn/review WITHOUT rewatching the whole video. "
         "Return ONLY one JSON object (no markdown). "
-        "Write high-quality notes: blocks are coherent modules; highlights are the key knowledge points. "
+        + (
+            "If `summaries` are provided, treat them as the PRIMARY source of content. The transcript segments may be omitted entirely (empty) for cost reasons; do NOT rely on transcript text when summaries exist. "
+            if has_summaries
+            else ""
+        )
+        + "Write high-quality notes: blocks are coherent modules; highlights are the key knowledge points. "
         "Do NOT over-split: prefer fewer, more complete highlights; merge nearby points when they belong together. "
         "Highlight text may be refined/summarized (not verbatim transcript). Skip trivial content. "
         "Keyframes are OPTIONAL but CRUCIAL for understanding: actively evaluate if a screenshot (slide/diagram/code/formula/UI) is necessary. DO NOT skip it if it helps learning. "
-        "If keyframes are present, set keyframes item timeMs (int, ms) within that highlight's [startMs,endMs). "
-        "Schema keys MUST be exactly: schemaVersion, contentBlocks, mindmap. All times MUST be int ms. "
-        "contentBlocks[] item: {blockId:str, idx:int, title:str, startMs:int, endMs:int, highlights:[...]}. "
-        "highlights[] item: {highlightId:str, idx:int, text:str, startMs:int, endMs:int, keyframes?:[{timeMs:int}]}. "
-        "mindmap: {nodes:[], edges:[]}. "
+        + kfc_requirement
+        + "If keyframes are present, set keyframes item timeMs (int, ms) within that highlight's [startMs,endMs). "
+        + "Schema keys MUST be exactly: schemaVersion, contentBlocks, mindmap. All times MUST be int ms. "
+        + "contentBlocks[] item: {blockId:str, idx:int, title:str, startMs:int, endMs:int, highlights:[...]}. "
+        + hl_schema
+        + "mindmap: {nodes:[], edges:[]}. "
         "node fields: {id:str, type:str, label:str, level:int, data:{targetBlockId?:str, targetHighlightId?:str}}. "
         "node types: exactly 1 root(type=\"root\",level=0,no targetBlockId); "
         "topic(type=\"topic\",level=1,data.targetBlockId REQUIRED referencing contentBlocks[].blockId); "

@@ -14,6 +14,7 @@ from sqlalchemy.exc import OperationalError
 
 from core.contracts.error_codes import ErrorCode
 from core.db.repositories.llm_settings import get_llm_active, get_llm_provider_secret_ciphertext
+from core.db.session import get_data_dir
 from core.db.session import get_sessionmaker
 from core.llm.catalog import find_provider, resolve_runtime_model_name
 from core.llm.secrets_crypto import decrypt_api_key
@@ -108,6 +109,40 @@ def _hash_text(text: str) -> str:
 	return hashlib.sha256(text.encode("utf-8", errors="ignore")).hexdigest()
 
 
+def _truncate_text(text: str, *, max_chars: int) -> str:
+	if max_chars <= 0:
+		return ""
+	if len(text) <= max_chars:
+		return text
+	return text[:max_chars]
+
+
+def _maybe_dump_text_under_data_dir(*, rel_dir: str, filename: str, text: str) -> str | None:
+	"""Best-effort dump debug text under DATA_DIR.
+
+	Returns relative path (posix) when written.
+	Controlled by env LLM_DUMP_INVALID_JSON.
+	"""
+	if not _env_bool("LLM_DUMP_INVALID_JSON", False):
+		return None
+	try:
+		data_dir = get_data_dir().resolve()
+		base = (data_dir / rel_dir).resolve()
+		if not base.is_relative_to(data_dir):
+			return None
+		base.mkdir(parents=True, exist_ok=True)
+		path = (base / filename).resolve()
+		if not path.is_relative_to(data_dir):
+			return None
+
+		# Avoid gigantic DB payloads / accidental huge dumps.
+		content = _truncate_text(text, max_chars=_env_int("LLM_DUMP_MAX_CHARS", 200_000))
+		path.write_text(content, encoding="utf-8", errors="ignore")
+		return path.relative_to(data_dir).as_posix()
+	except Exception:
+		return None
+
+
 def _normalize_model_id(model: str) -> str:
 	"""Normalize common shorthand model names to NVIDIA NIM OpenAI-compatible ids."""
 
@@ -185,6 +220,17 @@ class LLMAnalyzeProvider:
 				"promptLen": len(joined),
 			}
 
+		if debug_enabled:
+			logger.info(
+				"[LLM] request queued task=%s model=%s endpoint=%s promptHash=%s promptLen=%s timeoutS=%s",
+				task_name,
+				self._model,
+				self._endpoint_url(),
+				debug_meta.get("promptHash"),
+				debug_meta.get("promptLen"),
+				self._timeout_s,
+			)
+
 		# Default retries: reduces flakiness on providers with slow first-byte latency.
 		max_attempts = max(1, _env_int("LLM_MAX_ATTEMPTS", 3))
 		attempt = 0
@@ -192,6 +238,8 @@ class LLMAnalyzeProvider:
 		while attempt < max_attempts:
 			attempt += 1
 			try:
+				if debug_enabled:
+					logger.info("[LLM] request start task=%s attempt=%s/%s", task_name, attempt, max_attempts)
 				resp = self._client.post(self._endpoint_url(), json=payload)
 			except httpx.TimeoutException:
 				if attempt < max_attempts:
@@ -258,18 +306,33 @@ class LLMAnalyzeProvider:
 		try:
 			body = resp.json()
 		except Exception:
-			details = {"reason": "invalid_llm_output", "task": task_name, "httpStatus": status, "bodyLen": len(resp.text or "")}
+			raw = resp.text or ""
+			dump_ref = _maybe_dump_text_under_data_dir(
+				rel_dir="logs/llm_invalid_json",
+				filename=f"{task_name}-nonjson-{_hash_text(raw)}.txt",
+				text=raw,
+			)
+			details = {
+				"reason": "invalid_llm_output",
+				"task": task_name,
+				"httpStatus": status,
+				"bodyLen": len(raw),
+				"dumpRef": dump_ref,
+				"hint": "Set LLM_DUMP_INVALID_JSON=1 to dump raw model output under DATA_DIR/logs/llm_invalid_json",
+			}
 			if debug_enabled:
 				details["debug"] = debug_meta
 			raise AnalyzeError(code=ErrorCode.JOB_STAGE_FAILED, message="LLM returned non-JSON response", details=details)
 
-		parsed = _parse_openai_style_json(body)
+		parsed = _parse_openai_style_json(body, task_name)
 		if not isinstance(parsed, dict):
 			raise AnalyzeError(
 				code=ErrorCode.JOB_STAGE_FAILED,
 				message="LLM output is not a JSON object",
 				details={"reason": "invalid_llm_output", "task": task_name},
 			)
+		if debug_enabled:
+			logger.info("[LLM] request ok task=%s httpStatus=%s", task_name, status)
 		return parsed
 
 
@@ -376,12 +439,25 @@ class AnthropicAnalyzeProvider:
 				"anthropicVersion": self._anthropic_version,
 			}
 
+		if debug_enabled:
+			logger.info(
+				"[LLM] request queued task=%s model=%s endpoint=%s promptHash=%s promptLen=%s timeoutS=%s",
+				task_name,
+				self._model,
+				self._endpoint_url(),
+				debug_meta.get("promptHash"),
+				debug_meta.get("promptLen"),
+				self._timeout_s,
+			)
+
 		max_attempts = max(1, _env_int("LLM_MAX_ATTEMPTS", 3))
 		attempt = 0
 		resp: httpx.Response | None = None
 		while attempt < max_attempts:
 			attempt += 1
 			try:
+				if debug_enabled:
+					logger.info("[LLM] request start task=%s attempt=%s/%s", task_name, attempt, max_attempts)
 				resp = self._client.post(self._endpoint_url(), json=payload)
 			except httpx.TimeoutException:
 				if attempt < max_attempts:
@@ -439,22 +515,37 @@ class AnthropicAnalyzeProvider:
 		try:
 			body = resp.json()
 		except Exception:
-			details = {"reason": "invalid_llm_output", "task": task_name, "httpStatus": status, "bodyLen": len(resp.text or "")}
+			raw = resp.text or ""
+			dump_ref = _maybe_dump_text_under_data_dir(
+				rel_dir="logs/llm_invalid_json",
+				filename=f"{task_name}-nonjson-{_hash_text(raw)}.txt",
+				text=raw,
+			)
+			details = {
+				"reason": "invalid_llm_output",
+				"task": task_name,
+				"httpStatus": status,
+				"bodyLen": len(raw),
+				"dumpRef": dump_ref,
+				"hint": "Set LLM_DUMP_INVALID_JSON=1 to dump raw model output under DATA_DIR/logs/llm_invalid_json",
+			}
 			if debug_enabled:
 				details["debug"] = debug_meta
 			raise AnalyzeError(code=ErrorCode.JOB_STAGE_FAILED, message="LLM returned non-JSON response", details=details)
 
-		parsed = _parse_anthropic_style_json(body)
+		parsed = _parse_anthropic_style_json(body, task_name)
 		if not isinstance(parsed, dict):
 			raise AnalyzeError(
 				code=ErrorCode.JOB_STAGE_FAILED,
 				message="LLM output is not a JSON object",
 				details={"reason": "invalid_llm_output", "task": task_name},
 			)
+		if debug_enabled:
+			logger.info("[LLM] request ok task=%s httpStatus=%s", task_name, status)
 		return parsed
 
 
-def _parse_anthropic_style_json(body: Any) -> Any:
+def _parse_anthropic_style_json(body: Any, task_name: str | None) -> Any:
 	"""Extract a JSON object from Anthropic Messages API response."""
 	if isinstance(body, dict):
 		content = body.get("content")
@@ -466,12 +557,12 @@ def _parse_anthropic_style_json(body: Any) -> Any:
 				if b.get("type") == "text" and isinstance(b.get("text"), str):
 					parts.append(b["text"])
 			text = "".join(parts).strip()
-			return _parse_content_as_json(text)
+			return _parse_content_as_json(text, task_name=task_name)
 	# Fall back to raw body (may already be a JSON object)
 	return body
 
 
-def _parse_openai_style_json(body: Any) -> Any:
+def _parse_openai_style_json(body: Any, task_name: str | None) -> Any:
 	"""Extract a JSON object from common OpenAI-compatible response shapes."""
 
 	if isinstance(body, dict) and isinstance(body.get("choices"), list) and body["choices"]:
@@ -480,10 +571,10 @@ def _parse_openai_style_json(body: Any) -> Any:
 			msg = choice0.get("message")
 			if isinstance(msg, dict):
 				content = msg.get("content")
-				return _parse_content_as_json(content)
+				return _parse_content_as_json(content, task_name=task_name)
 			# Some providers return 'text'
 			if "text" in choice0:
-				return _parse_content_as_json(choice0.get("text"))
+				return _parse_content_as_json(choice0.get("text"), task_name=task_name)
 
 	# Responses API-ish: output[0].content[0].text
 	if isinstance(body, dict) and isinstance(body.get("output"), list) and body["output"]:
@@ -493,13 +584,13 @@ def _parse_openai_style_json(body: Any) -> Any:
 			if isinstance(content, list) and content:
 				c0 = content[0]
 				if isinstance(c0, dict) and "text" in c0:
-					return _parse_content_as_json(c0.get("text"))
+						return _parse_content_as_json(c0.get("text"), task_name=task_name)
 
 	# If provider directly returns the JSON object.
 	return body
 
 
-def _parse_content_as_json(content: Any) -> Any:
+def _parse_content_as_json(content: Any, task_name: str | None) -> Any:
 	if isinstance(content, dict):
 		return content
 	if not isinstance(content, str):
@@ -515,11 +606,24 @@ def _parse_content_as_json(content: Any) -> Any:
 				return json.loads(sub)
 			except json.JSONDecodeError:
 				pass
-		# keep safe debug via hash only
+		content_hash = _hash_text(text)
+		dump_ref = _maybe_dump_text_under_data_dir(
+			rel_dir="logs/llm_invalid_json",
+			filename=f"{(task_name or 'unknown')}-invalid-json-{content_hash}.txt",
+			text=text,
+		)
+		# keep safe debug via hash only by default; allow opt-in dumps via env.
 		raise AnalyzeError(
 			code=ErrorCode.JOB_STAGE_FAILED,
 			message="LLM returned invalid JSON",
-			details={"reason": "invalid_llm_output", "contentHash": _hash_text(text), "contentLen": len(text)},
+			details={
+				"reason": "invalid_llm_output",
+				"task": task_name,
+				"contentHash": content_hash,
+				"contentLen": len(text),
+				"dumpRef": dump_ref,
+				"hint": "Set LLM_DUMP_INVALID_JSON=1 to dump raw model output under DATA_DIR/logs/llm_invalid_json",
+			},
 		)
 
 

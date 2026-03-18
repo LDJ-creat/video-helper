@@ -5,6 +5,8 @@ import time
 import uuid
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlparse, urlsplit, urlunsplit
+from urllib.request import Request as UrlRequest
+from urllib.request import urlopen
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
@@ -21,15 +23,17 @@ from core.db.repositories.llm_settings import get_llm_active, get_llm_provider_s
 from core.db.repositories.jobs import get_job_by_id
 from core.db.models.job import Job
 from core.db.models.project import Project
+from core.db.models.result import Result
 from core.db.session import get_db_session
 from core.llm.active_test import LLMActiveTestError, run_llm_connectivity_test
 from core.llm.catalog import find_provider, resolve_runtime_model_name
 from core.llm.secrets_crypto import decrypt_api_key
-from core.schemas.jobs import CreateJobRequest, JobCreatedDTO, JobDTO
+from core.schemas.jobs import CreateJobRequest, JobCreatedDTO, JobDTO, ResumeProjectJobRequest
 from core.schemas.logs import JobLogsPageDTO, LogItemDTO
 from core.app.logs.job_logs import read_job_logs_page
 from core.app.pipeline.llm_plan import build_plan_request, validate_plan
 from core.storage.layout import allocate_upload_path
+from core.storage.safe_paths import validate_single_dir_name
 from core.external.ytdlp import fetch_video_title, probe_url_support
 
 
@@ -60,6 +64,30 @@ def _canonical_source_url(source_type: str, source_url: str) -> str:
 	scheme = (parts.scheme or "").lower()
 	host = (parts.netloc or "").lower()
 	path = parts.path or ""
+	query_raw = parts.query or ""
+
+	# Best-effort: resolve bilibili short links to their final URL before canonicalizing.
+	# Keep timeout low; failures should not block job creation.
+	if source_type == "bilibili" and (host == "b23.tv" or host.endswith(".b23.tv")):
+		try:
+			req = UrlRequest(
+				source_url,
+				headers={
+					"User-Agent": "video-helper/1.0",
+					"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+				},
+				method="GET",
+			)
+			with urlopen(req, timeout=1.5) as resp:
+				resolved = resp.geturl() or source_url
+			parts = urlsplit(resolved)
+			scheme = (parts.scheme or "").lower()
+			host = (parts.netloc or "").lower()
+			path = parts.path or ""
+			query_raw = parts.query or ""
+		except Exception:
+			pass
+
 	if path != "/":
 		path = path.rstrip("/")
 	if not path:
@@ -68,20 +96,37 @@ def _canonical_source_url(source_type: str, source_url: str) -> str:
 	query = ""
 	# Keep only the minimal, content-identifying query params for known sources.
 	if source_type == "youtube":
-		# YouTube watch URLs require the v= video id.
-		if host.endswith("youtube.com") and path == "/watch":
-			q = dict(parse_qsl(parts.query or "", keep_blank_values=True))
-			v = (q.get("v") or "").strip()
-			if v:
-				query = urlencode({"v": v})
-			else:
-				query = ""
+		# Canonicalize all YouTube URLs to: https://www.youtube.com/watch?v=<id>
+		# This improves dedupe across youtu.be, shorts, and watch variants.
+		yt_host = "www.youtube.com"
+		video_id: str | None = None
+		if host == "youtu.be" or host.endswith(".youtu.be"):
+			video_id = (path or "").strip("/").split("/")[0] or None
+		elif host.endswith("youtube.com"):
+			p = (path or "").rstrip("/")
+			if p == "/watch":
+				q = dict(parse_qsl(query_raw, keep_blank_values=True))
+				v = (q.get("v") or "").strip()
+				video_id = v or None
+			elif p.startswith("/shorts/"):
+				video_id = p[len("/shorts/") :].split("/")[0] or None
+			elif p.startswith("/live/"):
+				video_id = p[len("/live/") :].split("/")[0] or None
+			elif p.startswith("/embed/"):
+				video_id = p[len("/embed/") :].split("/")[0] or None
+
+		if video_id:
+			scheme = scheme or "https"
+			host = yt_host
+			path = "/watch"
+			query = urlencode({"v": video_id})
 		else:
-			# shorts/live/youtu.be encode the id in the path; query is noise.
+			# Unknown/unparseable YouTube URL; keep canonical host casing, strip query noise.
+			host = yt_host if (host.endswith("youtube.com") or host.endswith("youtu.be")) else host
 			query = ""
 	elif source_type == "bilibili":
 		# Multi-part bilibili videos use ?p=2, which changes the addressed content.
-		q = dict(parse_qsl(parts.query or "", keep_blank_values=True))
+		q = dict(parse_qsl(query_raw, keep_blank_values=True))
 		p = (q.get("p") or "").strip()
 		if p:
 			query = urlencode({"p": p})
@@ -89,7 +134,7 @@ def _canonical_source_url(source_type: str, source_url: str) -> str:
 			query = ""
 	else:
 		# Generic URLs: keep query to avoid losing content-identifying parameters.
-		query = parts.query or ""
+		query = query_raw
 
 	if scheme and host:
 		return urlunsplit((scheme, host, path, query, ""))
@@ -447,15 +492,27 @@ async def create_job(request: Request, session: Session = Depends(get_db_session
 			.first()
 		)
 
+		existing_result_id: str | None = None
+		if existing is not None and isinstance(getattr(existing, "latest_result_id", None), str):
+			candidate = (existing.latest_result_id or "").strip()
+			if candidate:
+				existing_result_id = candidate
+
 		project_id = existing.project_id if existing is not None else str(uuid.uuid4())
 		job_id = str(uuid.uuid4())
 
 		title = _normalize_title(req.title)
 		output_language = _normalize_output_language(req.outputLanguage)
-		if title is None:
-			timeout_s = float(max(1, _env_int("YTDLP_TITLE_TIMEOUT_S", 8)))
-			# Avoid blocking the event loop with subprocess.
-			title = await asyncio.to_thread(fetch_video_title, url=req.sourceUrl, timeout_s=timeout_s)
+		# Avoid extra work for duplicates: if project already has a result, we will block the job
+		# and let the user decide to view existing output or reanalyze.
+		if existing_result_id is None:
+			# For new/unanalyzed projects, try to infer a title.
+			if title is None and existing is not None:
+				title = _normalize_title(getattr(existing, "title", None))
+			if title is None:
+				timeout_s = float(max(1, _env_int("YTDLP_TITLE_TIMEOUT_S", 8)))
+				# Avoid blocking the event loop with subprocess.
+				title = await asyncio.to_thread(fetch_video_title, url=req.sourceUrl, timeout_s=timeout_s)
 
 		if existing is None:
 			project = Project(
@@ -483,6 +540,37 @@ async def create_job(request: Request, session: Session = Depends(get_db_session
 			if changed:
 				existing.updated_at_ms = now_ms
 				session.add(existing)
+
+		# Duplicate guard: if we already have a renderable result, create a blocked job and let the
+		# frontend ask the user whether to view it or reanalyze.
+		if existing is not None and existing_result_id is not None:
+			job = Job(
+				job_id=job_id,
+				project_id=project_id,
+				type="analyze_video",
+				status="blocked",
+				stage="ingest",
+				progress=None,
+				error={
+					"message": "Project already analyzed",
+					"details": {
+						"reason": "already_analyzed",
+						"latestResultId": existing_result_id,
+						"sourceType": source_type,
+						"canonicalUrl": canonical_url,
+					},
+				},
+				attempt=0,
+				output_language=output_language,
+				llm_mode=llm_mode,
+				created_at_ms=now_ms,
+				updated_at_ms=now_ms,
+			)
+			session.add(job)
+			session.commit()
+			GLOBAL_JOB_EVENT_BUS.emit_state(job_id=job_id, project_id=project_id, stage=job.stage, message="status=blocked")
+			return JobCreatedDTO(jobId=job_id, projectId=project_id, status="blocked", createdAtMs=now_ms)
+
 		job = Job(
 			job_id=job_id,
 			project_id=project_id,
@@ -1009,7 +1097,7 @@ def cancel_job(jobId: str, request: Request, session: Session = Depends(get_db_s
 			),
 		)
 
-	if job.status != "running":
+	if job.status not in {"queued", "running", "blocked"}:
 		return JSONResponse(
 			status_code=409,
 			content=build_error_envelope(
@@ -1021,6 +1109,9 @@ def cancel_job(jobId: str, request: Request, session: Session = Depends(get_db_s
 		)
 
 	job.status = "canceled"
+	job.claimed_by = None
+	job.claim_token = None
+	job.lease_expires_at_ms = None
 	job.updated_at_ms = _now_ms()
 	session.add(job)
 	session.commit()
@@ -1062,7 +1153,7 @@ def retry_job(jobId: str, request: Request, session: Session = Depends(get_db_se
 			),
 		)
 
-	if job.status not in {"failed", "canceled"}:
+	if job.status not in {"failed", "canceled", "blocked"}:
 		return JSONResponse(
 			status_code=409,
 			content=build_error_envelope(
@@ -1073,39 +1164,174 @@ def retry_job(jobId: str, request: Request, session: Session = Depends(get_db_se
 			),
 		)
 
-	from core.db.models.job import Job
-
-	new_job_id = str(uuid.uuid4())
+	# Resume the same jobId to maximize artifact reuse (downloads/chunk_summaries/etc.).
 	now_ms = _now_ms()
-	new_job = Job(
-		job_id=new_job_id,
-		project_id=job.project_id,
-		type=job.type,
-		status="queued",
-		stage="ingest",
-		progress=None,
-		error=None,
-		attempt=0,
-		created_at_ms=now_ms,
-		updated_at_ms=now_ms,
-	)
-	session.add(new_job)
+	job.status = "queued"
+	job.error = None
+	job.claimed_by = None
+	job.claim_token = None
+	job.lease_expires_at_ms = None
+	job.finished_at_ms = None
+	job.updated_at_ms = now_ms
+	# If this was an external-plan blocked job without a submitted plan, allow backend LLM to proceed.
+	if (getattr(job, "llm_mode", None) or "backend").strip().lower() == "external" and not isinstance(getattr(job, "external_plan", None), dict):
+		job.llm_mode = "backend"
+		job.external_plan = None
+		job.stage = "plan"
+		job.progress = max(job.progress or 0.0, 0.6)
+	session.add(job)
 	session.commit()
 
 	GLOBAL_JOB_EVENT_BUS.emit_state(
-		job_id=new_job.job_id,
-		project_id=new_job.project_id,
-		stage=new_job.stage,
+		job_id=job.job_id,
+		project_id=job.project_id,
+		stage=job.stage,
 		message="status=queued",
 	)
 
 	return JobDTO(
-		jobId=new_job.job_id,
-		projectId=new_job.project_id,
-		type=new_job.type,
-		status=new_job.status,
-		stage=_safe_public_stage(new_job.stage),
-		progress=_safe_progress(new_job.progress),
-		error=new_job.error,
-		updatedAtMs=new_job.updated_at_ms,
+		jobId=job.job_id,
+		projectId=job.project_id,
+		type=job.type,
+		status=job.status,
+		stage=_safe_public_stage(job.stage),
+		progress=_safe_progress(job.progress),
+		error=job.error,
+		updatedAtMs=job.updated_at_ms,
+	)
+
+
+@router.post("/projects/{projectId}/jobs/resume", response_model=JobDTO)
+def resume_project_job(projectId: str, request: Request, payload: ResumeProjectJobRequest | None = None, session: Session = Depends(get_db_session)):
+	"""Resume a failed/canceled/blocked job for a project.
+
+	This endpoint re-queues an existing job (same jobId) so the worker can
+	reuse artifacts produced before the failure.
+	"""
+
+	# Validate projectId early (single-dir-name also aligns with DATA_DIR layout).
+	try:
+		validate_single_dir_name(projectId)
+	except Exception:
+		return JSONResponse(
+			status_code=400,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message="Invalid projectId",
+				details={"projectId": projectId},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
+	project = session.get(Project, projectId)
+	if project is None:
+		return JSONResponse(
+			status_code=404,
+			content=build_error_envelope(
+				code=ErrorCode.PROJECT_NOT_FOUND,
+				message="Project does not exist",
+				details={"projectId": projectId},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
+	requested_job_id = None
+	if payload is not None and isinstance(getattr(payload, "jobId", None), str) and payload.jobId:
+		requested_job_id = payload.jobId
+
+	job: Job | None = None
+	if requested_job_id:
+		try:
+			uuid.UUID(requested_job_id)
+		except ValueError:
+			return JSONResponse(
+				status_code=400,
+				content=build_error_envelope(
+					code=ErrorCode.VALIDATION_ERROR,
+					message="Invalid jobId",
+					details={"jobId": requested_job_id},
+					request_id=getattr(request.state, "request_id", None),
+				),
+			)
+		job = get_job_by_id(session, requested_job_id)
+		if job is not None and job.project_id != projectId:
+			job = None
+	else:
+		from sqlalchemy import select
+		row = (
+			session.execute(
+				select(Job)
+				.where(Job.project_id == projectId)
+				.where(Job.status.in_(["failed", "canceled", "blocked"]))
+				.order_by(Job.updated_at_ms.desc())
+				.limit(1)
+			)
+			.scalars()
+			.first()
+		)
+		job = row
+
+	if job is None:
+		return JSONResponse(
+			status_code=404,
+			content=build_error_envelope(
+				code=ErrorCode.JOB_NOT_FOUND,
+				message="No resumable job found for this project",
+				details={"projectId": projectId, "jobId": requested_job_id},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
+	# Best-effort: if we have a persisted Result snapshot, recover plan into external_plan so resume can
+	# skip LLM plan generation (useful when failure happened in keyframes/assemble_result).
+	try:
+		if not isinstance(getattr(job, "external_plan", None), dict) and isinstance(getattr(project, "latest_result_id", None), str):
+			result = session.get(Result, project.latest_result_id)
+			if result is not None:
+				plan_candidate = {
+					"schemaVersion": getattr(result, "schema_version", None) or "2026-02-06",
+					"contentBlocks": getattr(result, "content_blocks", None) or [],
+					"mindmap": getattr(result, "mindmap", None) or {"nodes": [], "edges": []},
+				}
+				job.external_plan = validate_plan(plan_candidate)
+				job.llm_mode = "external"
+	except Exception:
+		# Ignore plan recovery failures; worker can regenerate if needed.
+		pass
+
+	now_ms = _now_ms()
+	job.status = "queued"
+	job.error = None
+	job.claimed_by = None
+	job.claim_token = None
+	job.lease_expires_at_ms = None
+	job.finished_at_ms = None
+	job.updated_at_ms = now_ms
+
+	# If this was a blocked external-plan job with no plan, allow backend to proceed.
+	if (getattr(job, "llm_mode", None) or "backend").strip().lower() == "external" and not isinstance(getattr(job, "external_plan", None), dict):
+		job.llm_mode = "backend"
+		job.external_plan = None
+		job.stage = "plan"
+		job.progress = max(job.progress or 0.0, 0.6)
+
+	session.add(job)
+	session.commit()
+
+	GLOBAL_JOB_EVENT_BUS.emit_state(
+		job_id=job.job_id,
+		project_id=job.project_id,
+		stage=job.stage,
+		message="status=queued",
+	)
+
+	return JobDTO(
+		jobId=job.job_id,
+		projectId=job.project_id,
+		type=job.type,
+		status=job.status,
+		stage=_safe_public_stage(job.stage),
+		progress=_safe_progress(job.progress),
+		error=job.error,
+		updatedAtMs=job.updated_at_ms,
 	)

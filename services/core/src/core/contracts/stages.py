@@ -33,10 +33,13 @@ _INTERNAL_STAGE_TO_PUBLIC.update(
         "upload": PublicStage.INGEST,
         "decode": PublicStage.INGEST,
         "speech_to_text": PublicStage.TRANSCRIBE,
+        # Long-video internal analyze sub-stages
+        "chunk_summaries": PublicStage.ANALYZE,
         "plan": PublicStage.ANALYZE,
         "highlights": PublicStage.ANALYZE,
         "mindmap": PublicStage.ANALYZE,
         "keyframes": PublicStage.EXTRACT_KEYFRAMES,
+        "keyframe_verify": PublicStage.EXTRACT_KEYFRAMES,
     }
 )
 

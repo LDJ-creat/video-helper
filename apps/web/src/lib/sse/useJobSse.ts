@@ -7,11 +7,18 @@ import type { Job, JobStage, JobStatus, LogEntry } from "../contracts/types";
 
 function isJobStage(stage: string): stage is JobStage {
   return (
+    // Legacy stages
     stage === "ingest" ||
     stage === "transcribe" ||
     stage === "analyze" ||
-    stage === "assemble_result" ||
-    stage === "extract_keyframes"
+    stage === "extract_keyframes" ||
+    // Current stages
+    stage === "speech_to_text" ||
+    stage === "chunk_summaries" ||
+    stage === "plan" ||
+    stage === "keyframes" ||
+    stage === "keyframe_verify" ||
+    stage === "assemble_result"
   );
 }
 

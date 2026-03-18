@@ -233,6 +233,54 @@ function Clear-StaleNextStandalone() {
     }
 }
 
+function Ensure-StaticFfmpeg() {
+    # Download static single-file ffmpeg/ffprobe binaries into _ci/ffmpeg and
+    # prepend it to PATH for the rest of this script.
+    $dir = Join-Path $ROOT "_ci\ffmpeg"
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+
+    $ffmpegExe = Join-Path $dir "ffmpeg.exe"
+    $ffprobeExe = Join-Path $dir "ffprobe.exe"
+
+    $base = "https://github.com/eugeneware/ffmpeg-static/releases/latest/download"
+    $ffmpegUrl = "${base}/ffmpeg-win32-x64"
+    $ffprobeUrl = "${base}/ffprobe-win32-x64"
+
+    function Download-WithRetry($url, $outFile) {
+        $max = 3
+        for ($i = 1; $i -le $max; $i++) {
+            try {
+                Write-Host "Downloading $url -> $outFile (attempt ${i}/${max})" -ForegroundColor Cyan
+                Invoke-WebRequest -Uri $url -OutFile $outFile
+                if (-not (Test-Path -LiteralPath $outFile)) { throw "Download produced no file: $outFile" }
+                return
+            }
+            catch {
+                if ($i -eq $max) { throw }
+                Start-Sleep -Seconds (2 * $i)
+            }
+        }
+    }
+
+    if (-not (Test-Path -LiteralPath $ffmpegExe)) {
+        Download-WithRetry $ffmpegUrl $ffmpegExe
+    }
+    if (-not (Test-Path -LiteralPath $ffprobeExe)) {
+        Download-WithRetry $ffprobeUrl $ffprobeExe
+    }
+
+    # Prepend to PATH so build_backend.py can pick it up.
+    $env:Path = "${dir};$env:Path"
+
+    try {
+        & $ffmpegExe -version | Select-Object -First 1
+        & $ffprobeExe -version | Select-Object -First 1
+    }
+    catch {
+        throw "ffmpeg/ffprobe sanity check failed: $($_.Exception.Message)"
+    }
+}
+
 # ─── Step 1: Compile Electron TypeScript ──────────────────────────────────────
 Write-Step 1 "Compiling Electron main process (TypeScript)"
 Invoke-Step "pnpm compile" $DESKTOP
@@ -303,6 +351,7 @@ if (Test-Path $rootStandaloneNodeModules) {
 
 # ─── Step 3: PyInstaller Backend ──────────────────────────────────────────────
 Write-Step 3 "Packaging FastAPI backend (PyInstaller)"
+Ensure-StaticFfmpeg
 Invoke-Step "uv run python scripts\build_backend.py" $CORE
 
 # ─── Step 4: electron-builder ─────────────────────────────────────────────────

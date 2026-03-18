@@ -176,20 +176,27 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Force -Path .\_ci\ffmpeg | Out-Null
-          $zip = Join-Path $PWD "_ci\ffmpeg\ffmpeg.zip"
-          # gyan.dev provides stable Windows builds.
-          Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" -OutFile $zip
-          Expand-Archive -Path $zip -DestinationPath .\_ci\ffmpeg -Force
-          $ffmpegExe = Get-ChildItem -Path .\_ci\ffmpeg -Recurse -Filter ffmpeg.exe -File | Select-Object -First 1
-          if (-not $ffmpegExe) { throw "ffmpeg.exe not found after extraction" }
-          $bin = Split-Path -Parent $ffmpegExe.FullName
+
+          # Use static single-file builds to keep packaged size small (avoid shipping a whole DLL set).
+          # Match macOS strategy: use eugeneware/ffmpeg-static release assets.
+          $base = "https://github.com/eugeneware/ffmpeg-static/releases/latest/download"
+          $ffmpegUrl = "${base}/ffmpeg-win32-x64"
+          $ffprobeUrl = "${base}/ffprobe-win32-x64"
+          $ffmpegExe = Join-Path $PWD "_ci\ffmpeg\ffmpeg.exe"
+          $ffprobeExe = Join-Path $PWD "_ci\ffmpeg\ffprobe.exe"
+          Write-Host "[ffmpeg] url=$ffmpegUrl"
+          Write-Host "[ffprobe] url=$ffprobeUrl"
+
+          Invoke-WebRequest -Uri $ffmpegUrl -OutFile $ffmpegExe
+          Invoke-WebRequest -Uri $ffprobeUrl -OutFile $ffprobeExe
 
           # Make it available in later steps.
-          "${bin}" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          "$(Split-Path -Parent $ffmpegExe)" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           # Also make it available within THIS step.
-          $env:Path = "${bin};$env:Path"
+          $env:Path = "$(Split-Path -Parent $ffmpegExe);$env:Path"
 
-          & $ffmpegExe.FullName -version
+          & $ffmpegExe -version
+          & $ffprobeExe -version
 
       - name: Download yt-dlp (Windows)
         if: runner.os == 'Windows'

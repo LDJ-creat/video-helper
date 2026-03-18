@@ -163,6 +163,36 @@ else
 endif
 
 
+# Create / ensure a Python virtual environment for services/core and run main.py
+.PHONY: core-venv
+core-venv:
+	@echo Ensuring virtualenv at services/core/.venv
+ifeq ($(OS),Windows_NT)
+	@if not exist services\core\.venv\Scripts\python.exe (
+		cd services\core && python -m venv .venv && echo Created virtualenv at services\core\.venv
+	) else (
+		echo Virtualenv already exists at services\core\.venv
+	)
+else
+	@bash -c "[ -x services/core/.venv/bin/python ] || (cd services/core && python3 -m venv .venv && echo Created virtualenv at services/core/.venv)"
+endif
+
+.PHONY: core-run
+# Starts the backend `main.py` using the virtualenv Python. Will create venv if missing.
+core-run:
+	@echo Starting backend (will create venv if missing)...
+ifeq ($(OS),Windows_NT)
+	@if not exist services\core\.venv\Scripts\python.exe (
+		$(MAKE) core-venv
+	)
+	@services\core\.venv\Scripts\python.exe services\core\main.py
+else
+	@bash -c "[ -x services/core/.venv/bin/python ] || $(MAKE) core-venv"
+	@services/core/.venv/bin/python services/core/main.py
+endif
+
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Docker
 # ─────────────────────────────────────────────────────────────────────────────

@@ -2,11 +2,18 @@
 export type JobStatus = "queued" | "running" | "blocked" | "succeeded" | "failed" | "canceled";
 
 export type JobStage =
+  // Legacy stages (older pipeline names)
   | "ingest"
   | "transcribe"
   | "analyze"
-  | "assemble_result"
-  | "extract_keyframes";
+  | "extract_keyframes"
+  // Current stages (services/core worker pipeline)
+  | "speech_to_text"
+  | "chunk_summaries"
+  | "plan"
+  | "keyframes"
+  | "keyframe_verify"
+  | "assemble_result";
 
 export type Job = {
   jobId: string;

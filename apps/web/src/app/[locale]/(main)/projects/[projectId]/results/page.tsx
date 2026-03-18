@@ -19,6 +19,7 @@ import { ExercisesCanvas } from "@/components/features/editor/ExercisesCanvas";
 import { fetchQuizSessions } from "@/lib/api/ai";
 import { MessageSquare, Layout, BrainCircuit } from "lucide-react";
 import { useTranslations } from "next-intl";
+import { cancelJob, resumeProjectJob } from "@/lib/api/jobApi";
 
 function JobProgress({ jobId, projectId }: { jobId: string; projectId: string }) {
     const router = useRouter();
@@ -55,6 +56,10 @@ function JobProgress({ jobId, projectId }: { jobId: string; projectId: string })
     const { data: job } = useJobQueryWithOptions(jobId, { pollingEnabled });
     const { data: logs } = useJobLogsQueryWithOptions(jobId, undefined, { pollingEnabled });
 
+    const [actionError, setActionError] = useState<string | null>(null);
+    const [isResuming, setIsResuming] = useState(false);
+    const [isCanceling, setIsCanceling] = useState(false);
+
     // Auto-refresh result when job succeeds via polling (backup to SSE)
     useEffect(() => {
         if (job?.status === "succeeded") {
@@ -63,8 +68,51 @@ function JobProgress({ jobId, projectId }: { jobId: string; projectId: string })
     }, [job?.status, navigateToResult]);
 
     const progressPercent = Math.round((job?.progress || 0) * 100);
-    const statusMessage = job?.stage ? t("processing", { stage: job.stage }) : t("preparing");
+    const details = job?.error?.details;
+    const detailsObj = (details && typeof details === "object") ? (details as Record<string, unknown>) : null;
+    const duplicateReason = detailsObj?.reason;
+    const isDuplicateBlocked = job?.status === "blocked" && duplicateReason === "already_analyzed";
+
+    const statusMessage = isDuplicateBlocked
+        ? t("alreadyAnalyzedStatus")
+        : (job?.stage ? t("processing", { stage: job.stage }) : t("preparing"));
     const latestLog = logs?.items?.[logs.items.length - 1]?.message;
+
+    const canCancel = job?.status === "running" || job?.status === "queued" || job?.status === "blocked";
+    const canResume = job?.status === "failed" || job?.status === "canceled" || job?.status === "blocked";
+    const resumeLabel = isDuplicateBlocked ? t("reanalyze") : (job?.status === "failed" ? t("retry") : t("resume"));
+
+    const handleResume = async () => {
+        if (!canResume || isResuming) return;
+        setIsResuming(true);
+        setActionError(null);
+        try {
+            await resumeProjectJob(projectId, jobId);
+            queryClient.invalidateQueries({ queryKey: queryKeys.job(jobId) });
+            queryClient.invalidateQueries({ queryKey: queryKeys.logs(jobId) });
+        } catch (e) {
+            const msg = (e as { message?: unknown } | null)?.message;
+            setActionError(typeof msg === "string" && msg.trim() ? msg : String(e));
+        } finally {
+            setIsResuming(false);
+        }
+    };
+
+    const handleCancel = async () => {
+        if (!canCancel || isCanceling) return;
+        setIsCanceling(true);
+        setActionError(null);
+        try {
+            await cancelJob(jobId);
+            queryClient.invalidateQueries({ queryKey: queryKeys.job(jobId) });
+            queryClient.invalidateQueries({ queryKey: queryKeys.logs(jobId) });
+        } catch (e) {
+            const msg = (e as { message?: unknown } | null)?.message;
+            setActionError(typeof msg === "string" && msg.trim() ? msg : String(e));
+        } finally {
+            setIsCanceling(false);
+        }
+    };
 
     return (
         <ResultLayout>
@@ -86,7 +134,58 @@ function JobProgress({ jobId, projectId }: { jobId: string; projectId: string })
                     </p>
                 )}
 
-                {job?.error && (
+                {isDuplicateBlocked ? (
+                    <div className="mt-4 w-full rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-900">
+                        <p className="font-semibold">{t("alreadyAnalyzedTitle")}</p>
+                        <p className="mt-1 text-sm text-amber-800">{t("alreadyAnalyzedBody")}</p>
+                    </div>
+                ) : null}
+
+                {isDuplicateBlocked ? (
+                    <div className="mt-4 flex gap-3">
+                        <button
+                            onClick={navigateToResult}
+                            className="px-4 py-2 bg-white border border-stone-300 rounded shadow-sm hover:bg-stone-50 text-sm font-medium"
+                        >
+                            {t("viewExisting")}
+                        </button>
+                        <button
+                            onClick={handleResume}
+                            disabled={isResuming}
+                            className="px-4 py-2 bg-orange-600 text-white rounded hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                        >
+                            {isResuming ? t("reanalyzing") : resumeLabel}
+                        </button>
+                    </div>
+                ) : (canResume || canCancel ? (
+                    <div className="mt-4 flex gap-3">
+                        {canResume ? (
+                            <button
+                                onClick={handleResume}
+                                disabled={isResuming}
+                                className="px-4 py-2 bg-orange-600 text-white rounded hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                            >
+                                {isResuming ? t("resuming") : resumeLabel}
+                            </button>
+                        ) : null}
+
+                        {canCancel ? (
+                            <button
+                                onClick={handleCancel}
+                                disabled={isCanceling}
+                                className="px-4 py-2 bg-white border border-stone-300 rounded shadow-sm hover:bg-stone-50 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                            >
+                                {isCanceling ? t("canceling") : t("cancel")}
+                            </button>
+                        ) : null}
+                    </div>
+                ) : null)}
+
+                {actionError ? (
+                    <p className="mt-3 text-sm text-red-600 wrap-break-word max-w-full">{actionError}</p>
+                ) : null}
+
+                {job?.status === "failed" && job?.error && (
                     <div className="mt-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 max-w-full">
                         <h3 className="font-bold mb-1">{t("failed")}</h3>
                         <p className="text-sm font-medium">{job.error.message}</p>
@@ -273,32 +372,32 @@ export default function ResultPage() {
                         <div className="flex border-b border-stone-200 bg-stone-50/50">
                             <button
                                 onClick={() => handleTabChange("mindmap")}
-                                className={`flex-1 py-3 2xl:py-5 text-sm 2xl:text-xl font-medium flex items-center justify-center gap-2 2xl:gap-4 border-b-2 transition-colors ${activeTab === "mindmap"
+                                className={`flex-1 py-3 xl:py-4 text-sm xl:text-lg font-medium flex items-center justify-center gap-2 xl:gap-3 border-b-2 transition-colors ${activeTab === "mindmap"
                                     ? "border-orange-500 text-orange-700 bg-white"
                                     : "border-transparent text-stone-600 hover:text-stone-900 hover:bg-stone-100"
                                     }`}
                             >
-                                <BrainCircuit className="w-4 h-4 2xl:w-6 2xl:h-6" />
+                                <BrainCircuit className="w-4 h-4 xl:w-5 xl:h-5" />
                                 {t("tabs.mindmap")}
                             </button>
                             <button
                                 onClick={() => handleTabChange("chat")}
-                                className={`flex-1 py-3 2xl:py-5 text-sm 2xl:text-xl font-medium flex items-center justify-center gap-2 2xl:gap-4 border-b-2 transition-colors ${activeTab === "chat"
+                                className={`flex-1 py-3 xl:py-4 text-sm xl:text-lg font-medium flex items-center justify-center gap-2 xl:gap-3 border-b-2 transition-colors ${activeTab === "chat"
                                     ? "border-orange-500 text-orange-700 bg-white"
                                     : "border-transparent text-stone-600 hover:text-stone-900 hover:bg-stone-100"
                                     }`}
                             >
-                                <MessageSquare className="w-4 h-4 2xl:w-6 2xl:h-6" />
+                                <MessageSquare className="w-4 h-4 xl:w-5 xl:h-5" />
                                 {t("tabs.chat")}
                             </button>
                             <button
                                 onClick={() => handleTabChange("exercises")}
-                                className={`flex-1 py-3 2xl:py-5 text-sm 2xl:text-xl font-medium flex items-center justify-center gap-2 2xl:gap-4 border-b-2 transition-colors ${activeTab === "exercises"
+                                className={`flex-1 py-3 xl:py-4 text-sm xl:text-lg font-medium flex items-center justify-center gap-2 xl:gap-3 border-b-2 transition-colors ${activeTab === "exercises"
                                     ? "border-orange-500 text-orange-700 bg-white"
                                     : "border-transparent text-stone-600 hover:text-stone-900 hover:bg-stone-100"
                                     }`}
                             >
-                                <Layout className="w-4 h-4 2xl:w-6 2xl:h-6" />
+                                <Layout className="w-4 h-4 xl:w-5 xl:h-5" />
                                 {t("tabs.exercises")}
                             </button>
                         </div>
