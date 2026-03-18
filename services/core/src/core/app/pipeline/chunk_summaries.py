@@ -19,7 +19,7 @@ from core.storage.safe_paths import PathTraversalBlockedError
 
 
 CHUNKING_VERSION = 1
-PROMPTS_VERSION = 1
+PROMPTS_VERSION = 2
 
 
 def _now_ms() -> int:
@@ -34,6 +34,15 @@ def _env_int(name: str, default: int) -> int:
         return int(raw)
     except ValueError:
         return default
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = (os.environ.get(name) or "").strip().lower()
+    if raw in {"1", "true", "yes", "y", "on"}:
+        return True
+    if raw in {"0", "false", "no", "n", "off"}:
+        return False
+    return bool(default)
 
 
 def _clamp_int(v: int, lo: int, hi: int) -> int:
@@ -102,6 +111,8 @@ class Chunk:
 class ChunkPoint(BaseModel):
     text: str
     importance: int = 2  # 1|2|3
+    startMs: int | None = None
+    endMs: int | None = None
 
 
 class ChunkTerm(BaseModel):
@@ -303,7 +314,8 @@ def _build_chunk_summary_request(*, chunk: Chunk, output_language: str | None) -
         "- terms: ONLY important domain terms/abbreviations introduced or heavily used in this chunk. "
         "- keyMoments: a few timestamp anchors where a screenshot/slide/diagram/code change is most useful. "
         "Schema: "
-        "- points[] item: {text:string, importance:1|2|3}. importance=3 means critical; 2 normal; 1 minor. "
+        "- points[] item: {text:string, importance:1|2|3, startMs?:int, endMs?:int}. importance=3 means critical; 2 normal; 1 minor. "
+        "  If startMs/endMs are provided, they should represent where this point is discussed within the chunk and MUST be within [startMs,endMs). "
         "- terms[] item: {term:string, definition?:string}. definition should be SHORT and only when disambiguation helps. "
         "- keyMoments[] item: {timeMs:int, label:string}. label is a short reason/title. timeMs must be within [startMs,endMs). "
         f"Hard limits: summary length <= {summary_max_chars} chars; points <= {max_points}; terms <= {max_terms}; keyMoments <= {max_moments}. "
@@ -348,6 +360,8 @@ def _normalize_chunk_summary(payload: dict, *, chunk: Chunk) -> dict:
     if not isinstance(points_raw, list):
         points_raw = []
     points_out: list[dict] = []
+    chunk_start = int(chunk.start_ms)
+    chunk_end = int(chunk.end_ms)
     for p in points_raw:
         if len(points_out) >= max_points:
             break
@@ -366,7 +380,20 @@ def _normalize_chunk_summary(payload: dict, *, chunk: Chunk) -> dict:
         if imp is None:
             imp = 2
         imp = _clamp_int(int(imp), 1, 3)
-        points_out.append({"text": text[:400], "importance": int(imp)})
+        point_out: dict = {"text": text[:400], "importance": int(imp)}
+
+        # Optional per-point time range (must be within the chunk range).
+        p_start = _as_int(p.get("startMs") if "startMs" in p else p.get("start_ms"))
+        p_end = _as_int(p.get("endMs") if "endMs" in p else p.get("end_ms"))
+        if p_start is not None and p_end is not None and chunk_end > chunk_start:
+            start2 = max(chunk_start, min(int(p_start), chunk_end - 1))
+            end2 = min(int(p_end), chunk_end)
+            end2 = max(start2 + 1, end2)
+            if end2 <= chunk_end and end2 > start2:
+                point_out["startMs"] = int(start2)
+                point_out["endMs"] = int(end2)
+
+        points_out.append(point_out)
     payload["points"] = points_out
 
     # terms: accept list[str|dict], keep few, coerce definition.
@@ -507,44 +534,49 @@ def ensure_chunk_summaries(
 
     effective_lang = (output_language or "").strip() or "auto"
 
+    force_regen = _env_bool("CHUNK_SUMMARY_FORCE_REGEN", False)
+
     existing_manifest = _read_json_if_ok(manifest_path)
+    manifest_compatible = False
     if isinstance(existing_manifest, dict):
-        if (
+        manifest_compatible = (
             existing_manifest.get("chunkingVersion") == CHUNKING_VERSION
             and existing_manifest.get("promptsVersion") == PROMPTS_VERSION
             and existing_manifest.get("windowMs") == int(window_ms)
             and existing_manifest.get("outputLanguage") == effective_lang
             and (transcript_sha is None or existing_manifest.get("transcriptSha256") == transcript_sha)
-        ):
-            # Reuse if all expected chunk files exist and validate.
-            existing_chunks = existing_manifest.get("chunks")
-            if isinstance(existing_chunks, list) and existing_chunks:
-                out: list[dict] = []
-                ok = True
-                for c in existing_chunks:
-                    if not isinstance(c, dict):
-                        ok = False
-                        break
-                    cid = c.get("chunkId")
-                    if not isinstance(cid, str) or not cid:
-                        ok = False
-                        break
-                    p = (base_dir / f"chunk_{cid}.json").resolve()
-                    if not p.is_relative_to(data_dir):
-                        ok = False
-                        break
-                    payload = _read_json_if_ok(p)
-                    if not isinstance(payload, dict):
-                        ok = False
-                        break
-                    try:
-                        parsed = _model_validate(ChunkSummary, payload)
-                    except Exception:
-                        ok = False
-                        break
-                    out.append(_model_dump(parsed))
-                if ok:
-                    return out
+        )
+
+    if manifest_compatible and not force_regen:
+        # Reuse if all expected chunk files exist and validate.
+        existing_chunks = existing_manifest.get("chunks") if isinstance(existing_manifest, dict) else None
+        if isinstance(existing_chunks, list) and existing_chunks:
+            out: list[dict] = []
+            ok = True
+            for c in existing_chunks:
+                if not isinstance(c, dict):
+                    ok = False
+                    break
+                cid = c.get("chunkId")
+                if not isinstance(cid, str) or not cid:
+                    ok = False
+                    break
+                p = (base_dir / f"chunk_{cid}.json").resolve()
+                if not p.is_relative_to(data_dir):
+                    ok = False
+                    break
+                payload = _read_json_if_ok(p)
+                if not isinstance(payload, dict):
+                    ok = False
+                    break
+                try:
+                    parsed = _model_validate(ChunkSummary, payload)
+                except Exception:
+                    ok = False
+                    break
+                out.append(_model_dump(parsed))
+            if ok:
+                return out
 
     # Ensure manifest is written first (defines the required chunk set).
     manifest = {
@@ -559,6 +591,9 @@ def ensure_chunk_summaries(
     }
     _write_json_atomic(manifest_path, manifest)
 
+    # Only reuse per-chunk cache if the manifest parameters match.
+    allow_chunk_cache = manifest_compatible and not force_regen
+
     # Placeholder mode for tests/dev.
     if (os.environ.get("CHUNK_SUMMARY_PROVIDER") or "").strip().lower() == "placeholder":
         out: list[dict] = []
@@ -568,7 +603,14 @@ def ensure_chunk_summaries(
                 "startMs": int(c.start_ms),
                 "endMs": int(c.end_ms),
                 "summary": f"Chunk {c.chunk_id} summary (placeholder)",
-                "points": [{"text": "placeholder point", "importance": 2}],
+                "points": [
+                    {
+                        "text": "placeholder point",
+                        "importance": 2,
+                        "startMs": int(c.start_ms),
+                        "endMs": int(c.end_ms),
+                    }
+                ],
                 "terms": [],
                 "keyMoments": [],
             }
@@ -585,13 +627,14 @@ def ensure_chunk_summaries(
         if not p.is_relative_to(data_dir):
             raise PathTraversalBlockedError("chunk output escapes DATA_DIR")
 
-        existing = _read_json_if_ok(p)
-        if isinstance(existing, dict):
-            try:
-                parsed = _model_validate(ChunkSummary, existing)
-                return _model_dump(parsed)
-            except Exception:
-                pass
+        if allow_chunk_cache:
+            existing = _read_json_if_ok(p)
+            if isinstance(existing, dict):
+                try:
+                    parsed = _model_validate(ChunkSummary, existing)
+                    return _model_dump(parsed)
+                except Exception:
+                    pass
 
         req = _build_chunk_summary_request(chunk=c, output_language=output_language)
         messages = req.get("messages")

@@ -19,6 +19,7 @@ import { ExercisesCanvas } from "@/components/features/editor/ExercisesCanvas";
 import { fetchQuizSessions } from "@/lib/api/ai";
 import { MessageSquare, Layout, BrainCircuit } from "lucide-react";
 import { useTranslations } from "next-intl";
+import { cancelJob, resumeProjectJob } from "@/lib/api/jobApi";
 
 function JobProgress({ jobId, projectId }: { jobId: string; projectId: string }) {
     const router = useRouter();
@@ -55,6 +56,10 @@ function JobProgress({ jobId, projectId }: { jobId: string; projectId: string })
     const { data: job } = useJobQueryWithOptions(jobId, { pollingEnabled });
     const { data: logs } = useJobLogsQueryWithOptions(jobId, undefined, { pollingEnabled });
 
+    const [actionError, setActionError] = useState<string | null>(null);
+    const [isResuming, setIsResuming] = useState(false);
+    const [isCanceling, setIsCanceling] = useState(false);
+
     // Auto-refresh result when job succeeds via polling (backup to SSE)
     useEffect(() => {
         if (job?.status === "succeeded") {
@@ -65,6 +70,42 @@ function JobProgress({ jobId, projectId }: { jobId: string; projectId: string })
     const progressPercent = Math.round((job?.progress || 0) * 100);
     const statusMessage = job?.stage ? t("processing", { stage: job.stage }) : t("preparing");
     const latestLog = logs?.items?.[logs.items.length - 1]?.message;
+
+    const canCancel = job?.status === "running" || job?.status === "queued" || job?.status === "blocked";
+    const canResume = job?.status === "failed" || job?.status === "canceled" || job?.status === "blocked";
+    const resumeLabel = job?.status === "failed" ? t("retry") : t("resume");
+
+    const handleResume = async () => {
+        if (!canResume || isResuming) return;
+        setIsResuming(true);
+        setActionError(null);
+        try {
+            await resumeProjectJob(projectId, jobId);
+            queryClient.invalidateQueries({ queryKey: queryKeys.job(jobId) });
+            queryClient.invalidateQueries({ queryKey: queryKeys.logs(jobId) });
+        } catch (e) {
+            const msg = (e as { message?: unknown } | null)?.message;
+            setActionError(typeof msg === "string" && msg.trim() ? msg : String(e));
+        } finally {
+            setIsResuming(false);
+        }
+    };
+
+    const handleCancel = async () => {
+        if (!canCancel || isCanceling) return;
+        setIsCanceling(true);
+        setActionError(null);
+        try {
+            await cancelJob(jobId);
+            queryClient.invalidateQueries({ queryKey: queryKeys.job(jobId) });
+            queryClient.invalidateQueries({ queryKey: queryKeys.logs(jobId) });
+        } catch (e) {
+            const msg = (e as { message?: unknown } | null)?.message;
+            setActionError(typeof msg === "string" && msg.trim() ? msg : String(e));
+        } finally {
+            setIsCanceling(false);
+        }
+    };
 
     return (
         <ResultLayout>
@@ -85,6 +126,34 @@ function JobProgress({ jobId, projectId }: { jobId: string; projectId: string })
                         {latestLog}
                     </p>
                 )}
+
+                {canResume || canCancel ? (
+                    <div className="mt-4 flex gap-3">
+                        {canResume ? (
+                            <button
+                                onClick={handleResume}
+                                disabled={isResuming}
+                                className="px-4 py-2 bg-orange-600 text-white rounded hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                            >
+                                {isResuming ? t("resuming") : resumeLabel}
+                            </button>
+                        ) : null}
+
+                        {canCancel ? (
+                            <button
+                                onClick={handleCancel}
+                                disabled={isCanceling}
+                                className="px-4 py-2 bg-white border border-stone-300 rounded shadow-sm hover:bg-stone-50 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                            >
+                                {isCanceling ? t("canceling") : t("cancel")}
+                            </button>
+                        ) : null}
+                    </div>
+                ) : null}
+
+                {actionError ? (
+                    <p className="mt-3 text-sm text-red-600 wrap-break-word max-w-full">{actionError}</p>
+                ) : null}
 
                 {job?.error && (
                     <div className="mt-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 max-w-full">

@@ -21,15 +21,17 @@ from core.db.repositories.llm_settings import get_llm_active, get_llm_provider_s
 from core.db.repositories.jobs import get_job_by_id
 from core.db.models.job import Job
 from core.db.models.project import Project
+from core.db.models.result import Result
 from core.db.session import get_db_session
 from core.llm.active_test import LLMActiveTestError, run_llm_connectivity_test
 from core.llm.catalog import find_provider, resolve_runtime_model_name
 from core.llm.secrets_crypto import decrypt_api_key
-from core.schemas.jobs import CreateJobRequest, JobCreatedDTO, JobDTO
+from core.schemas.jobs import CreateJobRequest, JobCreatedDTO, JobDTO, ResumeProjectJobRequest
 from core.schemas.logs import JobLogsPageDTO, LogItemDTO
 from core.app.logs.job_logs import read_job_logs_page
 from core.app.pipeline.llm_plan import build_plan_request, validate_plan
 from core.storage.layout import allocate_upload_path
+from core.storage.safe_paths import validate_single_dir_name
 from core.external.ytdlp import fetch_video_title, probe_url_support
 
 
@@ -1009,7 +1011,7 @@ def cancel_job(jobId: str, request: Request, session: Session = Depends(get_db_s
 			),
 		)
 
-	if job.status != "running":
+	if job.status not in {"queued", "running", "blocked"}:
 		return JSONResponse(
 			status_code=409,
 			content=build_error_envelope(
@@ -1021,6 +1023,9 @@ def cancel_job(jobId: str, request: Request, session: Session = Depends(get_db_s
 		)
 
 	job.status = "canceled"
+	job.claimed_by = None
+	job.claim_token = None
+	job.lease_expires_at_ms = None
 	job.updated_at_ms = _now_ms()
 	session.add(job)
 	session.commit()
@@ -1062,7 +1067,7 @@ def retry_job(jobId: str, request: Request, session: Session = Depends(get_db_se
 			),
 		)
 
-	if job.status not in {"failed", "canceled"}:
+	if job.status not in {"failed", "canceled", "blocked"}:
 		return JSONResponse(
 			status_code=409,
 			content=build_error_envelope(
@@ -1073,39 +1078,174 @@ def retry_job(jobId: str, request: Request, session: Session = Depends(get_db_se
 			),
 		)
 
-	from core.db.models.job import Job
-
-	new_job_id = str(uuid.uuid4())
+	# Resume the same jobId to maximize artifact reuse (downloads/chunk_summaries/etc.).
 	now_ms = _now_ms()
-	new_job = Job(
-		job_id=new_job_id,
-		project_id=job.project_id,
-		type=job.type,
-		status="queued",
-		stage="ingest",
-		progress=None,
-		error=None,
-		attempt=0,
-		created_at_ms=now_ms,
-		updated_at_ms=now_ms,
-	)
-	session.add(new_job)
+	job.status = "queued"
+	job.error = None
+	job.claimed_by = None
+	job.claim_token = None
+	job.lease_expires_at_ms = None
+	job.finished_at_ms = None
+	job.updated_at_ms = now_ms
+	# If this was an external-plan blocked job without a submitted plan, allow backend LLM to proceed.
+	if (getattr(job, "llm_mode", None) or "backend").strip().lower() == "external" and not isinstance(getattr(job, "external_plan", None), dict):
+		job.llm_mode = "backend"
+		job.external_plan = None
+		job.stage = "plan"
+		job.progress = max(job.progress or 0.0, 0.6)
+	session.add(job)
 	session.commit()
 
 	GLOBAL_JOB_EVENT_BUS.emit_state(
-		job_id=new_job.job_id,
-		project_id=new_job.project_id,
-		stage=new_job.stage,
+		job_id=job.job_id,
+		project_id=job.project_id,
+		stage=job.stage,
 		message="status=queued",
 	)
 
 	return JobDTO(
-		jobId=new_job.job_id,
-		projectId=new_job.project_id,
-		type=new_job.type,
-		status=new_job.status,
-		stage=_safe_public_stage(new_job.stage),
-		progress=_safe_progress(new_job.progress),
-		error=new_job.error,
-		updatedAtMs=new_job.updated_at_ms,
+		jobId=job.job_id,
+		projectId=job.project_id,
+		type=job.type,
+		status=job.status,
+		stage=_safe_public_stage(job.stage),
+		progress=_safe_progress(job.progress),
+		error=job.error,
+		updatedAtMs=job.updated_at_ms,
+	)
+
+
+@router.post("/projects/{projectId}/jobs/resume", response_model=JobDTO)
+def resume_project_job(projectId: str, request: Request, payload: ResumeProjectJobRequest | None = None, session: Session = Depends(get_db_session)):
+	"""Resume a failed/canceled/blocked job for a project.
+
+	This endpoint re-queues an existing job (same jobId) so the worker can
+	reuse artifacts produced before the failure.
+	"""
+
+	# Validate projectId early (single-dir-name also aligns with DATA_DIR layout).
+	try:
+		validate_single_dir_name(projectId)
+	except Exception:
+		return JSONResponse(
+			status_code=400,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message="Invalid projectId",
+				details={"projectId": projectId},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
+	project = session.get(Project, projectId)
+	if project is None:
+		return JSONResponse(
+			status_code=404,
+			content=build_error_envelope(
+				code=ErrorCode.PROJECT_NOT_FOUND,
+				message="Project does not exist",
+				details={"projectId": projectId},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
+	requested_job_id = None
+	if payload is not None and isinstance(getattr(payload, "jobId", None), str) and payload.jobId:
+		requested_job_id = payload.jobId
+
+	job: Job | None = None
+	if requested_job_id:
+		try:
+			uuid.UUID(requested_job_id)
+		except ValueError:
+			return JSONResponse(
+				status_code=400,
+				content=build_error_envelope(
+					code=ErrorCode.VALIDATION_ERROR,
+					message="Invalid jobId",
+					details={"jobId": requested_job_id},
+					request_id=getattr(request.state, "request_id", None),
+				),
+			)
+		job = get_job_by_id(session, requested_job_id)
+		if job is not None and job.project_id != projectId:
+			job = None
+	else:
+		from sqlalchemy import select
+		row = (
+			session.execute(
+				select(Job)
+				.where(Job.project_id == projectId)
+				.where(Job.status.in_(["failed", "canceled", "blocked"]))
+				.order_by(Job.updated_at_ms.desc())
+				.limit(1)
+			)
+			.scalars()
+			.first()
+		)
+		job = row
+
+	if job is None:
+		return JSONResponse(
+			status_code=404,
+			content=build_error_envelope(
+				code=ErrorCode.JOB_NOT_FOUND,
+				message="No resumable job found for this project",
+				details={"projectId": projectId, "jobId": requested_job_id},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
+	# Best-effort: if we have a persisted Result snapshot, recover plan into external_plan so resume can
+	# skip LLM plan generation (useful when failure happened in keyframes/assemble_result).
+	try:
+		if not isinstance(getattr(job, "external_plan", None), dict) and isinstance(getattr(project, "latest_result_id", None), str):
+			result = session.get(Result, project.latest_result_id)
+			if result is not None:
+				plan_candidate = {
+					"schemaVersion": getattr(result, "schema_version", None) or "2026-02-06",
+					"contentBlocks": getattr(result, "content_blocks", None) or [],
+					"mindmap": getattr(result, "mindmap", None) or {"nodes": [], "edges": []},
+				}
+				job.external_plan = validate_plan(plan_candidate)
+				job.llm_mode = "external"
+	except Exception:
+		# Ignore plan recovery failures; worker can regenerate if needed.
+		pass
+
+	now_ms = _now_ms()
+	job.status = "queued"
+	job.error = None
+	job.claimed_by = None
+	job.claim_token = None
+	job.lease_expires_at_ms = None
+	job.finished_at_ms = None
+	job.updated_at_ms = now_ms
+
+	# If this was a blocked external-plan job with no plan, allow backend to proceed.
+	if (getattr(job, "llm_mode", None) or "backend").strip().lower() == "external" and not isinstance(getattr(job, "external_plan", None), dict):
+		job.llm_mode = "backend"
+		job.external_plan = None
+		job.stage = "plan"
+		job.progress = max(job.progress or 0.0, 0.6)
+
+	session.add(job)
+	session.commit()
+
+	GLOBAL_JOB_EVENT_BUS.emit_state(
+		job_id=job.job_id,
+		project_id=job.project_id,
+		stage=job.stage,
+		message="status=queued",
+	)
+
+	return JobDTO(
+		jobId=job.job_id,
+		projectId=job.project_id,
+		type=job.type,
+		status=job.status,
+		stage=_safe_public_stage(job.stage),
+		progress=_safe_progress(job.progress),
+		error=job.error,
+		updatedAtMs=job.updated_at_ms,
 	)

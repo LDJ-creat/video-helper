@@ -34,3 +34,7 @@ class JobCreatedDTO(BaseModel):
     projectId: str
     status: JobStatus | str
     createdAtMs: int
+
+
+class ResumeProjectJobRequest(BaseModel):
+    jobId: str | None = None

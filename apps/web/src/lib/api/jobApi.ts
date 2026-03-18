@@ -46,3 +46,17 @@ export async function retryJob(jobId: string): Promise<{ ok: boolean }> {
         method: "POST",
     });
 }
+
+/**
+ * Resume a failed/canceled/blocked job for a project (same jobId, best-effort).
+ */
+export async function resumeProjectJob(projectId: string, jobId?: string): Promise<Job> {
+    const url = `${config.apiBaseUrl}${endpoints.projectJobResume(projectId)}`;
+    return apiFetch<Job>(url, {
+        method: "POST",
+        headers: {
+            "content-type": "application/json",
+        },
+        body: JSON.stringify(jobId ? { jobId } : {}),
+    });
+}

@@ -167,6 +167,11 @@
             "preparing": "准备中...",
             "processing": "正在进行: {stage}...",
             "failed": "任务失败",
+            "retry": "重试",
+            "resume": "继续分析",
+            "resuming": "正在继续...",
+            "cancel": "中断分析",
+            "canceling": "正在中断...",
             "backToProjects": "返回项目列表"
         },
         "notFound": "未找到分析结果"

@@ -94,6 +94,28 @@ def extract_keyframes_at_times(
 
 	unique_times.sort()
 
+	# Best-effort idempotency: reuse existing assets for the same job/time points.
+	# This prevents duplicate extraction when resuming after failures.
+	prefix = f"{project.project_id}/assets/keyframes/{job_id}/plan/"
+	existing_by_time: dict[int, str] = {}
+	try:
+		if unique_times:
+			rows = (
+				session.query(Asset)
+				.filter(Asset.project_id == project.project_id)
+				.filter(Asset.kind == "screenshot")
+				.filter(Asset.time_ms.in_(unique_times))
+				.filter(Asset.file_path.like(prefix + "%"))
+				.all()
+			)
+			for a in rows:
+				if isinstance(a.time_ms, int) and isinstance(a.asset_id, str) and a.asset_id:
+					# Prefer first occurrence.
+					existing_by_time.setdefault(int(a.time_ms), a.asset_id)
+	except Exception:
+		# If query fails, continue with fresh extraction.
+		existing_by_time = {}
+
 	source_rel = project.source_path
 	if not isinstance(source_rel, str) or not source_rel:
 		raise ValueError("project.source_path missing for keyframes")
@@ -111,6 +133,14 @@ def extract_keyframes_at_times(
 	base_dir.mkdir(parents=True, exist_ok=True)
 
 	for idx, t_ms in enumerate(unique_times):
+		# Reuse existing asset if present.
+		existing_asset_id = existing_by_time.get(int(t_ms))
+		if isinstance(existing_asset_id, str) and existing_asset_id:
+			asset_refs.append({"assetId": existing_asset_id, "kind": "screenshot"})
+			kf = {"assetId": existing_asset_id, "idx": int(idx), "timeMs": int(t_ms)}
+			by_time[int(t_ms)] = kf
+			continue
+
 		asset_id = str(uuid.uuid4())
 		filename = f"kf_{idx}_{t_ms}.jpg"
 		out_abs = (base_dir / filename).resolve()

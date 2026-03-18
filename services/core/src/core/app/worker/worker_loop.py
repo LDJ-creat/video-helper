@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -8,6 +9,7 @@ import time
 import uuid
 import mimetypes
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Protocol
 
 from sqlalchemy.orm import Session
@@ -23,6 +25,7 @@ from core.app.pipeline.keyframe_verify import get_verify_budget, get_verify_mode
 from core.app.pipeline.transcribe_real import map_transcribe_error, run_real_transcribe
 from core.contracts.error_codes import ErrorCode
 from core.db.session import get_sessionmaker
+from core.db.session import get_data_dir
 from core.pipeline.stages.assemble_result import AssembleResultError, assemble_result
 from core.db.repositories.job_queue import (
     claim_next_queued_job,
@@ -38,6 +41,111 @@ from core.db.models.result import Result
 
 
 logger = logging.getLogger(__name__)
+
+
+def _sha256_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _abort_if_canceled(*, session: Session, job: Job, project_id: str, stage: str) -> bool:
+    """Best-effort cancel check.
+
+    Returns True when the job is canceled and processing should stop.
+    """
+
+    try:
+        session.refresh(job)
+    except Exception:
+        # If refresh fails, keep going (best-effort).
+        return False
+
+    if job.status != "canceled":
+        return False
+
+    # Ensure we release the slot/lease.
+    job.lease_expires_at_ms = None
+    job.claimed_by = None
+    job.claim_token = None
+    job.updated_at_ms = _now_ms()
+    session.add(job)
+    session.commit()
+
+    GLOBAL_JOB_EVENT_BUS.emit_state(
+        job_id=job.job_id,
+        project_id=project_id,
+        stage=stage,
+        message="status=canceled",
+    )
+    _log(job_id=job.job_id, project_id=project_id, stage=stage, level="info", message="job canceled; stopping pipeline")
+    return True
+
+
+def _recover_artifacts(*, session: Session, job: Job, project: Project) -> None:
+    """Best-effort recovery of artifacts from DATA_DIR for resumability.
+
+    This is used when a job failed or the app was interrupted mid-stage.
+    It must be safe and idempotent.
+    """
+
+    data_dir = get_data_dir().resolve()
+
+    # Recover downloaded media path for URL projects when project.source_path is missing.
+    if (not isinstance(getattr(project, "source_path", None), str)) or not project.source_path:
+        try:
+            dl_dir = (data_dir / project.project_id / "downloads" / job.job_id).resolve()
+            if dl_dir.is_relative_to(data_dir) and dl_dir.exists() and dl_dir.is_dir():
+                candidates = [
+                    p
+                    for p in dl_dir.glob("source.*")
+                    if p.is_file() and not p.name.endswith(".part") and p.stat().st_size > 0
+                ]
+                if candidates:
+                    media_abs = sorted(candidates, key=lambda p: p.name)[0].resolve()
+                    if media_abs.is_relative_to(data_dir):
+                        project.source_path = media_abs.relative_to(data_dir).as_posix()
+                        project.updated_at_ms = _now_ms()
+                        session.add(project)
+                        session.commit()
+        except Exception:
+            pass
+
+    # Recover audio_ref/transcript from artifacts if DB fields are missing.
+    try:
+        artifacts_dir = (data_dir / project.project_id / "artifacts" / job.job_id).resolve()
+        if artifacts_dir.is_relative_to(data_dir) and artifacts_dir.exists() and artifacts_dir.is_dir():
+            # audio.wav
+            if (not isinstance(getattr(job, "audio_ref", None), str)) or not job.audio_ref:
+                audio_abs = (artifacts_dir / "audio.wav").resolve()
+                if audio_abs.is_relative_to(data_dir) and audio_abs.exists() and audio_abs.is_file() and audio_abs.stat().st_size > 0:
+                    job.audio_ref = audio_abs.relative_to(data_dir).as_posix()
+
+            # transcript.json
+            if job.transcript is None:
+                tr_abs = (artifacts_dir / "transcript.json").resolve()
+                if tr_abs.is_relative_to(data_dir) and tr_abs.exists() and tr_abs.is_file() and tr_abs.stat().st_size > 0:
+                    raw = tr_abs.read_bytes()
+                    obj = json.loads(raw.decode("utf-8"))
+                    if isinstance(obj, dict):
+                        job.transcript = obj
+                        job.transcript_ref = tr_abs.relative_to(data_dir).as_posix()
+
+                        meta = job.transcript_meta if isinstance(job.transcript_meta, dict) else {}
+                        # Preserve existing meta where possible.
+                        meta = dict(meta)
+                        if "sha256" not in meta:
+                            meta["sha256"] = _sha256_bytes(raw)
+                        if "provider" not in meta:
+                            meta["provider"] = obj.get("provider") or "unknown"
+                        if "language" not in meta and obj.get("language"):
+                            meta["language"] = obj.get("language")
+                        if "audioRef" not in meta and isinstance(job.audio_ref, str) and job.audio_ref:
+                            meta["audioRef"] = job.audio_ref
+                        job.transcript_meta = meta
+
+                        session.add(job)
+                        session.commit()
+    except Exception:
+        pass
 
 
 def _now_ms() -> int:
@@ -254,6 +362,9 @@ class PipelineJobProcessor:
                 session.commit()
                 return
 
+            # Best-effort recovery for resumability (e.g., failed/canceled->resume).
+            _recover_artifacts(session=session, job=job, project=project)
+
             try:
                 # ---- Transcribe ----
                 if job.transcript is None:
@@ -313,6 +424,10 @@ class PipelineJobProcessor:
                         log_cb=_log_cb,
                     )
 
+                    # If user canceled while transcribe was running, stop before persisting/continuing.
+                    if _abort_if_canceled(session=session, job=job, project_id=job.project_id, stage="speech_to_text"):
+                        return
+
                     if artifacts.updated_project_source_path and not project.source_path:
                         project.source_path = artifacts.updated_project_source_path
                         project.updated_at_ms = _now_ms()
@@ -344,6 +459,8 @@ class PipelineJobProcessor:
                     )
 
                 # ---- Plan (LLM) ----
+                if _abort_if_canceled(session=session, job=job, project_id=job.project_id, stage=job.stage):
+                    return
                 job.stage = "plan"
                 job.progress = max(job.progress or 0.0, 0.6)
                 job.updated_at_ms = _now_ms()
@@ -444,11 +561,26 @@ class PipelineJobProcessor:
                         session.add(job)
                         session.commit()
 
+                        # IMPORTANT: When SSE is connected, the UI may rely on stage events rather than polling.
+                        # Emit a stage update so the progress page can reflect that we're now in plan.
+                        _log(job_id=job.job_id, project_id=job.project_id, stage=job.stage, level="info", message="plan started")
+                        GLOBAL_JOB_EVENT_BUS.emit_state(job_id=job.job_id, project_id=job.project_id, stage=job.stage, message="status=running")
+                        GLOBAL_JOB_EVENT_BUS.emit_progress(job_id=job.job_id, project_id=job.project_id, stage=job.stage, progress=job.progress, message="progress=0.6")
+
                     plan = generate_plan(
                         transcript=transcript,
                         summaries=summaries,
                         output_language=getattr(job, "output_language", None),
                     )
+
+                    # Cache the validated plan for resumability (avoid re-calling LLM if later stages fail).
+                    try:
+                        job.external_plan = plan
+                        job.updated_at_ms = _now_ms()
+                        session.add(job)
+                        session.commit()
+                    except Exception:
+                        pass
                 content_blocks = plan.get("contentBlocks") if isinstance(plan, dict) else None
                 mindmap = plan.get("mindmap") if isinstance(plan, dict) else None
                 if not isinstance(content_blocks, list) or not isinstance(mindmap, dict):
@@ -499,6 +631,8 @@ class PipelineJobProcessor:
                 GLOBAL_JOB_EVENT_BUS.emit_progress(job_id=job.job_id, project_id=job.project_id, stage=job.stage, progress=job.progress, message="progress=0.9")
 
                 # ---- Keyframes (plan-driven) ----
+                if _abort_if_canceled(session=session, job=job, project_id=job.project_id, stage=job.stage):
+                    return
                 job.stage = "keyframes"
                 job.progress = max(job.progress or 0.0, 0.96)
                 job.updated_at_ms = _now_ms()
@@ -542,6 +676,9 @@ class PipelineJobProcessor:
                     allow_skip_if_placeholder=True,
                     transcript_meta=job.transcript_meta,
                 )
+
+                if _abort_if_canceled(session=session, job=job, project_id=job.project_id, stage="keyframes"):
+                    return
 
                 # Backfill asset references into plan keyframes.
                 for b in content_blocks:
@@ -591,6 +728,8 @@ class PipelineJobProcessor:
                 # ---- Optional: keyframe verify / fallback ----
                 verify_mode = get_verify_mode()
                 if verify_mode != "off":
+                    if _abort_if_canceled(session=session, job=job, project_id=job.project_id, stage=job.stage):
+                        return
                     job.stage = "keyframe_verify"
                     job.progress = max(job.progress or 0.0, 0.975)
                     job.updated_at_ms = _now_ms()
@@ -671,6 +810,8 @@ class PipelineJobProcessor:
                     GLOBAL_JOB_EVENT_BUS.emit_progress(job_id=job.job_id, project_id=job.project_id, stage=job.stage, progress=job.progress, message="progress=0.98")
 
                 # ---- Assemble Result ----
+                if _abort_if_canceled(session=session, job=job, project_id=job.project_id, stage=job.stage):
+                    return
                 job.stage = "assemble_result"
                 job.progress = max(job.progress or 0.0, 0.99)
                 job.updated_at_ms = _now_ms()
@@ -793,6 +934,19 @@ class PipelineJobProcessor:
         # Mark succeeded after pipeline steps.
         SessionLocal = get_sessionmaker()
         with SessionLocal() as session:
+            j = session.get(Job, job_id)
+            if j is None:
+                return
+            # Do NOT overwrite user-initiated cancellation.
+            if j.status == "canceled":
+                j.lease_expires_at_ms = None
+                j.claimed_by = None
+                j.claim_token = None
+                j.updated_at_ms = _now_ms()
+                session.add(j)
+                session.commit()
+                return
+
             mark_job_succeeded(session, job_id=job_id, now_ms=_now_ms())
             session.commit()
 

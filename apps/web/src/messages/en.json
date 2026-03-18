@@ -167,6 +167,11 @@
             "preparing": "Preparing...",
             "processing": "Processing: {stage}...",
             "failed": "Task Failed",
+            "retry": "Retry",
+            "resume": "Resume",
+            "resuming": "Resuming...",
+            "cancel": "Cancel Analysis",
+            "canceling": "Canceling...",
             "backToProjects": "Back to Projects"
         },
         "notFound": "Analysis result not found"

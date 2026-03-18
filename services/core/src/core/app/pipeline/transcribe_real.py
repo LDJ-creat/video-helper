@@ -265,7 +265,10 @@ def run_real_transcribe(
 	media_abs: Path | None = plan.media_abs_path
 
 	if plan.requires_download:
-		_progress(0.10, "download=starting")
+		# yt-dlp can be slow for long videos or throttled networks.
+		# subprocess timeout defaults to 20 minutes; make it operator-configurable.
+		timeout_s = float(max(1, _env_int("YTDLP_DOWNLOAD_TIMEOUT_S_WORKER", _env_int("YTDLP_DOWNLOAD_TIMEOUT_S", 20 * 60))))
+		_progress(0.10, f"download=starting timeoutS={int(timeout_s)}")
 		if not plan.download_dir_abs or not plan.source_url:
 			raise ValueError("invalid url source plan")
 		stop_evt = threading.Event()
@@ -287,7 +290,12 @@ def run_real_transcribe(
 		th = threading.Thread(target=_download_heartbeat, name="ytdlp-download-heartbeat", daemon=True)
 		th.start()
 		try:
-			res = download_with_ytdlp(url=plan.source_url, output_dir=plan.download_dir_abs / job_id, base_filename="source")
+			res = download_with_ytdlp(
+				url=plan.source_url,
+				output_dir=plan.download_dir_abs / job_id,
+				base_filename="source",
+				timeout_s=timeout_s,
+			)
 		finally:
 			stop_evt.set()
 		updated_source_path = res.rel_path
