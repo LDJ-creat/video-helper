@@ -166,6 +166,12 @@
         "progress": {
             "preparing": "准备中...",
             "processing": "正在进行: {stage}...",
+            "alreadyAnalyzedStatus": "已存在分析结果",
+            "alreadyAnalyzedTitle": "该视频已分析过",
+            "alreadyAnalyzedBody": "你可以直接查看已有分析结果，或选择重新分析以生成新的结果。",
+            "viewExisting": "查看已有结果",
+            "reanalyze": "重新分析",
+            "reanalyzing": "正在重新分析...",
             "failed": "任务失败",
             "retry": "重试",
             "resume": "继续分析",

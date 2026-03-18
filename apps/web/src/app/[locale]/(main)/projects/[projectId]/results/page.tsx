@@ -68,12 +68,19 @@ function JobProgress({ jobId, projectId }: { jobId: string; projectId: string })
     }, [job?.status, navigateToResult]);
 
     const progressPercent = Math.round((job?.progress || 0) * 100);
-    const statusMessage = job?.stage ? t("processing", { stage: job.stage }) : t("preparing");
+    const details = job?.error?.details;
+    const detailsObj = (details && typeof details === "object") ? (details as Record<string, unknown>) : null;
+    const duplicateReason = detailsObj?.reason;
+    const isDuplicateBlocked = job?.status === "blocked" && duplicateReason === "already_analyzed";
+
+    const statusMessage = isDuplicateBlocked
+        ? t("alreadyAnalyzedStatus")
+        : (job?.stage ? t("processing", { stage: job.stage }) : t("preparing"));
     const latestLog = logs?.items?.[logs.items.length - 1]?.message;
 
     const canCancel = job?.status === "running" || job?.status === "queued" || job?.status === "blocked";
     const canResume = job?.status === "failed" || job?.status === "canceled" || job?.status === "blocked";
-    const resumeLabel = job?.status === "failed" ? t("retry") : t("resume");
+    const resumeLabel = isDuplicateBlocked ? t("reanalyze") : (job?.status === "failed" ? t("retry") : t("resume"));
 
     const handleResume = async () => {
         if (!canResume || isResuming) return;
@@ -127,7 +134,30 @@ function JobProgress({ jobId, projectId }: { jobId: string; projectId: string })
                     </p>
                 )}
 
-                {canResume || canCancel ? (
+                {isDuplicateBlocked ? (
+                    <div className="mt-4 w-full rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-900">
+                        <p className="font-semibold">{t("alreadyAnalyzedTitle")}</p>
+                        <p className="mt-1 text-sm text-amber-800">{t("alreadyAnalyzedBody")}</p>
+                    </div>
+                ) : null}
+
+                {isDuplicateBlocked ? (
+                    <div className="mt-4 flex gap-3">
+                        <button
+                            onClick={navigateToResult}
+                            className="px-4 py-2 bg-white border border-stone-300 rounded shadow-sm hover:bg-stone-50 text-sm font-medium"
+                        >
+                            {t("viewExisting")}
+                        </button>
+                        <button
+                            onClick={handleResume}
+                            disabled={isResuming}
+                            className="px-4 py-2 bg-orange-600 text-white rounded hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                        >
+                            {isResuming ? t("reanalyzing") : resumeLabel}
+                        </button>
+                    </div>
+                ) : (canResume || canCancel ? (
                     <div className="mt-4 flex gap-3">
                         {canResume ? (
                             <button
@@ -149,13 +179,13 @@ function JobProgress({ jobId, projectId }: { jobId: string; projectId: string })
                             </button>
                         ) : null}
                     </div>
-                ) : null}
+                ) : null)}
 
                 {actionError ? (
                     <p className="mt-3 text-sm text-red-600 wrap-break-word max-w-full">{actionError}</p>
                 ) : null}
 
-                {job?.error && (
+                {job?.status === "failed" && job?.error && (
                     <div className="mt-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 max-w-full">
                         <h3 className="font-bold mb-1">{t("failed")}</h3>
                         <p className="text-sm font-medium">{job.error.message}</p>

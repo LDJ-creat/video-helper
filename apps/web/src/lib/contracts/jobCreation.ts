@@ -14,6 +14,6 @@ export type CreateJobUrlRequest = {
 export type CreateJobResponse = {
     jobId: string;
     projectId: string;
-    status: "queued";
+    status: "queued" | "blocked";
     createdAtMs: number;
 };

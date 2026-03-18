@@ -166,6 +166,12 @@
         "progress": {
             "preparing": "Preparing...",
             "processing": "Processing: {stage}...",
+            "alreadyAnalyzedStatus": "Existing result found",
+            "alreadyAnalyzedTitle": "This video has already been analyzed",
+            "alreadyAnalyzedBody": "You can view the existing result, or reanalyze to generate a new result.",
+            "viewExisting": "View existing result",
+            "reanalyze": "Reanalyze",
+            "reanalyzing": "Reanalyzing...",
             "failed": "Task Failed",
             "retry": "Retry",
             "resume": "Resume",
