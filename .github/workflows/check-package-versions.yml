@@ -21,4 +21,6 @@ jobs:
       - name: Run package version check
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 在 PR 中默认把过期版本当作失败处理，以便在 PR 检查页面显示为失败，避免遗漏警告
+          FAIL_ON_OUTDATED: "true"
         run: node .github/scripts/check_versions.js

@@ -7,6 +7,10 @@
 - 工作流（已添加）会在 `pull_request` 事件运行该脚本，默认仅发出警告（不会失败 PR）。
 - 如果希望在发现过期版本时让 CI 失败，请在工作流中设置环境变量 `FAIL_ON_OUTDATED: 'true'`。
 
+- 默认行为建议：在 `pull_request` 事件中应将 `FAIL_ON_OUTDATED` 设置为 `'true'`，
+  这样发现过期版本时工作流会以非零退出码结束，并在 PR 检查摘要中显示为失败（避免仅在 workflow 详情页可见的警告）。
+- 如果你只想要非阻断的提醒（仅警告不失败），请将 `FAIL_ON_OUTDATED` 设置为 `'false'`。
+
 配置示例（workflow）：
 
   - name: Run package version check
