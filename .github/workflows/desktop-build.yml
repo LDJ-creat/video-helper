@@ -1,4 +1,4 @@
-name: desktop-build-release
+name: desktop-build
 
 on:
   workflow_dispatch:
@@ -26,10 +26,16 @@ on:
         type: string
         required: false
         default: "apps/desktop/release/smoke-fixture.mp4"
-  pull_request:
   push:
     branches:
       - main
+  # Run after the version-check workflow completes. This ensures PR builds
+  # only start when the check-package-versions workflow finished successfully.
+  workflow_run:
+    workflows:
+      - "Check package.json versions against latest release"
+    types:
+      - completed
 
 permissions:
   contents: read
@@ -37,6 +43,9 @@ permissions:
 jobs:
   build:
     name: Build (${{ matrix.os }})
+    # If this workflow was started by the version-check `workflow_run` event,
+    # only proceed when the source workflow concluded successfully.
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -66,11 +75,14 @@ jobs:
       # - Commit a file in the repo and set SMOKE_FIXTURE_PATH (default: smoke/fixtures/smoke-fixture.mp4)
       # - Or set secret SMOKE_FIXTURE_URL to a downloadable mp4 (GitHub Release asset / S3 / etc.)
       SMOKE_FIXTURE_PATH: "smoke/fixtures/smoke-fixture.mp4"
-      SMOKE_FIXTURE_URL: ${{ secrets.SMOKE_FIXTURE_URL }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # When triggered via workflow_run (after PR version check), build the exact head SHA
+          # that was checked. This makes the workflow a true PR gating build.
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -287,6 +299,10 @@ jobs:
         run: pnpm -C apps/desktop exec -- electron-builder --dir --publish=never --config.linux.icon=resources/icon.png
 
       - name: Prepare local smoke fixture (mp4)
+        env:
+          # Never expose this secret to PR-gating builds (workflow_run), which may build untrusted PR code.
+          # For trusted triggers (push / manual dispatch), allow using the secret as an optional optimization.
+          SMOKE_FIXTURE_URL: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && secrets.SMOKE_FIXTURE_URL || '' }}
         shell: bash
         run: |
           set -euo pipefail
