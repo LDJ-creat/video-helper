@@ -5,7 +5,6 @@ on:
 
 permissions:
   contents: read
-  workflows: write
 
 jobs:
   check-versions:
@@ -25,23 +24,3 @@ jobs:
           # 在 PR 中默认把过期版本当作失败处理，以便在 PR 检查页面显示为失败，避免遗漏警告
           FAIL_ON_OUTDATED: "true"
         run: node .github/scripts/check_versions.js
-
-      - name: Trigger `desktop-build.yml` when check passes
-        if: ${{ success() && (github.event_name == 'pull_request' || github.event_name == 'push') }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-          # For PRs use the head ref; for push use the ref name
-          REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name }}
-        run: |
-          echo "Triggering desktop-build for ref='$REF'"
-          api="https://api.github.com/repos/${REPO}/actions/workflows/desktop-build.yml/dispatches"
-          body=$(printf '{"ref":"%s"}' "$REF")
-          status=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Accept: application/vnd.github+json" -H "Authorization: Bearer ${GITHUB_TOKEN}" -d "$body" "$api")
-          if [ "$status" != "204" ]; then
-            echo "Failed to dispatch desktop-build workflow (HTTP $status)"
-            echo "API URL: $api"
-            echo "Payload: $body"
-            exit 1
-          fi
-          echo "desktop-build workflow dispatched"
