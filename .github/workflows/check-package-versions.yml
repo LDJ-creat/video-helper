@@ -1,0 +1,24 @@
+name: Check package.json versions against latest release
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check-versions:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run package version check
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node .github/scripts/check_versions.js
