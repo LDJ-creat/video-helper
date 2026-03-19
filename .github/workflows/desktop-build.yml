@@ -1,4 +1,4 @@
-name: desktop-build-release
+name: desktop-build
 
 on:
   workflow_dispatch:
