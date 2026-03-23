@@ -30,9 +30,7 @@ This project adopts a full-stack Monorepo architecture and integrates advanced *
 The core highlight lies in its outstanding **interactive linkage**: clicking on a mind map node precisely navigates to the corresponding key content module, and clicking on a content module can jump to the corresponding video segment. Additionally, the built-in AI assistant supports multi-turn Q&A and can generate practice questions based on video knowledge points to form a complete learning loop.
 
 
-<p align="center">
-  <video src="https://github.com/LDJ-creat/video-helper/raw/main/docs/assets/video-en.mp4" width="100%" controls></video>
-</p>
+https://github.com/user-attachments/assets/1d3824b2-feec-40da-9dee-0b6c689e2a8a
 
 ## <a id="features"></a>✨ Key Features
 
