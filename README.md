@@ -1,16 +1,41 @@
-# Video Helper (Video Analysis Assistant)
+<h1 align="center">Video Helper</h1>
 
-🌐 **语言 / Language**: [中文](README.zh.md) | English
+<p align="center">
+  <strong>AI-powered Video Analysis Assistant for efficient learning and knowledge retrieval</strong>
+</p>
+
+<p align="center">
+  English | <a href="README.zh.md">中文</a>
+</p>
+
+<p align="center">
+  <a href="#features">Features</a> •
+  <a href="#architecture">Architecture</a> •
+  <a href="#getting-started">Getting Started</a> •
+  <a href="#contribution">Contribution</a>
+</p>
+
+<p align="center">
+  If you like this project, please give it a Star ⭐!
+</p>
+
+---
 
 ## 📖 Introduction
 
-**Video Helper** is an AI-powered smart video learning assistant designed to significantly improve the efficiency of video learning and knowledge review.
+**Video Helper** is an AI-powered **Video Learning Assistant** and **Study Tool** designed to significantly improve the efficiency of **video analysis**, knowledge retrieval, and note-taking.
 
-This project adopts a full-stack Monorepo architecture and integrates advanced LLM analysis pipelines. Users simply provide a video link (e.g., Bilibili, YouTube) or upload a local video, and the system automatically extracts core content, generating structured **Mind Maps** and **Key Summaries**.
+This project adopts a full-stack Monorepo architecture and integrates advanced **LLM analysis pipelines**. Users simply provide a video link (e.g., Bilibili, YouTube, TikTok) or upload a local video, and the system automatically extracts core content, generating structured **Mind Maps** and **Key Summaries**.
 
-The core highlight lies in its outstanding **interactive linkage**: clicking on a mind map node precisely navigates to the corresponding key content module, and clicking on a content module can jump to the corresponding video segment. Additionally, the built-in AI assistant supports multi-turn Q&A and can generate practice questions based on video knowledge points to help users consolidate what they have learned.
+The core highlight lies in its outstanding **interactive linkage**: clicking on a mind map node precisely navigates to the corresponding key content module, and clicking on a content module can jump to the corresponding video segment. Additionally, the built-in AI assistant supports multi-turn Q&A and can generate practice questions based on video knowledge points to form a complete learning loop.
 
-## ✨ Key Features
+### 🎥 Demo Video
+
+<div align="center">
+  <video src="docs/assets/video-en.mp4" width="100%" controls autoplay muted loop></video>
+</div>
+
+## <a id="features"></a>✨ Key Features
 
 - **Smart Pipeline Analysis**: Automated handling of video downloading, audio transcription, content extraction, and structured analysis. It supports LLM-guided keyframe extraction via FFmpeg to provide visual context alongside key summaries.
 - **Dynamic Mind Map**: Generates visual knowledge structure maps supporting zooming, dragging, and adding/deleting/editing nodes.
@@ -18,11 +43,20 @@ The core highlight lies in its outstanding **interactive linkage**: clicking on 
     - **Mind Map -> Content**: Click a map node to automatically locate the corresponding key content module.
     - **Content -> Video**: Click summary highlights to jump the video stream to the corresponding timestamp.
 - **AI Q&A**: Supports multi-turn dialogue with the user based on video context, explaining difficult points in depth.
-- **Quiz Canvas**: AI automatically generates questions based on video knowledge points, providing targeted practice and feedback to form a learning loop.
+- **Quiz Canvas**: AI automatically generates questions based on video knowledge points, providing targeted practice and feedback.
 - **Flexible Editing**: Supports manual adjustment of mind map logic and summary content to customize personalized learning notes.
 
+### 🚀 Why Video Helper?
 
-## 🏗️ Architecture
+| Features | Traditional Learning | Video Helper |
+| :--- | :--- | :--- |
+| **Structuring** | Manual notes, time-consuming | **Auto-generated Mind Maps & Key Notes** |
+| **Navigation** | Constant scrubbing | **One-click Precise Jump** |
+| **Consolidation** | Weak feedback loop | **AI-Generated Quizzes** |
+| **Understanding** | No immediate help | **24/7 AI Q&A Assistant** |
+
+
+## <a id="architecture"></a>🏗️ Architecture
 
 This project uses Monorepo architecture to manage frontend and backend, ensuring efficient code maintenance and scalability.
 
@@ -48,7 +82,7 @@ This project uses Monorepo architecture to manage frontend and backend, ensuring
 
 *Figure: Core video analysis flow.*
 
-## 🚀 Getting Started
+## <a id="getting-started"></a>🚀 Getting Started
 
 Choose **one of three options** based on your use case:
 
@@ -210,9 +244,21 @@ video-helper/
 
 This project is licensed under the MIT License – see the [LICENSE](LICENSE) file for details.
 
-## 🤝 Contribution
+## <a id="contribution"></a>🤝 Contribution
 
 Issues and Pull Requests are welcome! Before submitting code, please ensure it passes the project's Smoke Tests and adheres to code standards.
+
+## ❓ FAQ
+
+**Q: Which platforms are supported?**
+A: Powered by `yt-dlp`, we support Bilibili, YouTube, and many other platforms. You can also upload local MP4/MKV videos.
+
+**Q: Do I need to pay for the LLM?**
+A: You can integrate your own API keys (OpenAI, Claude, etc.). If using as an AI Skill, you can use the model provided by your AI editor.
+
+**Q: How does it handle long videos? Is it slow?**
+A: For long videos, we use a MapReduce strategy: the video content is split and analyzed concurrently by multiple LLM calls, then aligned and aggregated by a master LLM. A 1-hour video typically takes 15-20 minutes to process.
+
 
 ---
 *Created with ❤️ by the Open Source Community*
