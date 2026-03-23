@@ -29,11 +29,10 @@
 
 核心亮点在于其出色的**联动交互能力**：点击思维导图节点可精准跳转至对应的重点内容，点击某模块的内容可以跳转至对应的视频片段。此外，内置的 AI 助手支持多轮问答，并能基于视频知识点生成练习题，形成完整的学习闭环。
 
-### 🎥 演示视频
 
-<div align="center">
-  <video src="docs/assets/video-zh.mp4" width="100%" controls autoplay muted loop></video>
-</div>
+<p align="center">
+  <video src="https://github.com/LDJ-creat/video-helper/raw/main/docs/assets/video-zh.mp4" width="100%" controls></video>
+</p>
 
 ## <a id="features"></a>✨ 核心功能
 
