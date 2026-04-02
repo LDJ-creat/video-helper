@@ -1,8 +1,13 @@
 name: desktop-build
 
 on:
+  pull_request:
   workflow_dispatch:
     inputs:
+      skip_version_check:
+        description: "Skip strict version gate (manual runs only)"
+        type: boolean
+        default: false
       run_smoke:
         description: "Run smoke tests (default: false)"
         type: boolean
@@ -29,23 +34,41 @@ on:
   push:
     branches:
       - main
-  # Run after the version-check workflow completes. This ensures PR builds
-  # only start when the check-package-versions workflow finished successfully.
-  workflow_run:
-    workflows:
-      - "Check package.json versions against latest release"
-    types:
       - completed
 
 permissions:
   contents: read
 
 jobs:
+  check_versions:
+    name: Check package versions
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run package version check (strict)
+        if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && !inputs.skip_version_check) }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FAIL_ON_OUTDATED: "true"
+        run: node .github/scripts/check_versions.js
+
+      - name: Run package version check (manual optional pass-through)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.skip_version_check }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FAIL_ON_OUTDATED: "false"
+        run: node .github/scripts/check_versions.js
+
   build:
     name: Build (${{ matrix.os }})
-    # If this workflow was started by the version-check `workflow_run` event,
-    # only proceed when the source workflow concluded successfully.
-    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    needs: [check_versions]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -79,10 +102,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          # When triggered via workflow_run (after PR version check), build the exact head SHA
-          # that was checked. This makes the workflow a true PR gating build.
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4

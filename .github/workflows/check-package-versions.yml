@@ -1,7 +1,7 @@
 name: Check package.json versions against latest release
 
 on:
-  pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
