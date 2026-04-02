@@ -32,6 +32,17 @@ from core.schemas.jobs import CreateJobRequest, JobCreatedDTO, JobDTO, ResumePro
 from core.schemas.logs import JobLogsPageDTO, LogItemDTO
 from core.app.logs.job_logs import read_job_logs_page
 from core.app.pipeline.llm_plan import build_plan_request, validate_plan
+from core.app.pipeline.chunk_summaries import (
+	chunk_transcript_segments,
+	estimate_duration_ms,
+	should_use_long_video_path,
+	ChunkSummary,
+	_chunk_text,
+	_model_validate,
+	_model_dump,
+	_write_json_atomic,
+	_read_json_if_ok,
+)
 from core.storage.layout import allocate_upload_path
 from core.storage.safe_paths import validate_single_dir_name
 from core.external.ytdlp import fetch_video_title, probe_url_support
@@ -796,7 +807,367 @@ def get_job(jobId: str, request: Request, session: Session = Depends(get_db_sess
 	)
 
 
+
+# ---------------------------------------------------------------------------
+# Chunk summaries helpers (for external LLM mode)
+# ---------------------------------------------------------------------------
+
+_CHUNK_SUMMARY_SCHEMA = {
+	"description": "Schema for each chunk summary item in summaries.json",
+	"fields": {
+		"chunkId": "string — must match the chunkId from chunks response",
+		"startMs": "int — chunk start time in milliseconds",
+		"endMs": "int — chunk end time in milliseconds",
+		"summary": "string — compact learning-oriented summary of this chunk",
+		"points": "array of {text:string, importance:1|2|3, startMs?:int, endMs?:int}",
+		"terms": "array of {term:string, definition?:string} — important domain terms",
+		"keyMoments": "array of {timeMs:int, label:string} — timestamps for screenshots/slides",
+	},
+}
+
+_CHUNKING_VERSION = 1
+_PROMPTS_VERSION = 2
+
+
+def _load_chunk_summaries_for_job(*, project_id: str, job_id: str) -> list[dict] | None:
+	"""Load persisted chunk summaries from DATA_DIR if they exist and are valid."""
+	try:
+		from core.db.session import get_data_dir
+		from core.storage.safe_paths import PathTraversalBlockedError
+		data_dir = get_data_dir().resolve()
+		base_dir = (data_dir / project_id / "artifacts" / job_id / "chunk_summaries").resolve()
+		if not base_dir.is_relative_to(data_dir):
+			return None
+		manifest_path = (base_dir / "manifest.json").resolve()
+		if not manifest_path.is_relative_to(data_dir) or not manifest_path.exists():
+			return None
+		manifest = _read_json_if_ok(manifest_path)
+		if not isinstance(manifest, dict):
+			return None
+		chunk_list = manifest.get("chunks")
+		if not isinstance(chunk_list, list) or not chunk_list:
+			return None
+		out: list[dict] = []
+		for c in chunk_list:
+			if not isinstance(c, dict):
+				return None
+			cid = c.get("chunkId")
+			if not isinstance(cid, str) or not cid:
+				return None
+			p = (base_dir / f"chunk_{cid}.json").resolve()
+			if not p.is_relative_to(data_dir):
+				return None
+			payload = _read_json_if_ok(p)
+			if not isinstance(payload, dict):
+				return None
+			try:
+				parsed = _model_validate(ChunkSummary, payload)
+				out.append(_model_dump(parsed))
+			except Exception:
+				return None
+		return out if out else None
+	except Exception:
+		return None
+
+
+@router.get("/jobs/{jobId}/chunks")
+def get_job_chunks(jobId: str, request: Request, session: Session = Depends(get_db_session)):
+	"""Return the chunked transcript for external LLM chunk summarization.
+
+	Only available when llmMode=external and transcript is ready (job is blocked).
+	The chunks contain raw transcript text per time window — no LLM calls are made.
+	The external LLM should process chunks in batches (recommended: 3 per call)
+	and submit results via POST /jobs/{jobId}/chunk-summaries.
+	"""
+	try:
+		uuid.UUID(jobId)
+	except ValueError:
+		return JSONResponse(
+			status_code=400,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message="Invalid jobId",
+				details={"jobId": jobId},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
+	job = get_job_by_id(session, jobId)
+	if job is None:
+		return JSONResponse(
+			status_code=404,
+			content=build_error_envelope(
+				code=ErrorCode.JOB_NOT_FOUND,
+				message="Job does not exist",
+				details={"jobId": jobId},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
+	llm_mode = (getattr(job, "llm_mode", None) or "backend").strip().lower()
+	if llm_mode != "external":
+		return JSONResponse(
+			status_code=400,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message="Job is not configured for external LLM",
+				details={"llmMode": llm_mode},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
+	if job.transcript is None:
+		return JSONResponse(
+			status_code=409,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message="Transcript not ready",
+				details={"reason": "transcript_not_ready"},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
+	transcript = job.transcript or {}
+	transcript_meta = getattr(job, "transcript_meta", None)
+	output_language = getattr(job, "output_language", None)
+
+	segments_raw = transcript.get("segments") if isinstance(transcript, dict) else None
+	seg_dicts = [s for s in segments_raw if isinstance(s, dict)] if isinstance(segments_raw, list) else []
+	total_chars = sum(len(s.get("text", "")) for s in seg_dicts if isinstance(s.get("text"), str))
+
+	duration_ms = estimate_duration_ms(transcript=transcript, transcript_meta=transcript_meta)
+
+	is_long = should_use_long_video_path(
+		duration_ms=duration_ms,
+		segments=seg_dicts,
+		total_chars=int(total_chars),
+	)
+
+	if not is_long:
+		return {
+			"jobId": job.job_id,
+			"isLongVideo": False,
+			"chunks": [],
+			"outputLanguage": output_language,
+			"message": "Video is not long enough to require chunk processing. Run fetch_plan.py directly.",
+		}
+
+	window_ms, chunks = chunk_transcript_segments(transcript=transcript, duration_ms=duration_ms)
+
+	import os
+	max_chars = int(os.environ.get("CHUNK_MAX_CHARS") or 10_000)
+
+	chunk_list = [
+		{
+			"chunkId": c.chunk_id,
+			"startMs": int(c.start_ms),
+			"endMs": int(c.end_ms),
+			"transcript": _chunk_text(c.segments, max_chars=max_chars),
+		}
+		for c in chunks
+	]
+
+	total_batches = (len(chunk_list) + 2) // 3  # ceil(N/3)
+
+	return {
+		"jobId": job.job_id,
+		"projectId": job.project_id,
+		"isLongVideo": True,
+		"windowMs": int(window_ms),
+		"chunkCount": len(chunk_list),
+		"totalBatches": total_batches,
+		"batchSize": 3,
+		"outputLanguage": output_language,
+		"chunks": chunk_list,
+		"chunkSummarySchema": _CHUNK_SUMMARY_SCHEMA,
+		"submitUrl": f"/api/v1/jobs/{job.job_id}/chunk-summaries",
+	}
+
+
+@router.post("/jobs/{jobId}/chunk-summaries")
+async def submit_job_chunk_summaries(jobId: str, request: Request, session: Session = Depends(get_db_session)):
+	"""Accept externally generated chunk summaries and persist them.
+
+	Must be called before POST /jobs/{jobId}/plan so that the plan-request
+	endpoint can include summaries in its response for the plan LLM.
+	"""
+	try:
+		uuid.UUID(jobId)
+	except ValueError:
+		return JSONResponse(
+			status_code=400,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message="Invalid jobId",
+				details={"jobId": jobId},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
+	job = get_job_by_id(session, jobId)
+	if job is None:
+		return JSONResponse(
+			status_code=404,
+			content=build_error_envelope(
+				code=ErrorCode.JOB_NOT_FOUND,
+				message="Job does not exist",
+				details={"jobId": jobId},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
+	llm_mode = (getattr(job, "llm_mode", None) or "backend").strip().lower()
+	if llm_mode != "external":
+		return JSONResponse(
+			status_code=400,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message="Job is not configured for external LLM",
+				details={"llmMode": llm_mode},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
+	if job.status != "blocked":
+		return JSONResponse(
+			status_code=409,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message="Job must be in blocked status to accept chunk summaries",
+				details={"status": job.status},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
+	content_type = (request.headers.get("content-type") or "").lower()
+	if not content_type.startswith("application/json"):
+		return JSONResponse(
+			status_code=415,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message="Unsupported Content-Type",
+				details={"contentType": request.headers.get("content-type")},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
+	try:
+		payload = await request.json()
+	except Exception:
+		return JSONResponse(
+			status_code=400,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message="Invalid JSON body",
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
+	if not isinstance(payload, dict):
+		return JSONResponse(
+			status_code=400,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message="Request body must be a JSON object",
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
+	summaries_raw = payload.get("summaries")
+	if not isinstance(summaries_raw, list) or not summaries_raw:
+		return JSONResponse(
+			status_code=400,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message="summaries must be a non-empty array",
+				details={"reason": "summaries_required"},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
+	# Validate each summary against pydantic schema.
+	validated: list[dict] = []
+	for i, item in enumerate(summaries_raw):
+		if not isinstance(item, dict):
+			return JSONResponse(
+				status_code=400,
+				content=build_error_envelope(
+					code=ErrorCode.VALIDATION_ERROR,
+					message=f"summaries[{i}] must be an object",
+					request_id=getattr(request.state, "request_id", None),
+				),
+			)
+		try:
+			parsed = _model_validate(ChunkSummary, item)
+			validated.append(_model_dump(parsed))
+		except Exception as e:
+			return JSONResponse(
+				status_code=400,
+				content=build_error_envelope(
+					code=ErrorCode.VALIDATION_ERROR,
+					message=f"summaries[{i}] failed validation",
+					details={"error": str(e), "chunkId": item.get("chunkId")},
+					request_id=getattr(request.state, "request_id", None),
+				),
+			)
+
+	# Persist to DATA_DIR in the same layout as backend chunk_summaries.
+	try:
+		from core.db.session import get_data_dir
+		from core.storage.safe_paths import PathTraversalBlockedError
+		data_dir = get_data_dir().resolve()
+		base_dir = (data_dir / job.project_id / "artifacts" / job.job_id / "chunk_summaries").resolve()
+		if not base_dir.is_relative_to(data_dir):
+			raise PathTraversalBlockedError("chunk summaries dir escapes DATA_DIR")
+		base_dir.mkdir(parents=True, exist_ok=True)
+
+		# Write manifest.
+		manifest = {
+			"chunkingVersion": _CHUNKING_VERSION,
+			"promptsVersion": _PROMPTS_VERSION,
+			"windowMs": None,  # unknown for externally generated summaries
+			"outputLanguage": getattr(job, "output_language", None) or "auto",
+			"transcriptSha256": None,
+			"externallyGenerated": True,
+			"chunks": [
+				{"chunkId": s["chunkId"], "startMs": s["startMs"], "endMs": s["endMs"]}
+				for s in validated
+			],
+		}
+		manifest_path = (base_dir / "manifest.json").resolve()
+		if not manifest_path.is_relative_to(data_dir):
+			raise PathTraversalBlockedError("manifest escapes DATA_DIR")
+		_write_json_atomic(manifest_path, manifest)
+
+		# Write per-chunk files.
+		for summary in validated:
+			cid = summary["chunkId"]
+			p = (base_dir / f"chunk_{cid}.json").resolve()
+			if not p.is_relative_to(data_dir):
+				raise PathTraversalBlockedError(f"chunk file escapes DATA_DIR: {cid}")
+			_write_json_atomic(p, summary)
+
+	except Exception as e:
+		return JSONResponse(
+			status_code=500,
+			content=build_error_envelope(
+				code=ErrorCode.JOB_STAGE_FAILED,
+				message="Failed to persist chunk summaries",
+				details={"error": str(e)},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
+	return {
+		"ok": True,
+		"jobId": job.job_id,
+		"count": len(validated),
+		"nextStep": f"Run fetch_plan.py {job.job_id} to get the plan request with summaries included.",
+	}
+
+
 @router.get("/jobs/{jobId}/plan-request")
+
 def get_job_plan_request(jobId: str, request: Request, session: Session = Depends(get_db_session)):
 	"""Return the prompt/messages payload for external plan generation.
 
@@ -851,11 +1222,32 @@ def get_job_plan_request(jobId: str, request: Request, session: Session = Depend
 			),
 		)
 
-	plan_request = build_plan_request(transcript=job.transcript or {}, output_language=getattr(job, "output_language", None))
+	transcript = job.transcript or {}
+	transcript_meta = getattr(job, "transcript_meta", None)
+	segments_raw = transcript.get("segments") if isinstance(transcript, dict) else None
+	seg_dicts = [s for s in segments_raw if isinstance(s, dict)] if isinstance(segments_raw, list) else []
+	total_chars = sum(len(s.get("text", "")) for s in seg_dicts if isinstance(s.get("text"), str))
+	duration_ms = estimate_duration_ms(transcript=transcript, transcript_meta=transcript_meta)
+	is_long_video = should_use_long_video_path(
+		duration_ms=duration_ms,
+		segments=seg_dicts,
+		total_chars=int(total_chars),
+	)
+
+	summaries = _load_chunk_summaries_for_job(project_id=job.project_id, job_id=job.job_id)
+	chunk_count = len(summaries or [])
+
+	plan_request = build_plan_request(
+		transcript=transcript,
+		summaries=summaries,
+		output_language=getattr(job, "output_language", None),
+	)
 	return {
 		"jobId": job.job_id,
 		"projectId": job.project_id,
 		"llmMode": "external",
+		"isLongVideo": is_long_video,
+		"chunkCount": chunk_count,
 		"planRequest": plan_request,
 		"submitUrl": f"/api/v1/jobs/{job.job_id}/plan",
 	}

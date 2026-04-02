@@ -146,3 +146,82 @@ def test_plan_request_and_submit_flow(client: TestClient):
         assert job.status == "queued"
         assert isinstance(job.external_plan, dict)
         assert job.external_plan.get("schemaVersion") == "2026-02-06"
+
+
+def test_long_video_chunk_summary_roundtrip(client: TestClient, monkeypatch):
+    monkeypatch.setenv("LONG_VIDEO_MIN_MS", "1")
+
+    # Create external-mode job.
+    res = client.post(
+        "/api/v1/jobs",
+        json={
+            "sourceType": "url",
+            "sourceUrl": "https://example.com/video-long",
+            "title": "Long Example",
+            "llmMode": "external",
+        },
+    )
+    assert res.status_code == 200
+    job_id = res.json()["jobId"]
+
+    # Put job into blocked state with a transcript so chunk endpoints are available.
+    from core.db.models.job import Job
+    from core.db.session import get_sessionmaker
+
+    SessionLocal = get_sessionmaker()
+    with SessionLocal() as session:
+        job = session.get(Job, job_id)
+        assert job is not None
+        job.transcript = {
+            "segments": [
+                {"startMs": 0, "endMs": 1000, "text": "Segment A"},
+                {"startMs": 1000, "endMs": 2000, "text": "Segment B"},
+            ]
+        }
+        job.transcript_meta = {"durationMs": 5_000}
+        job.status = "blocked"
+        job.stage = "plan"
+        job.progress = 0.6
+        session.add(job)
+        session.commit()
+
+    # Fetch chunks.
+    chunks_res = client.get(f"/api/v1/jobs/{job_id}/chunks")
+    assert chunks_res.status_code == 200
+    chunks_payload = chunks_res.json()
+    assert chunks_payload["isLongVideo"] is True
+    assert int(chunks_payload.get("chunkCount") or 0) >= 1
+    chunks = chunks_payload.get("chunks")
+    assert isinstance(chunks, list) and chunks
+
+    first = chunks[0]
+    submit_payload = {
+        "summaries": [
+            {
+                "chunkId": first["chunkId"],
+                "startMs": int(first["startMs"]),
+                "endMs": int(first["endMs"]),
+                "summary": "Chunk summary",
+                "points": [{"text": "Key point", "importance": 2}],
+                "terms": [{"term": "TermA", "definition": "Def"}],
+                "keyMoments": [{"timeMs": int(first["startMs"]), "label": "Moment"}],
+            }
+        ]
+    }
+
+    # Submit summaries.
+    submit_res = client.post(f"/api/v1/jobs/{job_id}/chunk-summaries", json=submit_payload)
+    assert submit_res.status_code == 200
+    out = submit_res.json()
+    assert out["ok"] is True
+    assert out["count"] == 1
+
+    # Plan request should include long-video metadata and summaries in user payload.
+    plan_req_res = client.get(f"/api/v1/jobs/{job_id}/plan-request")
+    assert plan_req_res.status_code == 200
+    plan_req_payload = plan_req_res.json()
+    assert plan_req_payload["isLongVideo"] is True
+    assert plan_req_payload["chunkCount"] == 1
+    user_payload = (plan_req_payload.get("planRequest") or {}).get("userPayload") or {}
+    assert isinstance(user_payload.get("summaries"), list)
+    assert len(user_payload["summaries"]) == 1
