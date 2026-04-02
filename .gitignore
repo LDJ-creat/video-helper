@@ -45,3 +45,5 @@ services/core/build/**
 
 # Generated artifacts (keep markdown docs, ignore generated json evidence)
 _bmad-output/implementation-artifacts/*.json
+
+ui-ux-pro-max/
