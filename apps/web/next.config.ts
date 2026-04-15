@@ -29,6 +29,12 @@ const nextConfig: NextConfig = {
   // This does NOT affect local web development (next dev / next start work as usual).
   ...(process.env.BUILD_STANDALONE === '1' && { output: 'standalone' }),
 
+  experimental: {
+    // Large local video uploads can exceed the default 10MB proxy body cap.
+    // Raise it so multipart requests are fully available to the backend.
+    proxyClientMaxBodySize: '500mb',
+  },
+
   async rewrites() {
     const apiBaseUrl = _getApiBaseUrlForRewrites();
 
