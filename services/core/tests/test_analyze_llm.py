@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import httpx
 import pytest
 
+from core.app.logs.pipeline_timings import append_pipeline_timing, time_pipeline_step
 from core.app.pipeline.analyze_provider import AnalyzeError, llm_provider_from_env, llm_provider_from_runtime
 from core.app.pipeline.llm_plan import generate_plan, validate_plan
 from core.contracts.error_codes import ErrorCode
@@ -105,6 +107,68 @@ class _StubProvider:
 		return self._result
 
 
+class _RepairingPlanProvider:
+	def __init__(self):
+		self.calls: list[str] = []
+
+	def generate_json(self, task_name: str, input_dict: dict) -> dict:  # noqa: ARG002
+		self.calls.append(task_name)
+		if task_name == "plan":
+			return {"schemaVersion": "2026-02-06", "contentBlocks": [], "mindmap": {"nodes": [], "edges": []}}
+		if task_name == "plan_repair":
+			return {
+				"schemaVersion": "2026-02-06",
+				"contentBlocks": [
+					{
+						"blockId": "b0",
+						"idx": 0,
+						"title": "Intro",
+						"startMs": 0,
+						"endMs": 10_000,
+						"highlights": [
+							{
+								"highlightId": "h0",
+								"idx": 0,
+								"text": "Hello",
+								"startMs": 1000,
+								"endMs": 5000,
+								"keyframes": [{"timeMs": 2000}],
+							}
+						],
+					}
+				],
+				"mindmap": {
+					"nodes": [
+						{"id": "n0", "type": "root", "label": "Video", "level": 0, "data": {}},
+						{"id": "n1", "type": "topic", "label": "Intro", "level": 1, "data": {"targetBlockId": "b0"}},
+					],
+					"edges": [{"id": "e0", "source": "n0", "target": "n1"}],
+				},
+			}
+		raise AssertionError(f"unexpected task: {task_name}")
+
+
+class _RepairingChunkProvider:
+	def __init__(self):
+		self.calls: list[str] = []
+
+	def generate_json(self, task_name: str, input_dict: dict) -> dict:  # noqa: ARG002
+		self.calls.append(task_name)
+		if task_name == "chunk_summary":
+			return {"chunkId": "bad", "startMs": 0, "endMs": 10, "summary": "", "points": [], "terms": [], "keyMoments": []}
+		if task_name == "chunk_summary_repair":
+			return {
+				"chunkId": "c_0_60000",
+				"startMs": 0,
+				"endMs": 60000,
+				"summary": "Repaired summary",
+				"points": [{"text": "Repaired point", "importance": 2}],
+				"terms": [],
+				"keyMoments": [{"timeMs": 1000, "label": "slide"}],
+			}
+		raise AssertionError(f"unexpected task: {task_name}")
+
+
 def test_plan_validate_normalizes_near_miss_payload() -> None:
 	plan = {
 		"content_blocks": [
@@ -166,3 +230,59 @@ def test_generate_plan_invalid_llm_output_maps_reason() -> None:
 		generate_plan(transcript=transcript, provider=provider)
 	assert ei.value.code == ErrorCode.JOB_STAGE_FAILED
 	assert ei.value.details.get("reason") == "invalid_llm_output"
+
+
+def test_llm_provider_invalid_json_always_dumps_raw_output(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+	monkeypatch.setenv("DATA_DIR", str(tmp_path))
+	def handler(_: httpx.Request) -> httpx.Response:
+		return httpx.Response(200, content=b"not-json")
+
+	transport = httpx.MockTransport(handler)
+	_set_env(
+		LLM_API_BASE="https://example.invalid",
+		LLM_API_KEY="sk-test-SECRET",
+		LLM_MODEL="minimax-2.1",
+		LLM_TIMEOUT_S="5",
+	)
+	provider = llm_provider_from_env(transport=transport)
+
+	with pytest.raises(AnalyzeError) as ei:
+		provider.generate_json("plan", {"messages": [{"role": "user", "content": "{}"}]})
+
+	err = ei.value
+	assert err.details.get("reason") == "invalid_llm_output"
+	dump_ref = err.details.get("dumpRef")
+	assert isinstance(dump_ref, str) and dump_ref
+	dump_path = tmp_path / dump_ref
+	assert dump_path.exists()
+	assert dump_path.read_text("utf-8") == "not-json"
+
+
+def test_generate_plan_auto_repairs_schema_failure_and_logs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+	monkeypatch.setenv("DATA_DIR", str(tmp_path))
+	provider = _RepairingPlanProvider()
+	transcript = _mock_transcript()
+	out = generate_plan(transcript=transcript, provider=provider)
+
+	assert provider.calls == ["plan", "plan_repair"]
+	assert len(out.get("contentBlocks") or []) == 1
+	assert out["contentBlocks"][0]["blockId"] == "b0"
+	trace_dir = tmp_path / "logs" / "llm_json_repair" / "plan"
+	traces = list(trace_dir.glob("*.json"))
+	assert traces
+	trace_text = traces[0].read_text("utf-8")
+	assert "sourceOutput" in trace_text
+	assert "repairResponse" in trace_text or "repairedOutput" in trace_text
+
+
+def test_pipeline_timing_writes_project_artifact(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+	monkeypatch.setenv("DATA_DIR", str(tmp_path))
+	with time_pipeline_step(project_id="proj-1", task_id="job-1", step="plan"):
+		append_pipeline_timing(project_id="proj-1", task_id="job-1", step="plan.inner", duration_ms=12)
+
+	log_path = tmp_path / "proj-1" / "artifacts" / "job-1" / "timings.jsonl"
+	assert log_path.exists()
+	text = log_path.read_text("utf-8")
+	assert '"projectId":"proj-1"' in text
+	assert '"taskId":"job-1"' in text
+	assert '"step":"plan"' in text

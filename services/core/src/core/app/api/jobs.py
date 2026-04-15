@@ -31,6 +31,7 @@ from core.llm.secrets_crypto import decrypt_api_key
 from core.schemas.jobs import CreateJobRequest, JobCreatedDTO, JobDTO, ResumeProjectJobRequest
 from core.schemas.logs import JobLogsPageDTO, LogItemDTO
 from core.app.logs.job_logs import read_job_logs_page
+from core.app.logs.pipeline_timings import time_pipeline_step
 from core.app.pipeline.llm_plan import build_plan_request, validate_plan
 from core.app.pipeline.chunk_summaries import (
 	chunk_transcript_segments,
@@ -1330,6 +1331,8 @@ async def submit_job_plan(jobId: str, request: Request, session: Session = Depen
 		)
 
 	if not isinstance(payload, dict):
+		with time_pipeline_step(project_id=job.project_id, task_id=job.job_id, step="plan_submit.validate", details={"reason": "plan_not_object"}):
+			pass
 		return JSONResponse(
 			status_code=400,
 			content=build_error_envelope(
@@ -1341,7 +1344,8 @@ async def submit_job_plan(jobId: str, request: Request, session: Session = Depen
 		)
 
 	try:
-		normalized = validate_plan(payload)
+		with time_pipeline_step(project_id=job.project_id, task_id=job.job_id, step="plan_submit.validate"):
+			normalized = validate_plan(payload)
 	except Exception as e:
 		return JSONResponse(
 			status_code=400,
@@ -1363,8 +1367,9 @@ async def submit_job_plan(jobId: str, request: Request, session: Session = Depen
 	job.claim_token = None
 	job.lease_expires_at_ms = None
 	job.updated_at_ms = now_ms
-	session.add(job)
-	session.commit()
+	with time_pipeline_step(project_id=job.project_id, task_id=job.job_id, step="plan_submit.persist"):
+		session.add(job)
+		session.commit()
 
 	# Best-effort notify watchers.
 	try:

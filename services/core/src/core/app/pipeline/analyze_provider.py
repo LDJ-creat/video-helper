@@ -117,13 +117,13 @@ def _truncate_text(text: str, *, max_chars: int) -> str:
 	return text[:max_chars]
 
 
-def _maybe_dump_text_under_data_dir(*, rel_dir: str, filename: str, text: str) -> str | None:
+def _maybe_dump_text_under_data_dir(*, rel_dir: str, filename: str, text: str, force: bool = False) -> str | None:
 	"""Best-effort dump debug text under DATA_DIR.
 
 	Returns relative path (posix) when written.
 	Controlled by env LLM_DUMP_INVALID_JSON.
 	"""
-	if not _env_bool("LLM_DUMP_INVALID_JSON", False):
+	if (not force) and (not _env_bool("LLM_DUMP_INVALID_JSON", False)):
 		return None
 	try:
 		data_dir = get_data_dir().resolve()
@@ -311,6 +311,7 @@ class LLMAnalyzeProvider:
 				rel_dir="logs/llm_invalid_json",
 				filename=f"{task_name}-nonjson-{_hash_text(raw)}.txt",
 				text=raw,
+				force=True,
 			)
 			details = {
 				"reason": "invalid_llm_output",
@@ -520,6 +521,7 @@ class AnthropicAnalyzeProvider:
 				rel_dir="logs/llm_invalid_json",
 				filename=f"{task_name}-nonjson-{_hash_text(raw)}.txt",
 				text=raw,
+				force=True,
 			)
 			details = {
 				"reason": "invalid_llm_output",
@@ -611,6 +613,7 @@ def _parse_content_as_json(content: Any, task_name: str | None) -> Any:
 			rel_dir="logs/llm_invalid_json",
 			filename=f"{(task_name or 'unknown')}-invalid-json-{content_hash}.txt",
 			text=text,
+			force=True,
 		)
 		# keep safe debug via hash only by default; allow opt-in dumps via env.
 		raise AnalyzeError(

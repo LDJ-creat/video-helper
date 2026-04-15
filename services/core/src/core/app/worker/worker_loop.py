@@ -17,6 +17,7 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from core.app.sse.event_bus import GLOBAL_JOB_EVENT_BUS
 from core.app.logs.job_logs import append_job_log
+from core.app.logs.pipeline_timings import append_pipeline_timing, time_pipeline_step
 from core.app.pipeline.analyze_provider import AnalyzeError
 from core.app.pipeline.keyframes import extract_keyframes_at_times, map_keyframes_error
 from core.app.pipeline.chunk_summaries import ensure_chunk_summaries, estimate_duration_ms, should_use_long_video_path
@@ -416,13 +417,14 @@ class PipelineJobProcessor:
                     if duration_ms is None:
                         duration_ms = self._default_duration_ms
 
-                    artifacts = run_real_transcribe(
-                        project=project,
-                        job_id=job.job_id,
-                        default_duration_ms=duration_ms,
-                        progress_cb=_progress_cb,
-                        log_cb=_log_cb,
-                    )
+                    with time_pipeline_step(project_id=job.project_id, task_id=job.job_id, step="speech_to_text"):
+                        artifacts = run_real_transcribe(
+                            project=project,
+                            job_id=job.job_id,
+                            default_duration_ms=duration_ms,
+                            progress_cb=_progress_cb,
+                            log_cb=_log_cb,
+                        )
 
                     # If user canceled while transcribe was running, stop before persisting/continuing.
                     if _abort_if_canceled(session=session, job=job, project_id=job.project_id, stage="speech_to_text"):
@@ -538,14 +540,25 @@ class PipelineJobProcessor:
                         GLOBAL_JOB_EVENT_BUS.emit_state(job_id=job.job_id, project_id=job.project_id, stage=job.stage, message="status=running")
                         GLOBAL_JOB_EVENT_BUS.emit_progress(job_id=job.job_id, project_id=job.project_id, stage=job.stage, progress=job.progress, message="progress=0.55")
 
-                        summaries = ensure_chunk_summaries(
-                            project_id=project.project_id,
-                            job_id=job.job_id,
-                            transcript=transcript,
-                            transcript_meta=job.transcript_meta,
-                            output_language=getattr(job, "output_language", None),
-                            duration_ms=duration_ms,
-                        )
+                        start_ts = time.perf_counter()
+                        summaries = None
+                        try:
+                            summaries = ensure_chunk_summaries(
+                                project_id=project.project_id,
+                                job_id=job.job_id,
+                                transcript=transcript,
+                                transcript_meta=job.transcript_meta,
+                                output_language=getattr(job, "output_language", None),
+                                duration_ms=duration_ms,
+                            )
+                        finally:
+                            append_pipeline_timing(
+                                project_id=job.project_id,
+                                task_id=job.job_id,
+                                step="chunk_summaries",
+                                duration_ms=int(max(0.0, (time.perf_counter() - start_ts) * 1000.0)),
+                                status="ok",
+                            )
 
                         job.progress = max(job.progress or 0.0, 0.6)
                         job.updated_at_ms = _now_ms()
@@ -567,11 +580,12 @@ class PipelineJobProcessor:
                         GLOBAL_JOB_EVENT_BUS.emit_state(job_id=job.job_id, project_id=job.project_id, stage=job.stage, message="status=running")
                         GLOBAL_JOB_EVENT_BUS.emit_progress(job_id=job.job_id, project_id=job.project_id, stage=job.stage, progress=job.progress, message="progress=0.6")
 
-                    plan = generate_plan(
-                        transcript=transcript,
-                        summaries=summaries,
-                        output_language=getattr(job, "output_language", None),
-                    )
+                        with time_pipeline_step(project_id=job.project_id, task_id=job.job_id, step="plan"):
+                            plan = generate_plan(
+                                transcript=transcript,
+                                summaries=summaries,
+                                output_language=getattr(job, "output_language", None),
+                            )
 
                     # Cache the validated plan for resumability (avoid re-calling LLM if later stages fail).
                     try:
@@ -594,15 +608,16 @@ class PipelineJobProcessor:
                     if video_asset_id:
                         snapshot_asset_refs.append({"assetId": video_asset_id, "kind": "video"})
 
-                    result_id = assemble_result(
-                        session,
-                        project_id=project.project_id,
-                        content_blocks=content_blocks,
-                        mindmap=mindmap,
-                        asset_refs=snapshot_asset_refs,
-                        schema_version=plan.get("schemaVersion") if isinstance(plan.get("schemaVersion"), str) else "2026-02-06",
-                        pipeline_version=os.environ.get("PIPELINE_VERSION") or "0",
-                    )
+                        with time_pipeline_step(project_id=job.project_id, task_id=job.job_id, step="assemble_result.snapshot"):
+                            result_id = assemble_result(
+                                session,
+                                project_id=project.project_id,
+                                content_blocks=content_blocks,
+                                mindmap=mindmap,
+                                asset_refs=snapshot_asset_refs,
+                                schema_version=plan.get("schemaVersion") if isinstance(plan.get("schemaVersion"), str) else "2026-02-06",
+                                pipeline_version=os.environ.get("PIPELINE_VERSION") or "0",
+                            )
                     _log(
                         job_id=job.job_id,
                         project_id=job.project_id,
@@ -668,14 +683,15 @@ class PipelineJobProcessor:
                                 if isinstance(tm, int):
                                     times_ms.append(int(tm))
 
-                keyframes_artifacts = extract_keyframes_at_times(
-                    session=session,
-                    project=project,
-                    job_id=job.job_id,
-                    times_ms=times_ms,
-                    allow_skip_if_placeholder=True,
-                    transcript_meta=job.transcript_meta,
-                )
+                    with time_pipeline_step(project_id=job.project_id, task_id=job.job_id, step="keyframes.extract"):
+                        keyframes_artifacts = extract_keyframes_at_times(
+                            session=session,
+                            project=project,
+                            job_id=job.job_id,
+                            times_ms=times_ms,
+                            allow_skip_if_placeholder=True,
+                            transcript_meta=job.transcript_meta,
+                        )
 
                 if _abort_if_canceled(session=session, job=job, project_id=job.project_id, stage="keyframes"):
                     return
@@ -741,13 +757,26 @@ class PipelineJobProcessor:
                     GLOBAL_JOB_EVENT_BUS.emit_progress(job_id=job.job_id, project_id=job.project_id, stage=job.stage, progress=job.progress, message="progress=0.975")
 
                     budget = get_verify_budget()
-                    new_times, verified_count, dropped_count = verify_and_maybe_adjust_plan_keyframes(
-                        session=session,
-                        content_blocks=content_blocks,
-                        output_language=getattr(job, "output_language", None),
-                        mode=verify_mode,
-                        budget=budget,
-                    )
+                    start_ts = time.perf_counter()
+                    new_times = []
+                    verified_count = 0
+                    dropped_count = 0
+                    try:
+                        new_times, verified_count, dropped_count = verify_and_maybe_adjust_plan_keyframes(
+                            session=session,
+                            content_blocks=content_blocks,
+                            output_language=getattr(job, "output_language", None),
+                            mode=verify_mode,
+                            budget=budget,
+                        )
+                    finally:
+                        append_pipeline_timing(
+                            project_id=job.project_id,
+                            task_id=job.job_id,
+                            step="keyframe_verify",
+                            duration_ms=int(max(0.0, (time.perf_counter() - start_ts) * 1000.0)),
+                            status="ok",
+                        )
 
                     if new_times:
                         more = extract_keyframes_at_times(
@@ -853,15 +882,16 @@ class PipelineJobProcessor:
                     session.add(project)
                     session.commit()
                 else:
-                    assemble_result(
-                        session,
-                        project_id=project.project_id,
-                        content_blocks=content_blocks,
-                        mindmap=mindmap,
-                        asset_refs=asset_refs,
-                        schema_version=plan.get("schemaVersion") if isinstance(plan.get("schemaVersion"), str) else "2026-02-06",
-                        pipeline_version=os.environ.get("PIPELINE_VERSION") or "0",
-                    )
+                        with time_pipeline_step(project_id=job.project_id, task_id=job.job_id, step="assemble_result.final"):
+                            assemble_result(
+                                session,
+                                project_id=project.project_id,
+                                content_blocks=content_blocks,
+                                mindmap=mindmap,
+                                asset_refs=asset_refs,
+                                schema_version=plan.get("schemaVersion") if isinstance(plan.get("schemaVersion"), str) else "2026-02-06",
+                                pipeline_version=os.environ.get("PIPELINE_VERSION") or "0",
+                            )
 
                 _log(job_id=job.job_id, project_id=job.project_id, stage=job.stage, level="info", message="assemble_result finished")
 

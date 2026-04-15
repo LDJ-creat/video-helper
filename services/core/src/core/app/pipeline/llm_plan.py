@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import os
 from typing import Any
-
 from pydantic import BaseModel, Field, ValidationError
 
 from core.app.pipeline.analyze_provider import AnalyzeError, AnalyzeProvider, llm_provider_for_jobs
+from core.app.pipeline.llm_json_repair import repair_json_with_llm, _read_dump_ref_text, _validation_issue_from_exception
 from core.contracts.error_codes import ErrorCode
 
 
@@ -13,7 +13,6 @@ class PlanKeyframe(BaseModel):
     timeMs: int
     caption: str | None = None
     assetId: str | None = None
-    contentUrl: str | None = None
 
 
 class PlanHighlight(BaseModel):
@@ -64,6 +63,16 @@ class PlanOutput(BaseModel):
     schemaVersion: str
     contentBlocks: list[PlanContentBlock]
     mindmap: PlanMindmap
+
+
+_PLAN_SCHEMA_SUMMARY = (
+    "Top-level JSON object with exactly schemaVersion:str, contentBlocks:list, mindmap:object. "
+    "contentBlocks[] = {blockId:str, idx:int starting at 0, title:str, startMs:int, endMs:int, highlights:list}. "
+    "highlights[] = {highlightId:str, idx:int starting at 0 per block, text:str, startMs:int, endMs:int, keyframe?:object, keyframes?:list, keyframeConfidence?:number}. "
+    "mindmap = {nodes:list, edges:list}. nodes[] = {id:str, type:root|topic|detail, label:str, level:0|1|2, data:object}. "
+    "topic/detail nodes should reference an existing contentBlocks[].blockId via data.targetBlockId; detail nodes may also reference data.targetHighlightId. "
+    "edges[] = {id:str, source:str, target:str, label?:str}."
+)
 
 
 def _as_int(v: object) -> int | None:
@@ -802,26 +811,71 @@ def generate_plan(
             details={"reason": "plan_request_invalid"},
         )
 
-    res = provider.generate_json("plan", {"messages": messages})
+    try:
+        res = provider.generate_json("plan", {"messages": messages})
+    except AnalyzeError as exc:
+        details = dict(exc.details or {})
+        if details.get("reason") == "invalid_llm_output":
+            source_text = _read_dump_ref_text(details.get("dumpRef")) or details.get("error") or str(exc)
+            issue = _validation_issue_from_exception(exc, output_keys=sorted([str(k) for k in details.keys()]))
+            issue["source"] = "provider_invalid_json"
+            return repair_json_with_llm(
+                provider=provider,
+                task_name="plan",
+                schema_summary=_PLAN_SCHEMA_SUMMARY,
+                source_text=str(source_text),
+                validation_issue=issue,
+                validate_and_normalize=validate_plan,
+                repair_task_name="plan_repair",
+                output_language=output_language,
+                log_scope="plan",
+            )
+        raise
 
     if not isinstance(res, dict):
-        raise AnalyzeError(
-            code=ErrorCode.JOB_STAGE_FAILED,
-            message="Invalid LLM output",
-            details={"reason": "invalid_llm_output", "task": "plan", "outputType": type(res).__name__},
+        issue = {"reason": "invalid_llm_output", "task": "plan", "outputType": type(res).__name__, "error": "provider returned non-object"}
+        return repair_json_with_llm(
+            provider=provider,
+            task_name="plan",
+            schema_summary=_PLAN_SCHEMA_SUMMARY,
+            source_text=str(res),
+            validation_issue=issue,
+            validate_and_normalize=validate_plan,
+            repair_task_name="plan_repair",
+            output_language=output_language,
+            log_scope="plan",
         )
 
     try:
         return validate_plan(res)
     except ValidationError as e:
-        # Keep stable attribution for callers/tests: it's still invalid LLM output.
-        details: dict[str, object] = {"reason": "invalid_llm_output", "task": "plan", "error": str(e), "validation": True}
-        details["errors"] = e.errors()
-        raise AnalyzeError(code=ErrorCode.JOB_STAGE_FAILED, message="Invalid LLM output (schema)", details=details)
+        issue = _validation_issue_from_exception(e, output_keys=sorted([str(k) for k in res.keys()]))
+        issue["source"] = "schema_validation"
+        return repair_json_with_llm(
+            provider=provider,
+            task_name="plan",
+            schema_summary=_PLAN_SCHEMA_SUMMARY,
+            source_text=_json_dumps_compact(res),
+            validation_issue=issue,
+            validate_and_normalize=validate_plan,
+            repair_task_name="plan_repair",
+            output_language=output_language,
+            log_scope="plan",
+        )
     except ValueError as e:
-        details: dict[str, object] = {"reason": "invalid_llm_output", "task": "plan", "error": str(e)}
-        details["outputKeys"] = sorted([str(k) for k in res.keys()])
-        raise AnalyzeError(code=ErrorCode.JOB_STAGE_FAILED, message="Invalid LLM output", details=details)
+        issue = _validation_issue_from_exception(e, output_keys=sorted([str(k) for k in res.keys()]))
+        issue["source"] = "schema_validation"
+        return repair_json_with_llm(
+            provider=provider,
+            task_name="plan",
+            schema_summary=_PLAN_SCHEMA_SUMMARY,
+            source_text=_json_dumps_compact(res),
+            validation_issue=issue,
+            validate_and_normalize=validate_plan,
+            repair_task_name="plan_repair",
+            output_language=output_language,
+            log_scope="plan",
+        )
 
 
 def build_plan_request(

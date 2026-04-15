@@ -13,6 +13,7 @@ from typing import Any
 from pydantic import BaseModel, Field, ValidationError
 
 from core.app.pipeline.analyze_provider import AnalyzeError, AnalyzeProvider, llm_provider_for_jobs
+from core.app.pipeline.llm_json_repair import repair_json_with_llm, _read_dump_ref_text, _validation_issue_from_exception
 from core.contracts.error_codes import ErrorCode
 from core.db.session import get_data_dir
 from core.storage.safe_paths import PathTraversalBlockedError
@@ -133,6 +134,14 @@ class ChunkSummary(BaseModel):
     points: list[ChunkPoint] = Field(default_factory=list)
     terms: list[ChunkTerm] = Field(default_factory=list)
     keyMoments: list[ChunkKeyMoment] = Field(default_factory=list)
+
+
+_CHUNK_SCHEMA_SUMMARY = (
+    "Top-level JSON object with exactly chunkId:str, startMs:int, endMs:int, summary:str, points:list, terms:list, keyMoments:list. "
+    "points[] = {text:str, importance:1|2|3, startMs?:int, endMs?:int}. "
+    "terms[] = {term:str, definition?:str}. keyMoments[] = {timeMs:int, label:str}. "
+    "All timestamps must be integers in milliseconds and stay within the chunk range."
+)
 
 
 def _model_validate(cls: type[BaseModel], obj: Any) -> BaseModel:
@@ -646,23 +655,83 @@ def ensure_chunk_summaries(
             )
 
         provider = _get_thread_provider(transport=llm_transport)
-        raw = _call_llm_with_backoff(provider=provider, task="chunk_summary", messages=messages)
+        try:
+            raw = _call_llm_with_backoff(provider=provider, task="chunk_summary", messages=messages)
+        except AnalyzeError as exc:
+            details = dict(exc.details or {})
+            if details.get("reason") == "invalid_llm_output":
+                source_text = _read_dump_ref_text(details.get("dumpRef")) or details.get("error") or str(exc)
+
+                def _validate_repaired(candidate: dict) -> dict:
+                    normalized = _normalize_chunk_summary(candidate, chunk=c)
+                    parsed = _model_validate(ChunkSummary, normalized)
+                    return _model_dump(parsed)
+
+                issue = _validation_issue_from_exception(exc, output_keys=sorted([str(k) for k in details.keys()]))
+                issue["source"] = "provider_invalid_json"
+                out = repair_json_with_llm(
+                    provider=provider,
+                    task_name="chunk_summary",
+                    schema_summary=_CHUNK_SCHEMA_SUMMARY,
+                    source_text=str(source_text),
+                    validation_issue=issue,
+                    validate_and_normalize=_validate_repaired,
+                    repair_task_name="chunk_summary_repair",
+                    output_language=output_language,
+                    log_scope="chunk_summary",
+                )
+                _write_json_atomic(p, out)
+                return out
+            raise
+
         if not isinstance(raw, dict):
-            raise AnalyzeError(
-                code=ErrorCode.JOB_STAGE_FAILED,
-                message="Invalid LLM output",
-                details={"reason": "invalid_llm_output", "task": "chunk_summary", "outputType": type(raw).__name__},
+            issue = {"reason": "invalid_llm_output", "task": "chunk_summary", "outputType": type(raw).__name__, "error": "provider returned non-object"}
+
+            def _validate_repaired(candidate: dict) -> dict:
+                normalized = _normalize_chunk_summary(candidate, chunk=c)
+                parsed = _model_validate(ChunkSummary, normalized)
+                return _model_dump(parsed)
+
+            out = repair_json_with_llm(
+                provider=provider,
+                task_name="chunk_summary",
+                schema_summary=_CHUNK_SCHEMA_SUMMARY,
+                source_text=_json_dumps_compact(raw),
+                validation_issue=issue,
+                validate_and_normalize=_validate_repaired,
+                repair_task_name="chunk_summary_repair",
+                output_language=output_language,
+                log_scope="chunk_summary",
             )
+            _write_json_atomic(p, out)
+            return out
 
         raw = _normalize_chunk_summary(raw, chunk=c)
         try:
             parsed = _model_validate(ChunkSummary, raw)
         except ValidationError as e:
-            raise AnalyzeError(
-                code=ErrorCode.JOB_STAGE_FAILED,
-                message="Invalid LLM output (schema)",
-                details={"reason": "invalid_llm_output", "task": "chunk_summary", "error": str(e), "validation": True},
+            issue = _validation_issue_from_exception(e, output_keys=sorted([str(k) for k in raw.keys()]))
+            issue["source"] = "schema_validation"
+
+            def _validate_repaired(candidate: dict) -> dict:
+                normalized = _normalize_chunk_summary(candidate, chunk=c)
+                parsed2 = _model_validate(ChunkSummary, normalized)
+                return _model_dump(parsed2)
+
+            out = repair_json_with_llm(
+                provider=provider,
+                task_name="chunk_summary",
+                schema_summary=_CHUNK_SCHEMA_SUMMARY,
+                source_text=_json_dumps_compact(raw),
+                validation_issue=issue,
+                validate_and_normalize=_validate_repaired,
+                repair_task_name="chunk_summary_repair",
+                output_language=output_language,
+                log_scope="chunk_summary",
             )
+            _write_json_atomic(p, out)
+            return out
+
         out = _model_dump(parsed)
         _write_json_atomic(p, out)
         return out
