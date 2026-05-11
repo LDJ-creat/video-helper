@@ -82,6 +82,11 @@
         "loadFailed": "Failed to load settings",
         "noProviderConfigured": "No provider configured yet. Please select one below.",
         "infoNote": "**Note:** API Keys are used for configuration only and are never displayed back. Changes take effect immediately. Custom providers and models support any service compatible with the OpenAI API format.",
+        "configureApiKeyFirst": "Save your API key first, then you can load and pick a model from the provider.",
+        "loadingRemoteModels": "Fetching model list from provider…",
+        "refreshRemoteModels": "Refresh model list",
+        "remoteModelsManualHint": "Could not fetch the model list automatically. Add a custom model ID below.",
+        "noModelsYet": "No models yet — refresh the list or add a custom model ID",
         "unknownError": "Unknown error"
     },
     "Projects": {

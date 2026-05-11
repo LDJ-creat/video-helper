@@ -82,6 +82,11 @@
         "loadFailed": "加载设置失败",
         "noProviderConfigured": "暂未配置模型提供方，请从下方列表中选择",
         "infoNote": "**注意：** API Key 仅用于配置，永不回显。修改后将立即生效。自定义提供商和模型支持任意兼容 OpenAI API 格式的服务。",
+        "configureApiKeyFirst": "请先保存 API Key，然后才能加载或选择模型。",
+        "loadingRemoteModels": "正在从服务商获取模型列表…",
+        "refreshRemoteModels": "刷新模型列表",
+        "remoteModelsManualHint": "无法自动获取模型列表。请使用下方「添加自定义 Model ID」手动填写。",
+        "noModelsYet": "暂无可用模型，请刷新列表或添加自定义 Model ID",
         "unknownError": "未知错误"
     },
     "Projects": {

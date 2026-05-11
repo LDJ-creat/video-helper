@@ -30,6 +30,8 @@ export const endpoints = {
     llmCatalog: () => `${API_V1}/settings/llm/catalog`,
     llmActive: () => `${API_V1}/settings/llm/active`,
     llmProviderSecret: (providerId: string) => `${API_V1}/settings/llm/providers/${providerId}/secret`,
+    llmRemoteModels: (providerId: string) =>
+        `${API_V1}/settings/llm/providers/${encodeURIComponent(providerId)}/remote-models`,
     llmTest: () => `${API_V1}/settings/llm/active/test`,
     // Custom model endpoints
     llmProviderModels: (providerId: string) => `${API_V1}/settings/llm/providers/${providerId}/models`,

@@ -659,7 +659,7 @@ def _try_llm_runtime_from_sqlite(*, transport: httpx.BaseTransport | None = None
 	Returns None when there is no active selection.
 	Falls back to custom providers table when provider_id is not in the static catalog.
 	"""
-	from core.db.repositories.llm_settings import get_custom_provider, list_custom_models
+	from core.db.repositories.llm_settings import get_custom_provider
 
 	SessionLocal = get_sessionmaker()
 	with SessionLocal() as session:
@@ -678,13 +678,7 @@ def _try_llm_runtime_from_sqlite(*, transport: httpx.BaseTransport | None = None
 		static_provider = find_provider(provider_id)
 
 		if static_provider is not None:
-			# Static provider: check if the model exists in catalog OR as a custom model.
 			runtime_model = resolve_runtime_model_name(provider_id=static_provider.provider_id, model_id=model_id)
-			if runtime_model is None:
-				# Check if it's a custom model appended to this provider.
-				custom_models = list_custom_models(session, provider_id=provider_id)
-				if any(c["modelId"] == model_id for c in custom_models):
-					runtime_model = model_id  # Custom model IDs are used as-is.
 			if not runtime_model:
 				raise AnalyzeError(
 					code=ErrorCode.JOB_STAGE_FAILED,
@@ -704,15 +698,18 @@ def _try_llm_runtime_from_sqlite(*, transport: httpx.BaseTransport | None = None
 				)
 			api_base = custom_provider.get("baseUrl", "")
 			resolved_provider_id = provider_id
-			# For custom providers, runtime model = model_id as-is.
-			custom_models = list_custom_models(session, provider_id=provider_id)
-			if not any(c["modelId"] == model_id for c in custom_models):
+			mid = (model_id or "").strip()
+			if not mid:
 				raise AnalyzeError(
 					code=ErrorCode.JOB_STAGE_FAILED,
 					message="Invalid LLM settings",
 					details={"reason": "model_not_found", "providerId": provider_id, "modelId": model_id},
 				)
-			runtime_model = model_id
+			if ":" in mid:
+				_, rest = mid.split(":", 1)
+				runtime_model = rest.strip() or mid
+			else:
+				runtime_model = mid
 
 		try:
 			ciphertext = get_llm_provider_secret_ciphertext(session, provider_id=resolved_provider_id)

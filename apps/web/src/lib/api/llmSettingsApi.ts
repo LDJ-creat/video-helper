@@ -9,6 +9,7 @@ import type {
     OkResponse,
     AddCustomModelRequest,
     AddCustomProviderRequest,
+    RemoteModelsResponse,
 } from "../contracts/llmSettingsTypes";
 import { config } from "../config";
 
@@ -63,6 +64,11 @@ export async function testActiveLlmSettings(): Promise<TestResponse> {
     return apiFetch<TestResponse>(url, {
         method: "POST",
     });
+}
+
+export async function fetchRemoteLlmModels(providerId: string): Promise<RemoteModelsResponse> {
+    const url = `${config.apiBaseUrl}${endpoints.llmRemoteModels(providerId)}`;
+    return apiFetch<RemoteModelsResponse>(url);
 }
 
 // ─── Custom models ────────────────────────────────────────────────────────────

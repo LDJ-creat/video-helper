@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
     useLlmCatalog,
     useActiveLlmSettings,
@@ -12,17 +12,29 @@ import {
     useDeleteCustomModel,
     useAddCustomProvider,
     useDeleteCustomProvider,
+    useRemoteLlmModels,
 } from "@/lib/api/llmSettingsQueries";
-import type { Provider } from "@/lib/contracts/llmSettingsTypes";
+import type { ActiveSettingsResponse, Model, Provider, RemoteModelsResponse } from "@/lib/contracts/llmSettingsTypes";
 
 import { useTranslations } from "next-intl";
 import { toast } from "sonner";
 
-// ─── Shared Design Tokens ─────────────────────────────────────────────────────
-// Primary brand: blue-600  |  Success: emerald  |  Warning: amber  |  Danger: red
-// Base: white cards on stone background
+function mergeCatalogAndRemoteModels(catalogModels: Model[], remote: RemoteModelsResponse | undefined): Model[] {
+    const byId = new Map<string, Model>();
+    if (remote?.ok) {
+        for (const m of remote.models) {
+            byId.set(m.modelId, { modelId: m.modelId, displayName: m.displayName, isCustom: false });
+        }
+    }
+    for (const c of catalogModels) {
+        if (!byId.has(c.modelId)) {
+            byId.set(c.modelId, { ...c, isCustom: c.isCustom ?? false });
+        }
+    }
+    return Array.from(byId.values());
+}
 
-// ─── Sub-components ───────────────────────────────────────────────────────────
+// ─── Shared Design Tokens ─────────────────────────────────────────────────────
 
 function CustomBadge() {
     const t = useTranslations("Settings");
@@ -33,20 +45,27 @@ function CustomBadge() {
     );
 }
 
-// Status badge
 function StatusBadge({ configured }: { configured: boolean }) {
     const t = useTranslations("Settings");
     return configured ? (
         <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
             <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                <path
+                    fillRule="evenodd"
+                    d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                    clipRule="evenodd"
+                />
             </svg>
             {t("configured")}
         </span>
     ) : (
         <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">
             <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                />
             </svg>
             {t("notConfigured")}
         </span>
@@ -55,10 +74,11 @@ function StatusBadge({ configured }: { configured: boolean }) {
 
 function ProviderIcon({ name, configured }: { name: string; configured: boolean }) {
     return (
-        <div className={`flex-shrink-0 w-10 h-10 xl:w-12 xl:h-12 rounded-xl xl:rounded-2xl flex items-center justify-center font-bold text-base xl:text-lg ${configured
-            ? "bg-emerald-100 text-emerald-700"
-            : "bg-stone-100 text-stone-500"
-            }`}>
+        <div
+            className={`flex-shrink-0 w-10 h-10 xl:w-12 xl:h-12 rounded-xl xl:rounded-2xl flex items-center justify-center font-bold text-base xl:text-lg ${
+                configured ? "bg-emerald-100 text-emerald-700" : "bg-stone-100 text-stone-500"
+            }`}
+        >
             {name.charAt(0).toUpperCase()}
         </div>
     );
@@ -218,14 +238,18 @@ function AddCustomProviderForm({ onClose, onSuccess }: AddCustomProviderFormProp
                 </div>
             ))}
 
-            {submitError && (
-                <p className="text-xs text-red-600">{t("addModelFailed", { error: submitErrorMsg })}</p>
-            )}
+            {submitError && <p className="text-xs text-red-600">{t("addModelFailed", { error: submitErrorMsg })}</p>}
 
             <div className="flex gap-2 pt-1">
                 <button
                     onClick={handleSubmit}
-                    disabled={!form.providerId.trim() || !form.displayName.trim() || !form.baseUrl.trim() || !form.modelId.trim() || isSubmitting}
+                    disabled={
+                        !form.providerId.trim() ||
+                        !form.displayName.trim() ||
+                        !form.baseUrl.trim() ||
+                        !form.modelId.trim() ||
+                        isSubmitting
+                    }
                     className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:bg-stone-300 disabled:cursor-not-allowed transition-colors"
                 >
                     {isSubmitting ? t("saving") : t("save")}
@@ -241,12 +265,348 @@ function AddCustomProviderForm({ onClose, onSuccess }: AddCustomProviderFormProp
     );
 }
 
+// ─── Per-provider card (uses remote model list query) ─────────────────────────
+
+interface ProviderLlmCardProps {
+    provider: Provider;
+    llmActive: ActiveSettingsResponse;
+    expandedProvider: string | null;
+    setExpandedProvider: (id: string | null) => void;
+    apiKeys: Record<string, string>;
+    setApiKeys: React.Dispatch<React.SetStateAction<Record<string, string>>>;
+    selectedModels: Record<string, string>;
+    setSelectedModels: React.Dispatch<React.SetStateAction<Record<string, string>>>;
+    addingModelFor: string | null;
+    setAddingModelFor: (id: string | null) => void;
+    showSuccess: (msg: string) => void;
+    handleSaveApiKey: (providerId: string) => Promise<void>;
+    handleDeleteApiKey: (providerId: string) => Promise<void>;
+    handleSelectProvider: (provider: Provider, modelId: string) => Promise<void>;
+    handleDeleteCustomModel: (providerId: string, modelId: string) => Promise<void>;
+    handleDeleteCustomProvider: (providerId: string, displayName: string) => Promise<void>;
+    updateSecret: ReturnType<typeof useUpdateProviderSecret>;
+    deleteSecret: ReturnType<typeof useDeleteProviderSecret>;
+    updateActive: ReturnType<typeof useUpdateActiveLlmSettings>;
+    deleteCustomModel: ReturnType<typeof useDeleteCustomModel>;
+    deleteCustomProvider: ReturnType<typeof useDeleteCustomProvider>;
+}
+
+function ProviderLlmCard({
+    provider,
+    llmActive,
+    expandedProvider,
+    setExpandedProvider,
+    apiKeys,
+    setApiKeys,
+    selectedModels,
+    setSelectedModels,
+    addingModelFor,
+    setAddingModelFor,
+    showSuccess,
+    handleSaveApiKey,
+    handleDeleteApiKey,
+    handleSelectProvider,
+    handleDeleteCustomModel,
+    handleDeleteCustomProvider,
+    updateSecret,
+    deleteSecret,
+    updateActive,
+    deleteCustomModel,
+    deleteCustomProvider,
+}: ProviderLlmCardProps) {
+    const t = useTranslations("Settings");
+    const pid = provider.providerId;
+    const remote = useRemoteLlmModels(pid, provider.hasKey);
+
+    const mergedModels = useMemo(
+        () => mergeCatalogAndRemoteModels(provider.models, remote.data),
+        [provider.models, remote.data],
+    );
+
+    useEffect(() => {
+        const ids = new Set(mergedModels.map((m) => m.modelId));
+        setSelectedModels((s) => {
+            const cur = (s[pid] || "").trim();
+            if (ids.size === 0) {
+                if (!cur) return s;
+                return { ...s, [pid]: "" };
+            }
+            if (!cur || !ids.has(cur)) {
+                const pick = mergedModels[0]?.modelId ?? "";
+                if (pick === cur) return s;
+                return { ...s, [pid]: pick };
+            }
+            return s;
+        });
+    }, [mergedModels, pid, setSelectedModels]);
+
+    const isExpanded = expandedProvider === pid;
+    const isAddingModel = addingModelFor === pid;
+    const selectedModel = selectedModels[pid] || "";
+    const isCurrentActive =
+        llmActive.configured &&
+        llmActive.providerId === pid &&
+        selectedModel === (llmActive.modelId || "");
+
+    const remoteFailed = Boolean(provider.hasKey && remote.data && !remote.data.ok);
+    const remoteLoading = provider.hasKey && (remote.isLoading || remote.isFetching);
+
+    return (
+        <div
+            className={`bg-white rounded-2xl border transition-all duration-200 overflow-hidden ${
+                isCurrentActive
+                    ? "border-blue-200 shadow-md ring-1 ring-blue-200"
+                    : "border-stone-200 shadow-sm hover:shadow-md hover:border-stone-300"
+            }`}
+        >
+            {isCurrentActive && <div className="h-0.5 bg-gradient-to-r from-blue-500 to-blue-400" />}
+
+            <div className="p-5 xl:p-6">
+                <div className="flex items-start justify-between mb-4 xl:mb-6">
+                    <div className="flex items-center gap-3 xl:gap-4">
+                        <ProviderIcon name={provider.displayName} configured={provider.hasKey} />
+                        <div>
+                            <div className="flex items-center gap-2 xl:gap-2.5 mb-1">
+                                <h4 className="text-base md:text-lg xl:text-xl font-semibold text-stone-900 leading-none">
+                                    {provider.displayName}
+                                </h4>
+                                {provider.isCustom && <CustomBadge />}
+                            </div>
+                            {provider.hasKey ? (
+                                <p className="text-xs xl:text-sm text-emerald-600">
+                                    {t("apiKeyConfigured")}
+                                    {provider.secretUpdatedAtMs &&
+                                        ` · ${t("updatedAt", { date: new Date(provider.secretUpdatedAtMs as number).toLocaleDateString() })}`}
+                                </p>
+                            ) : (
+                                <p className="text-xs xl:text-sm text-amber-600">{t("needsApiKey")}</p>
+                            )}
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <StatusBadge configured={provider.hasKey} />
+                        {provider.isCustom && (
+                            <button
+                                onClick={() => handleDeleteCustomProvider(provider.providerId, provider.displayName)}
+                                disabled={deleteCustomProvider.isPending}
+                                title={t("deleteProvider")}
+                                className="p-1.5 xl:p-2 text-stone-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                            >
+                                <svg className="w-4 h-4 xl:w-5 xl:h-5" fill="none" viewBox="0 0 24 24">
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        strokeWidth={2}
+                                        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                                    />
+                                </svg>
+                            </button>
+                        )}
+                    </div>
+                </div>
+
+                {/* API Key first */}
+                <div className="mb-4 xl:mb-6">
+                    <label className="block text-xs xl:text-sm font-medium text-stone-600 mb-1.5 uppercase tracking-wide">
+                        API Key
+                    </label>
+                    {isExpanded ? (
+                        <div className="p-4 bg-stone-50 rounded-xl border border-stone-200 space-y-3">
+                            <input
+                                type="password"
+                                value={apiKeys[pid] || ""}
+                                onChange={(e) => setApiKeys({ ...apiKeys, [pid]: e.target.value })}
+                                placeholder={t("inputApiKey")}
+                                className="w-full px-3 py-2 text-sm border border-stone-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent"
+                            />
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => handleSaveApiKey(pid)}
+                                    disabled={updateSecret.isPending}
+                                    className="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-xl hover:bg-emerald-700 disabled:bg-stone-300 disabled:cursor-not-allowed transition-colors"
+                                >
+                                    {updateSecret.isPending ? t("saving") : t("save")}
+                                </button>
+                                <button
+                                    onClick={() => setExpandedProvider(null)}
+                                    className="px-4 py-2 bg-stone-100 text-stone-600 text-sm font-medium rounded-xl hover:bg-stone-200 transition-colors"
+                                >
+                                    {t("cancel")}
+                                </button>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="flex flex-wrap gap-2 xl:gap-3">
+                            <button
+                                onClick={() => setExpandedProvider(pid)}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 xl:px-4 xl:py-2.5 bg-stone-100 text-stone-700 text-sm xl:text-base font-medium rounded-xl hover:bg-stone-200 transition-colors"
+                            >
+                                <svg className="w-3.5 h-3.5 xl:w-5 xl:h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
+                                    />
+                                </svg>
+                                {provider.hasKey ? t("updateApiKey") : t("configApiKey")}
+                            </button>
+                            {provider.hasKey && (
+                                <button
+                                    onClick={() => handleDeleteApiKey(pid)}
+                                    disabled={deleteSecret.isPending}
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-600 text-sm font-medium rounded-xl hover:bg-red-100 disabled:bg-stone-100 disabled:cursor-not-allowed transition-colors border border-red-100"
+                                >
+                                    {deleteSecret.isPending ? t("deletingApiKey") : t("deleteApiKey")}
+                                </button>
+                            )}
+                        </div>
+                    )}
+                    {updateSecret.isError && isExpanded && (
+                        <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
+                            {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                            {t("saveFailed", { error: (updateSecret.error as any)?.message || t("unknownError") })}
+                        </div>
+                    )}
+                </div>
+
+                {/* Models */}
+                <div className="mb-4 xl:mb-6">
+                    <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5 xl:mb-2">
+                        <label className="block text-xs xl:text-sm font-medium text-stone-600 uppercase tracking-wide">
+                            {t("selectModel")}
+                        </label>
+                        {provider.hasKey && (
+                            <button
+                                type="button"
+                                onClick={() => remote.refetch()}
+                                disabled={remoteLoading}
+                                className="text-xs text-blue-600 hover:text-blue-800 disabled:opacity-50"
+                            >
+                                {remoteLoading ? t("loadingRemoteModels") : t("refreshRemoteModels")}
+                            </button>
+                        )}
+                    </div>
+
+                    {!provider.hasKey ? (
+                        <p className="text-xs xl:text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
+                            {t("configureApiKeyFirst")}
+                        </p>
+                    ) : (
+                        <>
+                            {remoteLoading && mergedModels.length === 0 && (
+                                <p className="text-xs text-stone-500 mb-2">{t("loadingRemoteModels")}</p>
+                            )}
+                            {remoteFailed && (
+                                <p className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2 mb-2">
+                                    {remote.data?.error?.message || t("remoteModelsManualHint")}
+                                </p>
+                            )}
+                            <div className="flex items-center gap-2 xl:gap-3">
+                                <select
+                                    value={selectedModel}
+                                    onChange={(e) => setSelectedModels({ ...selectedModels, [pid]: e.target.value })}
+                                    disabled={!provider.hasKey || mergedModels.length === 0}
+                                    className="flex-1 px-3 py-2 xl:px-4 xl:py-3 text-sm xl:text-base border border-stone-200 rounded-xl bg-stone-50 text-stone-800 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent focus:bg-white transition-colors disabled:opacity-60"
+                                >
+                                    {mergedModels.length === 0 ? (
+                                        <option value="">{t("noModelsYet")}</option>
+                                    ) : (
+                                        mergedModels.map((model) => (
+                                            <option key={model.modelId} value={model.modelId}>
+                                                {model.displayName}
+                                                {model.isCustom ? t("customLabel") : ""}
+                                            </option>
+                                        ))
+                                    )}
+                                </select>
+                                {(() => {
+                                    const sel = mergedModels.find((m) => m.modelId === selectedModel);
+                                    if (!sel?.isCustom) return null;
+                                    return (
+                                        <button
+                                            onClick={() => handleDeleteCustomModel(pid, selectedModel)}
+                                            disabled={deleteCustomModel.isPending}
+                                            title={t("deleteModel")}
+                                            className="p-2 text-stone-400 hover:text-red-500 hover:bg-red-50 rounded-xl border border-stone-200 transition-colors"
+                                        >
+                                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                            </svg>
+                                        </button>
+                                    );
+                                })()}
+                            </div>
+                        </>
+                    )}
+
+                    {!isAddingModel && provider.hasKey && (
+                        <button
+                            onClick={() => setAddingModelFor(pid)}
+                            className="mt-2 inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 transition-colors"
+                        >
+                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                            </svg>
+                            {t("addCustomModel")}
+                        </button>
+                    )}
+                    {isAddingModel && (
+                        <AddCustomModelForm
+                            providerId={pid}
+                            onClose={() => setAddingModelFor(null)}
+                            onSuccess={showSuccess}
+                        />
+                    )}
+                </div>
+
+                {isCurrentActive ? (
+                    <button
+                        disabled
+                        className="w-full px-4 py-2.5 xl:px-5 xl:py-3.5 bg-emerald-500 text-white text-sm xl:text-base font-semibold rounded-xl cursor-not-allowed"
+                    >
+                        <span className="inline-flex items-center gap-2 xl:gap-3 justify-center">
+                            <svg className="w-4 h-4 xl:w-5 xl:h-5" fill="currentColor" viewBox="0 0 20 20">
+                                <path
+                                    fillRule="evenodd"
+                                    d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                                    clipRule="evenodd"
+                                />
+                            </svg>
+                            {t("selectedProvider")}
+                        </span>
+                    </button>
+                ) : (
+                    <>
+                        <button
+                            onClick={() => handleSelectProvider(provider, selectedModel)}
+                            disabled={!provider.hasKey || !selectedModel || updateActive.isPending}
+                            className="w-full px-4 py-2.5 xl:px-5 xl:py-3.5 bg-blue-600 text-white text-sm xl:text-base font-semibold rounded-xl hover:bg-blue-700 disabled:bg-stone-200 disabled:text-stone-400 disabled:cursor-not-allowed transition-colors shadow-sm"
+                        >
+                            {updateActive.isPending ? t("selecting") : t("selectProvider")}
+                        </button>
+                        {!provider.hasKey && (
+                            <p className="mt-2 xl:mt-3 text-xs xl:text-sm text-stone-400 text-center">{t("apiKeyRequiredToSelect")}</p>
+                        )}
+                    </>
+                )}
+
+                {updateActive.isError && (
+                    <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
+                        {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                        {t("selectProviderFailed", { error: (updateActive.error as any)?.message || t("unknownError") })}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
 // ─── Main SettingsForm ────────────────────────────────────────────────────────
 
 export function SettingsForm() {
     const t = useTranslations("Settings");
     const { data: catalog, isLoading: catalogLoading, isError: catalogError } = useLlmCatalog();
-    const { data: activeSettings, isLoading: activeLoading, isError: activeError } = useActiveLlmSettings();
+    const { data: llmActiveData, isLoading: activeLoading, isError: activeError } = useActiveLlmSettings();
     const updateActive = useUpdateActiveLlmSettings();
     const updateSecret = useUpdateProviderSecret();
     const deleteSecret = useDeleteProviderSecret();
@@ -266,6 +626,14 @@ export function SettingsForm() {
     const showSuccess = (message: string) => {
         toast.success(message);
     };
+
+    useEffect(() => {
+        if (!llmActiveData?.configured || !llmActiveData.providerId) return;
+        setSelectedModels((prev) => ({
+            ...prev,
+            [llmActiveData.providerId as string]: llmActiveData.modelId || "",
+        }));
+    }, [llmActiveData?.configured, llmActiveData?.providerId, llmActiveData?.modelId]);
 
     const handleSaveApiKey = async (providerId: string) => {
         const apiKey = apiKeys[providerId];
@@ -290,11 +658,11 @@ export function SettingsForm() {
         }
     };
 
-    const handleSelectProvider = async (provider: Provider) => {
-        const modelId = selectedModels[provider.providerId] || provider.models[0]?.modelId;
-        if (!modelId) return;
+    const handleSelectProvider = async (provider: Provider, modelId: string) => {
+        const mid = modelId.trim();
+        if (!mid) return;
         try {
-            await updateActive.mutateAsync({ providerId: provider.providerId, modelId });
+            await updateActive.mutateAsync({ providerId: provider.providerId, modelId: mid });
             showSuccess(t("activeSetSuccess"));
         } catch (err) {
             console.error("Failed to update active settings:", err);
@@ -344,7 +712,7 @@ export function SettingsForm() {
         );
     }
 
-    if (isError) {
+    if (isError || !catalog) {
         return (
             <div className="flex items-center justify-center py-16">
                 <div className="text-sm text-red-500 bg-red-50 border border-red-200 rounded-xl px-6 py-4">{t("loadFailed")}</div>
@@ -352,28 +720,42 @@ export function SettingsForm() {
         );
     }
 
-    const activeProvider = catalog?.providers.find((p) => p.providerId === activeSettings?.providerId);
-    const activeModel = activeProvider?.models.find((m) => m.modelId === activeSettings?.modelId);
+    const llmActive: ActiveSettingsResponse = llmActiveData ?? {
+        configured: false,
+        providerId: null,
+        modelId: null,
+        hasKey: false,
+        updatedAtMs: null,
+    };
+
+    const activeProvider =
+        llmActive.configured && llmActive.providerId
+            ? catalog.providers.find((p) => p.providerId === llmActive.providerId)
+            : undefined;
+    const activeModel = activeProvider?.models.find((m) => m.modelId === llmActive.modelId);
 
     return (
         <div className="space-y-8">
-
-            {/* ── Active Config Card ──────────────────────────────────────── */}
-            {activeSettings && activeProvider ? (
+            {llmActive.configured && llmActive.providerId ? (
                 <div className="bg-white rounded-2xl border border-stone-200 shadow-sm overflow-hidden">
-                    {/* Top accent bar */}
                     <div className="h-1 bg-gradient-to-r from-blue-500 to-blue-400" />
                     <div className="p-6 xl:p-8">
                         <h3 className="text-sm xl:text-lg font-semibold text-stone-500 uppercase tracking-wider mb-4 xl:mb-5">{t("activeConfig")}</h3>
                         <div className="flex flex-wrap items-center gap-x-6 gap-y-3 xl:gap-x-8 xl:gap-y-4 mb-5 xl:mb-6">
                             <div className="flex items-center gap-2 xl:gap-3">
                                 <span className="text-xs xl:text-sm text-stone-400 uppercase tracking-wide">{t("provider")}</span>
-                                <span className="font-semibold text-stone-900 xl:text-xl">{activeProvider.displayName}</span>
-                                {activeProvider.isCustom && <CustomBadge />}
-                                {activeSettings.hasKey ? (
+                                <span className="font-semibold text-stone-900 xl:text-xl">
+                                    {activeProvider?.displayName || llmActive.providerId}
+                                </span>
+                                {activeProvider?.isCustom && <CustomBadge />}
+                                {llmActive.hasKey ? (
                                     <span className="inline-flex items-center gap-1 px-2 py-0.5 xl:px-3 xl:py-1 bg-emerald-50 text-emerald-700 text-xs xl:text-sm rounded-full border border-emerald-200">
                                         <svg className="w-3 h-3 xl:w-4 xl:h-4" fill="currentColor" viewBox="0 0 20 20">
-                                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                                            <path
+                                                fillRule="evenodd"
+                                                d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                                                clipRule="evenodd"
+                                            />
                                         </svg>
                                         {t("configured")}
                                     </span>
@@ -386,21 +768,27 @@ export function SettingsForm() {
                             <div className="w-px h-4 xl:h-6 bg-stone-200 hidden sm:block" />
                             <div className="flex items-center gap-2 xl:gap-3">
                                 <span className="text-xs xl:text-sm text-stone-400 uppercase tracking-wide">{t("model")}</span>
-                                <span className="font-semibold text-stone-900 xl:text-xl">{activeModel?.displayName || activeSettings.modelId}</span>
+                                <span className="font-semibold text-stone-900 xl:text-xl">
+                                    {activeModel?.displayName || llmActive.modelId}
+                                </span>
                                 {activeModel?.isCustom && <CustomBadge />}
                             </div>
                         </div>
                         <div className="flex gap-3">
                             <button
                                 onClick={handleTestConnection}
-                                disabled={testConnection.isPending}
+                                disabled={testConnection.isPending || !llmActive.hasKey}
                                 className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-xl hover:bg-blue-700 disabled:bg-stone-300 disabled:cursor-not-allowed transition-colors shadow-sm"
                             >
                                 {testConnection.isPending ? (
                                     <>
                                         <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
                                             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                                            <path
+                                                className="opacity-75"
+                                                fill="currentColor"
+                                                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                                            ></path>
                                         </svg>
                                         {t("testing")}
                                     </>
@@ -425,242 +813,48 @@ export function SettingsForm() {
             ) : (
                 <div className="p-8 bg-stone-50 border-2 border-dashed border-stone-200 rounded-2xl text-center">
                     <svg className="w-10 h-10 text-stone-300 mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" />
+                        <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z"
+                        />
                         <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                     </svg>
                     <p className="text-stone-500 text-sm">{t("noProviderConfigured")}</p>
                 </div>
             )}
 
-            {/* ── Provider Catalog ──────────────────────────────────────── */}
             <div>
                 <h3 className="text-sm xl:text-lg font-semibold text-stone-500 uppercase tracking-wider mb-4 xl:mb-5">{t("availableProviders")}</h3>
                 <div className="space-y-3 xl:space-y-4">
-                    {catalog?.providers.map((provider) => {
-                        const isExpanded = expandedProvider === provider.providerId;
-                        const isAddingModel = addingModelFor === provider.providerId;
-                        const selectedModel = selectedModels[provider.providerId] || provider.models[0]?.modelId || "";
-                        const isCurrentActive = activeSettings?.providerId === provider.providerId && selectedModel === activeSettings?.modelId;
-
-                        return (
-                            <div
-                                key={provider.providerId}
-                                className={`bg-white rounded-2xl border transition-all duration-200 overflow-hidden ${isCurrentActive
-                                    ? "border-blue-200 shadow-md ring-1 ring-blue-200"
-                                    : provider.hasKey
-                                        ? "border-stone-200 shadow-sm hover:shadow-md hover:border-stone-300"
-                                        : "border-stone-200 shadow-sm hover:shadow-md hover:border-stone-300"
-                                    }`}
-                            >
-                                {/* Active indicator bar */}
-                                {isCurrentActive && (
-                                    <div className="h-0.5 bg-gradient-to-r from-blue-500 to-blue-400" />
-                                )}
-
-                                <div className="p-5 xl:p-6">
-                                    {/* Provider Header */}
-                                    <div className="flex items-start justify-between mb-4 xl:mb-6">
-                                        <div className="flex items-center gap-3 xl:gap-4">
-                                            <ProviderIcon name={provider.displayName} configured={provider.hasKey} />
-                                            <div>
-                                                <div className="flex items-center gap-2 xl:gap-2.5 mb-1">
-                                                    <h4 className="text-base md:text-lg xl:text-xl font-semibold text-stone-900 leading-none">{provider.displayName}</h4>
-                                                    {provider.isCustom && <CustomBadge />}
-                                                </div>
-                                                {provider.hasKey ? (
-                                                    <p className="text-xs xl:text-sm text-emerald-600">
-                                                        {t("apiKeyConfigured")}
-                                                        {provider.secretUpdatedAtMs &&
-                                                            ` · ${t("updatedAt", { date: new Date(provider.secretUpdatedAtMs as number).toLocaleDateString() })}`}
-                                                    </p>
-                                                ) : (
-                                                    <p className="text-xs xl:text-sm text-amber-600">{t("needsApiKey")}</p>
-                                                )}
-                                            </div>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <StatusBadge configured={provider.hasKey} />
-                                            {provider.isCustom && (
-                                                <button
-                                                    onClick={() => handleDeleteCustomProvider(provider.providerId, provider.displayName)}
-                                                    disabled={deleteCustomProvider.isPending}
-                                                    title={t("deleteProvider")}
-                                                    className="p-1.5 xl:p-2 text-stone-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                                                >
-                                                    <svg className="w-4 h-4 xl:w-5 xl:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                                    </svg>
-                                                </button>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    {/* Model Selection */}
-                                    <div className="mb-4 xl:mb-6">
-                                        <label className="block text-xs xl:text-sm font-medium text-stone-600 mb-1.5 xl:mb-2 uppercase tracking-wide">{t("selectModel")}</label>
-                                        <div className="flex items-center gap-2 xl:gap-3">
-                                            <select
-                                                value={selectedModel}
-                                                onChange={(e) =>
-                                                    setSelectedModels({ ...selectedModels, [provider.providerId]: e.target.value })
-                                                }
-                                                className="flex-1 px-3 py-2 xl:px-4 xl:py-3 text-sm xl:text-base border border-stone-200 rounded-xl bg-stone-50 text-stone-800 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent focus:bg-white transition-colors"
-                                            >
-                                                {provider.models.map((model) => (
-                                                    <option key={model.modelId} value={model.modelId}>
-                                                        {model.displayName}
-                                                        {model.isCustom ? t("customLabel") : ""}
-                                                    </option>
-                                                ))}
-                                            </select>
-
-                                            {/* Delete custom model */}
-                                            {(() => {
-                                                const sel = provider.models.find((m) => m.modelId === selectedModel);
-                                                if (!sel?.isCustom) return null;
-                                                return (
-                                                    <button
-                                                        onClick={() => handleDeleteCustomModel(provider.providerId, selectedModel)}
-                                                        disabled={deleteCustomModel.isPending}
-                                                        title={t("deleteModel")}
-                                                        className="p-2 text-stone-400 hover:text-red-500 hover:bg-red-50 rounded-xl border border-stone-200 transition-colors"
-                                                    >
-                                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                                        </svg>
-                                                    </button>
-                                                );
-                                            })()}
-                                        </div>
-
-                                        {/* Add custom model */}
-                                        {!isAddingModel && (
-                                            <button
-                                                onClick={() => setAddingModelFor(provider.providerId)}
-                                                className="mt-2 inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 transition-colors"
-                                            >
-                                                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                                                </svg>
-                                                {t("addCustomModel")}
-                                            </button>
-                                        )}
-                                        {isAddingModel && (
-                                            <AddCustomModelForm
-                                                providerId={provider.providerId}
-                                                onClose={() => setAddingModelFor(null)}
-                                                onSuccess={showSuccess}
-                                            />
-                                        )}
-                                    </div>
-
-                                    {/* API Key Management */}
-                                    <div className="mb-4">
-                                        {isExpanded ? (
-                                            <div className="p-4 bg-stone-50 rounded-xl border border-stone-200 space-y-3">
-                                                <label className="block text-xs font-medium text-stone-600 uppercase tracking-wide">API Key</label>
-                                                <input
-                                                    type="password"
-                                                    value={apiKeys[provider.providerId] || ""}
-                                                    onChange={(e) =>
-                                                        setApiKeys({ ...apiKeys, [provider.providerId]: e.target.value })
-                                                    }
-                                                    placeholder={t("inputApiKey")}
-                                                    className="w-full px-3 py-2 text-sm border border-stone-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent"
-                                                />
-                                                <div className="flex gap-2">
-                                                    <button
-                                                        onClick={() => handleSaveApiKey(provider.providerId)}
-                                                        disabled={updateSecret.isPending}
-                                                        className="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-xl hover:bg-emerald-700 disabled:bg-stone-300 disabled:cursor-not-allowed transition-colors"
-                                                    >
-                                                        {updateSecret.isPending ? t("saving") : t("save")}
-                                                    </button>
-                                                    <button
-                                                        onClick={() => setExpandedProvider(null)}
-                                                        className="px-4 py-2 bg-stone-100 text-stone-600 text-sm font-medium rounded-xl hover:bg-stone-200 transition-colors"
-                                                    >
-                                                        {t("cancel")}
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        ) : (
-                                            <div className="flex gap-2 xl:gap-3 mt-2">
-                                                <button
-                                                    onClick={() => setExpandedProvider(provider.providerId)}
-                                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 xl:px-4 xl:py-2.5 bg-stone-100 text-stone-700 text-sm xl:text-base font-medium rounded-xl hover:bg-stone-200 transition-colors"
-                                                >
-                                                    <svg className="w-3.5 h-3.5 xl:w-5 xl:h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                                                    </svg>
-                                                    {provider.hasKey ? t("updateApiKey") : t("configApiKey")}
-                                                </button>
-                                                {provider.hasKey && (
-                                                    <button
-                                                        onClick={() => handleDeleteApiKey(provider.providerId)}
-                                                        disabled={deleteSecret.isPending}
-                                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-600 text-sm font-medium rounded-xl hover:bg-red-100 disabled:bg-stone-100 disabled:cursor-not-allowed transition-colors border border-red-100"
-                                                    >
-                                                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                                            <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                                        </svg>
-                                                        {deleteSecret.isPending ? t("deletingApiKey") : t("deleteApiKey")}
-                                                    </button>
-                                                )}
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    {/* Select Provider / Selected indicator */}
-                                    {isCurrentActive ? (
-                                        <button
-                                            disabled
-                                            className="w-full px-4 py-2.5 xl:px-5 xl:py-3.5 bg-emerald-500 text-white text-sm xl:text-base font-semibold rounded-xl cursor-not-allowed"
-                                        >
-                                            <span className="inline-flex items-center gap-2 xl:gap-3 justify-center">
-                                                <svg className="w-4 h-4 xl:w-5 xl:h-5" fill="currentColor" viewBox="0 0 20 20">
-                                                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                                                </svg>
-                                                {t("selectedProvider")}
-                                            </span>
-                                        </button>
-                                    ) : (
-                                        <>
-                                            <button
-                                                onClick={() => handleSelectProvider(provider)}
-                                                disabled={!provider.hasKey || updateActive.isPending}
-                                                className="w-full px-4 py-2.5 xl:px-5 xl:py-3.5 bg-blue-600 text-white text-sm xl:text-base font-semibold rounded-xl hover:bg-blue-700 disabled:bg-stone-200 disabled:text-stone-400 disabled:cursor-not-allowed transition-colors shadow-sm"
-                                            >
-                                                {updateActive.isPending ? t("selecting") : t("selectProvider")}
-                                            </button>
-                                            {!provider.hasKey && (
-                                                <p className="mt-2 xl:mt-3 text-xs xl:text-sm text-stone-400 text-center">
-                                                    {t("apiKeyRequiredToSelect")}
-                                                </p>
-                                            )}
-                                        </>
-                                    )}
-
-                                    {/* Errors */}
-                                    {updateSecret.isError && expandedProvider === provider.providerId && (
-                                        <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
-                                            {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-                                            {t("saveFailed", { error: (updateSecret.error as any)?.message || t("unknownError") })}
-                                        </div>
-                                    )}
-                                    {updateActive.isError && (
-                                        <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
-                                            {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-                                            {t("selectProviderFailed", { error: (updateActive.error as any)?.message || t("unknownError") })}
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        );
-                    })}
+                    {catalog?.providers.map((provider) => (
+                        <ProviderLlmCard
+                            key={provider.providerId}
+                            provider={provider}
+                            llmActive={llmActive}
+                            expandedProvider={expandedProvider}
+                            setExpandedProvider={setExpandedProvider}
+                            apiKeys={apiKeys}
+                            setApiKeys={setApiKeys}
+                            selectedModels={selectedModels}
+                            setSelectedModels={setSelectedModels}
+                            addingModelFor={addingModelFor}
+                            setAddingModelFor={setAddingModelFor}
+                            showSuccess={showSuccess}
+                            handleSaveApiKey={handleSaveApiKey}
+                            handleDeleteApiKey={handleDeleteApiKey}
+                            handleSelectProvider={handleSelectProvider}
+                            handleDeleteCustomModel={handleDeleteCustomModel}
+                            handleDeleteCustomProvider={handleDeleteCustomProvider}
+                            updateSecret={updateSecret}
+                            deleteSecret={deleteSecret}
+                            updateActive={updateActive}
+                            deleteCustomModel={deleteCustomModel}
+                            deleteCustomProvider={deleteCustomProvider}
+                        />
+                    ))}
                 </div>
 
-                {/* Add Custom Provider */}
                 <div className="mt-4">
                     {!showAddProvider ? (
                         <button
@@ -673,15 +867,11 @@ export function SettingsForm() {
                             {t("addCustomProvider")}
                         </button>
                     ) : (
-                        <AddCustomProviderForm
-                            onClose={() => setShowAddProvider(false)}
-                            onSuccess={showSuccess}
-                        />
+                        <AddCustomProviderForm onClose={() => setShowAddProvider(false)} onSuccess={showSuccess} />
                     )}
                 </div>
             </div>
 
-            {/* ── Info Note ──────────────────────────────────────────────── */}
             <div className="p-4 bg-stone-100 border border-stone-200 rounded-2xl flex gap-3">
                 <svg className="w-4 h-4 mt-0.5 shrink-0 text-stone-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />

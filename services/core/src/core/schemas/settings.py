@@ -36,15 +36,32 @@ class LLMCatalogDTO(BaseModel):
 	updatedAtMs: int
 
 
+class LLMRemoteModelDTO(BaseModel):
+	modelId: str
+	displayName: str
+
+
+class LLMRemoteModelsErrorDTO(BaseModel):
+	code: str
+	message: str
+
+
+class LLMRemoteModelsDTO(BaseModel):
+	ok: bool
+	models: list[LLMRemoteModelDTO]
+	error: LLMRemoteModelsErrorDTO | None = None
+
+
 class PutLLMProviderSecretRequestDTO(BaseModel):
 	apiKey: str
 
 
 class LLMActiveDTO(BaseModel):
-	providerId: str
-	modelId: str
-	hasKey: bool
-	updatedAtMs: int
+	configured: bool = True
+	providerId: str | None = None
+	modelId: str | None = None
+	hasKey: bool = False
+	updatedAtMs: int | None = None
 
 
 class PutLLMActiveRequestDTO(BaseModel):

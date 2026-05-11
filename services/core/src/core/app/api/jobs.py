@@ -19,7 +19,7 @@ from core.contracts.progress import normalize_progress
 from core.contracts.stages import PublicStage, to_public_stage
 from core.app.sse.event_bus import GLOBAL_JOB_EVENT_BUS
 from core.app.metadata.video_metadata import MetadataError, extract_video_metadata
-from core.db.repositories.llm_settings import get_llm_active, get_llm_provider_secret_ciphertext
+from core.db.repositories.llm_settings import get_llm_active, get_llm_provider_secret_ciphertext, get_custom_provider
 from core.db.repositories.jobs import get_job_by_id
 from core.db.models.job import Job
 from core.db.models.project import Project
@@ -290,29 +290,39 @@ async def _llm_preflight_or_error(request: Request, session: Session) -> JSONRes
 		model_id = (active.get("modelId") or "").strip()
 		provider = find_provider(provider_id)
 		if provider is None:
-			return JSONResponse(
-				status_code=400,
-				content=build_error_envelope(
-					code=ErrorCode.VALIDATION_ERROR,
-					message="Invalid LLM settings",
-					details={"reason": "unknown_provider", "providerId": provider_id},
-					request_id=getattr(request.state, "request_id", None),
-				),
-			)
+			custom = get_custom_provider(session, provider_id=provider_id)
+			if custom is None:
+				return JSONResponse(
+					status_code=400,
+					content=build_error_envelope(
+						code=ErrorCode.VALIDATION_ERROR,
+						message="Invalid LLM settings",
+						details={"reason": "unknown_provider", "providerId": provider_id},
+						request_id=getattr(request.state, "request_id", None),
+					),
+				)
+			base_url = (custom.get("baseUrl") or "").strip()
+			if ":" in model_id:
+				_, rest = model_id.split(":", 1)
+				runtime_model = rest.strip() or model_id
+			else:
+				runtime_model = model_id
+		else:
+			base_url = provider.base_url
+			runtime_model = resolve_runtime_model_name(provider_id=provider.provider_id, model_id=model_id)
 
-		runtime_model = resolve_runtime_model_name(provider_id=provider.provider_id, model_id=model_id)
 		if not runtime_model:
 			return JSONResponse(
 				status_code=400,
 				content=build_error_envelope(
 					code=ErrorCode.VALIDATION_ERROR,
 					message="Invalid LLM settings",
-					details={"reason": "model_not_found", "providerId": provider.provider_id, "modelId": model_id},
+					details={"reason": "model_not_found", "providerId": provider_id, "modelId": model_id},
 					request_id=getattr(request.state, "request_id", None),
 				),
 			)
 
-		ciphertext = get_llm_provider_secret_ciphertext(session, provider_id=provider.provider_id)
+		ciphertext = get_llm_provider_secret_ciphertext(session, provider_id=provider_id)
 		if not ciphertext:
 			return JSONResponse(
 				status_code=400,

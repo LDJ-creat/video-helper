@@ -510,7 +510,7 @@ Query Parameters:
 
 目标：
 
-- 前端无需手填 baseUrl；后端提供主流 provider 与模型清单（Catalog）
+- 前端无需手填内置 provider 的 baseUrl；后端提供主流 provider 清单（Catalog）。**各 provider 的模型列表不再静态内置**：在已保存 API Key 的前提下，由后端调用上游「列模型」接口（见 `remote-models`）；失败时用户可通过自定义 Model ID 手动填写。
 - 用户可对 provider 配置/修改/删除 apiKey（write-only），并能在列表中看到 hasKey 状态
 - 用户可选择当前使用的 provider + model；后续分析任务默认使用该选择
 - 在创建分析任务前可进行最小连通性测试，失败立即返回可行动错误
@@ -524,7 +524,7 @@ Query Parameters:
 
 **GET /api/v1/settings/llm/catalog**
 
-功能：返回后端内置的 provider 与模型列表（非用户配置）。
+功能：返回后端内置的 provider 列表（非用户 secret），以及用户在数据库中为各 provider **手动添加**的自定义模型（`isCustom: true`）。**不再返回内置的静态模型行**；从上游拉取的模型见 `GET .../remote-models`。
 
 响应（示例）：
 
@@ -532,14 +532,14 @@ Query Parameters:
 {
 	"providers": [
 		{
-			"providerId": "openrouter",
-			"displayName": "OpenRouter",
+			"providerId": "openai",
+			"displayName": "OpenAI",
 			"hasKey": true,
 			"secretUpdatedAtMs": 1738030000000,
 			"models": [
-				{"modelId": "openrouter:anthropic/claude-3.5-sonnet", "displayName": "Claude 3.5 Sonnet"},
-				{"modelId": "openrouter:openai/gpt-4o-mini", "displayName": "GPT-4o mini"}
-			]
+				{"modelId": "my-fine-tune", "displayName": "my-fine-tune", "isCustom": true}
+			],
+			"isCustom": false
 		}
 	],
 	"updatedAtMs": 1738030000000
@@ -550,6 +550,37 @@ Query Parameters:
 
 - `providers[].hasKey`：表示该 provider 是否已配置 apiKey（不会回显 key）。
 - `providers[].secretUpdatedAtMs`：当已配置 key 时返回。
+- `providers[].models`：仅包含用户保存的自定义模型；可能为空数组。
+
+##### Remote models（服务端用已保存 Key 拉取上游列表）
+
+**GET /api/v1/settings/llm/providers/{providerId}/remote-models**
+
+功能：使用数据库中已加密的 API Key，由服务端请求上游列模型接口，返回可供选择的 `modelId` / `displayName`。**不会在响应中回显 apiKey**。
+
+前置：对应 provider 已 `PUT .../secret` 保存过 key；否则返回 `ok: false` 且 `error.code` 为 `missing_credentials`。
+
+成功响应（示例）：
+
+```json
+{
+	"ok": true,
+	"models": [
+		{"modelId": "gpt-4o", "displayName": "gpt-4o (openai)"}
+	],
+	"error": null
+}
+```
+
+失败响应（HTTP 200，业务失败，示例）：
+
+```json
+{
+	"ok": false,
+	"models": [],
+	"error": {"code": "provider_unavailable", "message": "Could not reach the provider to list models."}
+}
+```
 
 ##### Secret（write-only）
 
@@ -573,19 +604,33 @@ Response：`{"ok": true}`
 
 **GET /api/v1/settings/llm/active**
 
-Response（示例）：
+Response（示例，已配置）：
 
 ```json
 {
-	"providerId": "openrouter",
-	"modelId": "openrouter:anthropic/claude-3.5-sonnet",
+	"configured": true,
+	"providerId": "openai",
+	"modelId": "gpt-4o",
 	"hasKey": true,
 	"updatedAtMs": 1738030000000
 }
 ```
 
+尚未选择模型时（示例）：
+
+```json
+{
+	"configured": false,
+	"providerId": null,
+	"modelId": null,
+	"hasKey": false,
+	"updatedAtMs": null
+}
+```
+
 字段说明：
 
+- `configured`：是否已在数据库中持久化当前 provider + model。
 - `hasKey`：表示当前 provider 是否已配置 apiKey（不会回显 key）。
 
 **PUT /api/v1/settings/llm/active**

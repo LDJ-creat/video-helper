@@ -11,9 +11,8 @@ from sqlalchemy.orm import Session
 
 from core.contracts.error_codes import ErrorCode
 from core.contracts.error_envelope import build_error_envelope
-from core.llm.catalog import list_llm_catalog_providers, LLMCatalogProvider, LLMCatalogModel
+from core.llm.catalog import list_llm_catalog_providers, LLMCatalogProvider
 from core.llm.catalog import find_provider
-from core.llm.catalog import model_exists
 from core.llm.catalog import resolve_runtime_model_name
 from core.db.repositories.llm_settings import (
 	get_llm_provider_secret_meta,
@@ -32,12 +31,16 @@ from core.db.repositories.llm_settings import (
 )
 from core.db.session import get_db_session
 from core.llm.active_test import LLMActiveTestError, run_llm_connectivity_test
+from core.llm.remote_model_list import fetch_remote_models_for_provider
 from core.llm.secrets_crypto import decrypt_api_key, encrypt_api_key
 from core.schemas.settings import (
 	AnalyzeSettingsDTO,
 	LLMCatalogDTO,
 	LLMCatalogModelDTO,
 	LLMCatalogProviderDTO,
+	LLMRemoteModelDTO,
+	LLMRemoteModelsDTO,
+	LLMRemoteModelsErrorDTO,
 	LLMActiveDTO,
 	LLMActiveTestDTO,
 	AsrPrefetchRequestDTO,
@@ -85,11 +88,8 @@ def _build_merged_catalog(session: Session) -> list[LLMCatalogProviderDTO]:
 		if not isinstance(secret_updated_at_ms, int):
 			secret_updated_at_ms = None
 
-		# Static models + any custom models added to this provider.
-		models: list[LLMCatalogModelDTO] = [
-			LLMCatalogModelDTO(modelId=m.model_id, displayName=m.display_name)
-			for m in p.models
-		]
+		# Custom models only (built-in model list comes from remote-models API).
+		models: list[LLMCatalogModelDTO] = []
 		custom_models = list_custom_models(session, provider_id=p.provider_id)
 		for cm in custom_models:
 			models.append(
@@ -156,25 +156,32 @@ def _find_provider_merged(provider_id: str, session: Session) -> LLMCatalogProvi
 
 
 def _model_exists_merged(*, provider_id: str, model_id: str, session: Session) -> bool:
-	"""Check if a model exists in static catalog OR as a custom model in DB."""
-	if model_exists(provider_id=provider_id, model_id=model_id):
-		return True
-	custom = list_custom_models(session, provider_id=provider_id)
+	"""Known provider + non-empty model id (remote-listed or manual)."""
+
 	mid = (model_id or "").strip()
-	return any(c["modelId"] == mid for c in custom)
+	if not mid:
+		return False
+	return _find_provider_merged(provider_id, session) is not None
 
 
 def _resolve_runtime_model_merged(*, provider_id: str, model_id: str, session: Session) -> str | None:
-	"""Resolve the runtime model name for static or custom models."""
-	static_result = resolve_runtime_model_name(provider_id=provider_id, model_id=model_id)
-	if static_result is not None:
-		return static_result
+	"""Resolve the runtime model name for static or custom providers."""
 
-	# For custom models, use model_id as-is (no prefix stripping needed).
-	if _model_exists_merged(provider_id=provider_id, model_id=model_id, session=session):
-		mid = (model_id or "").strip()
-		return mid or None
-	return None
+	static = find_provider(provider_id)
+	if static is not None:
+		return resolve_runtime_model_name(provider_id=static.provider_id, model_id=model_id)
+
+	cp = get_custom_provider(session, provider_id=provider_id)
+	if cp is None:
+		return None
+	mid = (model_id or "").strip()
+	if not mid:
+		return None
+	if ":" in mid:
+		_, name = mid.split(":", 1)
+		name = name.strip()
+		return name or None
+	return mid
 
 
 def _get_provider_base_url(provider_id: str, session: Session) -> str | None:
@@ -204,6 +211,57 @@ def get_analyze_settings(request: Request):
 def get_llm_catalog(_: Request, session: Session = Depends(get_db_session)):
 	providers = _build_merged_catalog(session)
 	return LLMCatalogDTO(providers=providers, updatedAtMs=_now_ms())
+
+
+def _remote_models_error_dto(code: str) -> LLMRemoteModelsErrorDTO:
+	msgs: dict[str, str] = {
+		"missing_credentials": "Save an API key for this provider first.",
+		"invalid_credentials": "The stored API key could not be decrypted or was rejected.",
+		"invalid_base_url": "Provider base URL is missing or invalid.",
+		"missing_api_key": "No API key available for this provider.",
+		"provider_unavailable": "Could not reach the provider to list models.",
+		"list_models_failed": "The provider rejected the models list request.",
+		"invalid_response": "Unexpected response when listing models.",
+		"unknown_provider": "Unknown provider.",
+	}
+	return LLMRemoteModelsErrorDTO(code=code, message=msgs.get(code, code))
+
+
+@router.get("/settings/llm/providers/{provider_id}/remote-models", response_model=LLMRemoteModelsDTO)
+def get_llm_remote_models(
+	provider_id: str,
+	_: Request,
+	session: Session = Depends(get_db_session),
+):
+	"""List models from the upstream provider using the saved API key (server-side only)."""
+
+	pid = (provider_id or "").strip().lower()
+	provider = _find_provider_merged(pid, session)
+	if provider is None:
+		return LLMRemoteModelsDTO(ok=False, models=[], error=_remote_models_error_dto("unknown_provider"))
+
+	ciphertext = get_llm_provider_secret_ciphertext(session, provider_id=pid)
+	if not ciphertext:
+		return LLMRemoteModelsDTO(ok=False, models=[], error=_remote_models_error_dto("missing_credentials"))
+
+	try:
+		api_key = decrypt_api_key(ciphertext)
+	except Exception:
+		return LLMRemoteModelsDTO(ok=False, models=[], error=_remote_models_error_dto("invalid_credentials"))
+
+	base_url = _get_provider_base_url(pid, session)
+	if not (base_url or "").strip():
+		return LLMRemoteModelsDTO(ok=False, models=[], error=_remote_models_error_dto("invalid_base_url"))
+
+	items, err = fetch_remote_models_for_provider(provider=provider, base_url=str(base_url), api_key=api_key)
+	if err:
+		return LLMRemoteModelsDTO(ok=False, models=[], error=_remote_models_error_dto(err))
+
+	return LLMRemoteModelsDTO(
+		ok=True,
+		models=[LLMRemoteModelDTO(modelId=i.model_id, displayName=i.display_name) for i in items],
+		error=None,
+	)
 
 
 # ─── Provider secrets ─────────────────────────────────────────────────────────
@@ -278,43 +336,25 @@ def delete_llm_provider_secret_api(
 def get_llm_active_api(request: Request, session: Session = Depends(get_db_session)):
 	active = get_llm_active(session)
 	if active is None:
-		providers = list_llm_catalog_providers()
-		if not providers or not providers[0].models:
-			return JSONResponse(
-				status_code=500,
-				content=build_error_envelope(
-					code=ErrorCode.VALIDATION_ERROR,
-					message="LLM catalog is empty",
-					details={"reason": "catalog_empty"},
-					request_id=getattr(request.state, "request_id", None),
-				),
-			)
+		return LLMActiveDTO(configured=False, providerId=None, modelId=None, hasKey=False, updatedAtMs=None)
 
-		default_provider = providers[0]
-		default_model = default_provider.models[0]
-		set_llm_active(session, provider_id=default_provider.provider_id, model_id=default_model.model_id, now_ms=_now_ms())
-		session.commit()
-		active = get_llm_active(session)
-
-	if active is None:
-		return JSONResponse(
-			status_code=500,
-			content=build_error_envelope(
-				code=ErrorCode.VALIDATION_ERROR,
-				message="Active selection unavailable",
-				details={"reason": "active_unavailable"},
-				request_id=getattr(request.state, "request_id", None),
-			),
-		)
-
-	provider_id = str(active.get("providerId") or "")
-	model_id = str(active.get("modelId") or "")
+	provider_id = str(active.get("providerId") or "").strip()
+	model_id = str(active.get("modelId") or "").strip()
 	updated_at_ms = int(active.get("updatedAtMs") or 0)
+
+	if not provider_id and not model_id:
+		return LLMActiveDTO(configured=False, providerId=None, modelId=None, hasKey=False, updatedAtMs=None)
 
 	meta = get_llm_provider_secret_meta(session, provider_id=provider_id)
 	has_key = bool(meta.get("hasKey")) if isinstance(meta, dict) else False
 
-	return LLMActiveDTO(providerId=provider_id, modelId=model_id, hasKey=has_key, updatedAtMs=updated_at_ms)
+	return LLMActiveDTO(
+		configured=True,
+		providerId=provider_id,
+		modelId=model_id,
+		hasKey=has_key,
+		updatedAtMs=updated_at_ms,
+	)
 
 
 @router.put("/settings/llm/active", response_model=OkDTO)
@@ -361,30 +401,25 @@ def put_llm_active_api(
 def post_llm_active_test(request: Request, session: Session = Depends(get_db_session)):
 	active = get_llm_active(session)
 	if active is None:
-		providers = list_llm_catalog_providers()
-		if not providers or not providers[0].models:
-			return JSONResponse(
-				status_code=500,
-				content=build_error_envelope(
-					code=ErrorCode.VALIDATION_ERROR,
-					message="LLM catalog is empty",
-					details={"reason": "catalog_empty"},
-					request_id=getattr(request.state, "request_id", None),
-				),
-			)
-		default_provider = providers[0]
-		default_model = default_provider.models[0]
-		set_llm_active(session, provider_id=default_provider.provider_id, model_id=default_model.model_id, now_ms=_now_ms())
-		session.commit()
-		active = get_llm_active(session)
-
-	if active is None:
 		return JSONResponse(
-			status_code=500,
+			status_code=400,
 			content=build_error_envelope(
 				code=ErrorCode.VALIDATION_ERROR,
-				message="Active selection unavailable",
-				details={"reason": "active_unavailable"},
+				message="LLM is not configured",
+				details={"reason": "llm_not_configured"},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
+	provider_id_chk = str(active.get("providerId") or "").strip()
+	model_id_chk = str(active.get("modelId") or "").strip()
+	if not provider_id_chk or not model_id_chk:
+		return JSONResponse(
+			status_code=400,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message="LLM is not configured",
+				details={"reason": "llm_not_configured"},
 				request_id=getattr(request.state, "request_id", None),
 			),
 		)
@@ -530,13 +565,13 @@ def add_custom_model_api(
 	if not display_name:
 		display_name = model_id
 
-	# Disallow adding a model_id that already exists in the static catalog.
-	if model_exists(provider_id=provider_id, model_id=model_id):
+	custom_existing = list_custom_models(session, provider_id=provider_id.strip().lower())
+	if any(c["modelId"] == model_id for c in custom_existing):
 		return JSONResponse(
 			status_code=400,
 			content=build_error_envelope(
 				code=ErrorCode.VALIDATION_ERROR,
-				message="Model already exists in catalog",
+				message="Model already exists",
 				details={"reason": "model_already_exists", "modelId": model_id},
 				request_id=getattr(request.state, "request_id", None),
 			),
