@@ -27,7 +27,9 @@ from core.db.repositories.llm_settings import (
 	list_custom_providers,
 	get_custom_provider,
 	add_custom_provider,
+	update_custom_provider,
 	delete_custom_provider,
+	upsert_provider_override,
 )
 from core.db.session import get_db_session
 from core.llm.active_test import LLMActiveTestError, run_llm_connectivity_test
@@ -50,8 +52,11 @@ from core.schemas.settings import (
 	PutLLMProviderSecretRequestDTO,
 	AddCustomModelRequestDTO,
 	AddCustomProviderRequestDTO,
+	UpdateCustomProviderRequestDTO,
+	UpdateProviderProfileRequestDTO,
 	YtdlpCookiesStatusDTO,
 )
+from core.llm.provider_profile import resolve_builtin_provider
 from core.settings import get_effective_analyze_settings
 from core.db.session import get_data_dir
 
@@ -89,6 +94,11 @@ def _build_merged_catalog(session: Session) -> list[LLMCatalogProviderDTO]:
 		if not isinstance(secret_updated_at_ms, int):
 			secret_updated_at_ms = None
 
+		resolved = resolve_builtin_provider(session, provider_id=p.provider_id) or {
+			"displayName": p.display_name,
+			"baseUrl": p.base_url,
+		}
+
 		# Custom models only (built-in model list comes from remote-models API).
 		models: list[LLMCatalogModelDTO] = []
 		custom_models = list_custom_models(session, provider_id=p.provider_id)
@@ -104,11 +114,12 @@ def _build_merged_catalog(session: Session) -> list[LLMCatalogProviderDTO]:
 		result.append(
 			LLMCatalogProviderDTO(
 				providerId=p.provider_id,
-				displayName=p.display_name,
+				displayName=str(resolved.get("displayName") or p.display_name),
 				hasKey=has_key,
 				secretUpdatedAtMs=secret_updated_at_ms,
 				models=models,
 				isCustom=False,
+				baseUrl=str(resolved.get("baseUrl") or p.base_url),
 			)
 		)
 
@@ -142,6 +153,7 @@ def _build_merged_catalog(session: Session) -> list[LLMCatalogProviderDTO]:
 				secretUpdatedAtMs=secret_updated_at_ms,
 				models=models,
 				isCustom=True,
+				baseUrl=cp.get("baseUrl"),
 			)
 		)
 
@@ -186,10 +198,12 @@ def _resolve_runtime_model_merged(*, provider_id: str, model_id: str, session: S
 
 
 def _get_provider_base_url(provider_id: str, session: Session) -> str | None:
-	"""Get base_url from static catalog or custom providers."""
-	static = find_provider(provider_id)
-	if static is not None:
-		return static.base_url
+	"""Get base_url from static catalog (with overrides), or custom providers."""
+	from core.llm.provider_profile import get_resolved_builtin_base_url
+
+	resolved = get_resolved_builtin_base_url(session, provider_id=provider_id)
+	if resolved:
+		return resolved
 	cp = get_custom_provider(session, provider_id=provider_id)
 	if cp is not None:
 		return cp.get("baseUrl")
@@ -661,9 +675,9 @@ def add_custom_provider_api(
 	request: Request,
 	session: Session = Depends(get_db_session),
 ):
-	"""Add a fully custom provider (provider_id, display_name, base_url) plus an initial model."""
-	provider_id = (body.providerId or "").strip().lower()
+	"""Add a fully custom provider (display_name, base_url), optionally with an initial model."""
 	display_name = (body.displayName or "").strip()
+	provider_id = (body.providerId or display_name).strip().lower()
 	base_url = (body.baseUrl or "").strip()
 	model_id = (body.modelId or "").strip()
 	model_display_name = (body.modelDisplayName or "").strip() or model_id
@@ -674,8 +688,8 @@ def add_custom_provider_api(
 			status_code=400,
 			content=build_error_envelope(
 				code=ErrorCode.VALIDATION_ERROR,
-				message="providerId is required",
-				details={"reason": "missing_provider_id"},
+				message="displayName is required",
+				details={"reason": "missing_display_name"},
 				request_id=getattr(request.state, "request_id", None),
 			),
 		)
@@ -707,17 +721,6 @@ def add_custom_provider_api(
 			),
 		)
 
-	if not model_id:
-		return JSONResponse(
-			status_code=400,
-			content=build_error_envelope(
-				code=ErrorCode.VALIDATION_ERROR,
-				message="modelId is required",
-				details={"reason": "missing_model_id"},
-				request_id=getattr(request.state, "request_id", None),
-			),
-		)
-
 	# Disallow overriding static providers.
 	if find_provider(provider_id) is not None:
 		return JSONResponse(
@@ -730,6 +733,17 @@ def add_custom_provider_api(
 			),
 		)
 
+	if get_custom_provider(session, provider_id=provider_id) is not None:
+		return JSONResponse(
+			status_code=400,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message="Custom provider already exists",
+				details={"reason": "provider_already_exists", "providerId": provider_id},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
 	add_custom_provider(
 		session,
 		provider_id=provider_id,
@@ -737,14 +751,170 @@ def add_custom_provider_api(
 		base_url=base_url,
 		now_ms=_now_ms(),
 	)
-	# Add the initial model.
-	add_custom_model(
+	if model_id:
+		add_custom_model(
+			session,
+			provider_id=provider_id,
+			model_id=model_id,
+			display_name=model_display_name,
+			now_ms=_now_ms(),
+		)
+	session.commit()
+	return OkDTO(ok=True)
+
+
+@router.put("/settings/llm/providers/{provider_id}/profile", response_model=OkDTO)
+def update_provider_profile_api(
+	provider_id: str,
+	body: UpdateProviderProfileRequestDTO,
+	request: Request,
+	session: Session = Depends(get_db_session),
+):
+	"""Update display name and/or base URL for a built-in catalog provider."""
+	pid = (provider_id or "").strip().lower()
+	static = find_provider(pid)
+	if static is None:
+		return JSONResponse(
+			status_code=400,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message="Built-in provider not found",
+				details={"reason": "provider_is_not_builtin", "providerId": pid},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
+	display_name = (body.displayName or "").strip() if body.displayName is not None else None
+	base_url = (body.baseUrl or "").strip() if body.baseUrl is not None else None
+
+	if display_name is None and base_url is None:
+		return JSONResponse(
+			status_code=400,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message="At least one of displayName or baseUrl is required",
+				details={"reason": "missing_update_fields"},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
+	if display_name is not None and not display_name:
+		return JSONResponse(
+			status_code=400,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message="displayName cannot be empty",
+				details={"reason": "missing_display_name"},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
+	if base_url is not None:
+		try:
+			p = urlparse(base_url)
+			if (p.scheme or "").lower() not in {"http", "https"} or not p.netloc:
+				raise ValueError("bad url")
+		except Exception:
+			return JSONResponse(
+				status_code=400,
+				content=build_error_envelope(
+					code=ErrorCode.VALIDATION_ERROR,
+					message="baseUrl must be a valid http/https URL",
+					details={"reason": "invalid_base_url"},
+					request_id=getattr(request.state, "request_id", None),
+				),
+			)
+
+	upsert_provider_override(
 		session,
-		provider_id=provider_id,
-		model_id=model_id,
-		display_name=model_display_name,
+		provider_id=pid,
+		display_name=display_name,
+		base_url=base_url,
 		now_ms=_now_ms(),
 	)
+	session.commit()
+	return OkDTO(ok=True)
+
+
+@router.put("/settings/llm/custom-providers/{provider_id}", response_model=OkDTO)
+def update_custom_provider_api(
+	provider_id: str,
+	body: UpdateCustomProviderRequestDTO,
+	request: Request,
+	session: Session = Depends(get_db_session),
+):
+	"""Update display name and/or base URL of a custom provider."""
+	pid = (provider_id or "").strip().lower()
+	if find_provider(pid) is not None:
+		return JSONResponse(
+			status_code=400,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message="Cannot update a built-in catalog provider",
+				details={"reason": "provider_is_static", "providerId": pid},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
+	display_name = (body.displayName or "").strip() if body.displayName is not None else None
+	base_url = (body.baseUrl or "").strip() if body.baseUrl is not None else None
+
+	if display_name is None and base_url is None:
+		return JSONResponse(
+			status_code=400,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message="At least one of displayName or baseUrl is required",
+				details={"reason": "missing_update_fields"},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
+	if display_name is not None and not display_name:
+		return JSONResponse(
+			status_code=400,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message="displayName cannot be empty",
+				details={"reason": "missing_display_name"},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
+	if base_url is not None:
+		try:
+			p = urlparse(base_url)
+			if (p.scheme or "").lower() not in {"http", "https"} or not p.netloc:
+				raise ValueError("bad url")
+		except Exception:
+			return JSONResponse(
+				status_code=400,
+				content=build_error_envelope(
+					code=ErrorCode.VALIDATION_ERROR,
+					message="baseUrl must be a valid http/https URL",
+					details={"reason": "invalid_base_url"},
+					request_id=getattr(request.state, "request_id", None),
+				),
+			)
+
+	updated = update_custom_provider(
+		session,
+		provider_id=pid,
+		display_name=display_name,
+		base_url=base_url,
+		now_ms=_now_ms(),
+	)
+	if not updated:
+		return JSONResponse(
+			status_code=404,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message="Custom provider not found",
+				details={"reason": "unknown_provider", "providerId": pid},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
 	session.commit()
 	return OkDTO(ok=True)
 

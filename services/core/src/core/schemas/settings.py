@@ -29,6 +29,7 @@ class LLMCatalogProviderDTO(BaseModel):
 	secretUpdatedAtMs: int | None = None
 	models: list[LLMCatalogModelDTO]
 	isCustom: bool = False
+	baseUrl: str | None = None
 
 
 class LLMCatalogDTO(BaseModel):
@@ -90,11 +91,21 @@ class AddCustomModelRequestDTO(BaseModel):
 
 
 class AddCustomProviderRequestDTO(BaseModel):
-	providerId: str
+	providerId: str | None = None
 	displayName: str
 	baseUrl: str
-	modelId: str
-	modelDisplayName: str
+	modelId: str | None = None
+	modelDisplayName: str | None = None
+
+
+class UpdateCustomProviderRequestDTO(BaseModel):
+	displayName: str | None = None
+	baseUrl: str | None = None
+
+
+class UpdateProviderProfileRequestDTO(BaseModel):
+	displayName: str | None = None
+	baseUrl: str | None = None
 
 
 # ─── yt-dlp Cookies DTOs ────────────────────────────────────────────────────────

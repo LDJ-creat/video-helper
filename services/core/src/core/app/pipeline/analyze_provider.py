@@ -752,6 +752,7 @@ def _try_llm_runtime_from_sqlite(*, transport: httpx.BaseTransport | None = None
 	Falls back to custom providers table when provider_id is not in the static catalog.
 	"""
 	from core.db.repositories.llm_settings import get_custom_provider
+	from core.llm.provider_profile import get_resolved_builtin_base_url
 
 	SessionLocal = get_sessionmaker()
 	with SessionLocal() as session:
@@ -777,7 +778,7 @@ def _try_llm_runtime_from_sqlite(*, transport: httpx.BaseTransport | None = None
 					message="Invalid LLM settings",
 					details={"reason": "model_not_found", "providerId": static_provider.provider_id, "modelId": model_id},
 				)
-			api_base = static_provider.base_url
+			api_base = get_resolved_builtin_base_url(session, provider_id=static_provider.provider_id) or static_provider.base_url
 			resolved_provider_id = static_provider.provider_id
 		else:
 			# Check custom providers table.
