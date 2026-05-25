@@ -9,6 +9,8 @@ import type {
     OkResponse,
     AddCustomModelRequest,
     AddCustomProviderRequest,
+    UpdateCustomProviderRequest,
+    UpdateProviderProfileRequest,
     RemoteModelsResponse,
 } from "../contracts/llmSettingsTypes";
 import { config } from "../config";
@@ -113,6 +115,30 @@ export async function addCustomProvider(
     const url = `${config.apiBaseUrl}${endpoints.llmCustomProviders()}`;
     return apiFetch<OkResponse>(url, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(request),
+    });
+}
+
+export async function updateCustomProvider(
+    providerId: string,
+    request: UpdateCustomProviderRequest,
+): Promise<OkResponse> {
+    const url = `${config.apiBaseUrl}${endpoints.llmCustomProvider(providerId)}`;
+    return apiFetch<OkResponse>(url, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(request),
+    });
+}
+
+export async function updateProviderProfile(
+    providerId: string,
+    request: UpdateProviderProfileRequest,
+): Promise<OkResponse> {
+    const url = `${config.apiBaseUrl}${endpoints.llmProviderProfile(providerId)}`;
+    return apiFetch<OkResponse>(url, {
+        method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(request),
     });

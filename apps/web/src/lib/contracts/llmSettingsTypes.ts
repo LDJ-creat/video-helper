@@ -15,6 +15,7 @@ export type Provider = {
     secretUpdatedAtMs?: number;
     models: Model[];
     isCustom?: boolean;
+    baseUrl?: string | null;
 };
 
 // Catalog 响应
@@ -68,9 +69,19 @@ export type AddCustomModelRequest = {
 };
 
 export type AddCustomProviderRequest = {
-    providerId: string;
+    providerId?: string;
     displayName: string;
     baseUrl: string;
-    modelId: string;
-    modelDisplayName: string;
+    modelId?: string;
+    modelDisplayName?: string;
+};
+
+export type UpdateCustomProviderRequest = {
+    displayName?: string;
+    baseUrl?: string;
+};
+
+export type UpdateProviderProfileRequest = {
+    displayName?: string;
+    baseUrl?: string;
 };

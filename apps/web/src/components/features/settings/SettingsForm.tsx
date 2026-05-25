@@ -13,6 +13,8 @@ import {
     useDeleteCustomModel,
     useAddCustomProvider,
     useDeleteCustomProvider,
+    useUpdateCustomProvider,
+    useUpdateProviderProfile,
     useRemoteLlmModels,
 } from "@/lib/api/llmSettingsQueries";
 import type { ActiveSettingsResponse, Model, Provider, RemoteModelsResponse } from "@/lib/contracts/llmSettingsTypes";
@@ -205,11 +207,9 @@ interface AddCustomProviderFormProps {
 function AddCustomProviderForm({ onClose, onSuccess }: AddCustomProviderFormProps) {
     const t = useTranslations("Settings");
     const [form, setForm] = useState({
-        providerId: "",
         displayName: "",
         baseUrl: "",
         modelId: "",
-        modelDisplayName: "",
         apiKey: "",
     });
     const addProvider = useAddCustomProvider();
@@ -219,23 +219,22 @@ function AddCustomProviderForm({ onClose, onSuccess }: AddCustomProviderFormProp
         setForm((prev) => ({ ...prev, [field]: e.target.value }));
 
     const handleSubmit = async () => {
-        const pid = form.providerId.trim();
         const dname = form.displayName.trim();
         const url = form.baseUrl.trim();
         const mid = form.modelId.trim();
-        if (!pid || !dname || !url || !mid) return;
+        if (!dname || !url) return;
+
+        const providerId = dname.toLowerCase();
 
         try {
             await addProvider.mutateAsync({
-                providerId: pid,
                 displayName: dname,
                 baseUrl: url,
-                modelId: mid,
-                modelDisplayName: form.modelDisplayName.trim() || mid,
+                ...(mid ? { modelId: mid } : {}),
             });
 
             if (form.apiKey.trim()) {
-                await updateSecret.mutateAsync({ providerId: pid, apiKey: form.apiKey.trim() });
+                await updateSecret.mutateAsync({ providerId, apiKey: form.apiKey.trim() });
             }
 
             onSuccess(t("customProviderAdded", { name: dname }));
@@ -251,17 +250,16 @@ function AddCustomProviderForm({ onClose, onSuccess }: AddCustomProviderFormProp
     const submitErrorMsg = ((addProvider.error || updateSecret.error) as any)?.message || t("unknownError");
 
     const fields: { key: keyof typeof form; label: string; placeholder: string; required?: boolean; type?: string }[] = [
-        { key: "providerId", label: "Provider ID", placeholder: t("providerIdPlaceholderCommon"), required: true },
-        { key: "displayName", label: t("displayName"), placeholder: t("displayNamePlaceholder"), required: true },
+        { key: "displayName", label: t("displayName"), placeholder: t("providerDisplayNamePlaceholder"), required: true },
         { key: "baseUrl", label: "Base URL", placeholder: "https://api.example.com/v1", required: true },
-        { key: "modelId", label: t("firstModelId"), placeholder: "如 custom-model-v1", required: true },
-        { key: "modelDisplayName", label: t("modelDisplayName"), placeholder: t("displayNamePlaceholder") },
+        { key: "modelId", label: t("firstModelId"), placeholder: t("firstModelIdOptionalPlaceholder") },
         { key: "apiKey", label: "API Key", placeholder: t("apiKeyPlaceholder"), type: "password" },
     ];
 
     return (
         <div className="mt-4 p-5 bg-blue-50 border border-blue-200 rounded-xl space-y-3">
             <p className="font-semibold text-blue-900 text-sm uppercase tracking-wide">{t("addCustomProviderTitle")}</p>
+            <form autoComplete="off" onSubmit={(e) => e.preventDefault()} className="space-y-3">
             {fields.map((f) => (
                 <div key={f.key}>
                     <label className="block text-xs font-medium text-stone-700 mb-1">
@@ -273,6 +271,8 @@ function AddCustomProviderForm({ onClose, onSuccess }: AddCustomProviderFormProp
                         value={form[f.key]}
                         onChange={set(f.key)}
                         placeholder={f.placeholder}
+                        autoComplete={f.type === "password" ? "new-password" : "off"}
+                        name={`vh-custom-provider-${f.key}`}
                         className="w-full px-3 py-2 text-sm border border-stone-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent"
                     />
                 </div>
@@ -282,12 +282,11 @@ function AddCustomProviderForm({ onClose, onSuccess }: AddCustomProviderFormProp
 
             <div className="flex gap-2 pt-1">
                 <button
+                    type="button"
                     onClick={handleSubmit}
                     disabled={
-                        !form.providerId.trim() ||
                         !form.displayName.trim() ||
                         !form.baseUrl.trim() ||
-                        !form.modelId.trim() ||
                         isSubmitting
                     }
                     className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:bg-stone-300 disabled:cursor-not-allowed transition-colors"
@@ -295,8 +294,106 @@ function AddCustomProviderForm({ onClose, onSuccess }: AddCustomProviderFormProp
                     {isSubmitting ? t("saving") : t("save")}
                 </button>
                 <button
+                    type="button"
                     onClick={onClose}
                     className="px-4 py-2 bg-stone-100 text-stone-600 text-sm font-medium rounded-lg hover:bg-stone-200 transition-colors"
+                >
+                    {t("cancel")}
+                </button>
+            </div>
+            </form>
+        </div>
+    );
+}
+
+// ─── Edit Provider Profile Form ───────────────────────────────────────────────
+
+interface EditProviderProfileFormProps {
+    provider: Provider;
+    onClose: () => void;
+    onSuccess: (msg: string) => void;
+}
+
+function EditProviderProfileForm({ provider, onClose, onSuccess }: EditProviderProfileFormProps) {
+    const t = useTranslations("Settings");
+    const [displayName, setDisplayName] = useState(provider.displayName);
+    const [baseUrl, setBaseUrl] = useState(provider.baseUrl ?? "");
+    const updateCustomProvider = useUpdateCustomProvider();
+    const updateProviderProfile = useUpdateProviderProfile();
+
+    const handleSubmit = async () => {
+        const dname = displayName.trim();
+        const url = baseUrl.trim();
+        if (!dname || !url) return;
+
+        try {
+            if (provider.isCustom) {
+                await updateCustomProvider.mutateAsync({
+                    providerId: provider.providerId,
+                    request: { displayName: dname, baseUrl: url },
+                });
+            } else {
+                await updateProviderProfile.mutateAsync({
+                    providerId: provider.providerId,
+                    request: { displayName: dname, baseUrl: url },
+                });
+            }
+            onSuccess(t("providerProfileUpdated", { name: dname }));
+            onClose();
+        } catch (err) {
+            console.error("Failed to update provider profile:", err);
+        }
+    };
+
+    const isPending = updateCustomProvider.isPending || updateProviderProfile.isPending;
+    const isError = updateCustomProvider.isError || updateProviderProfile.isError;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const errorMsg = ((updateCustomProvider.error || updateProviderProfile.error) as any)?.message || t("unknownError");
+
+    return (
+        <div className="mt-4 p-4 bg-stone-50 border border-stone-200 rounded-xl space-y-3">
+            <p className="text-xs font-semibold text-stone-700 uppercase tracking-wide">{t("editProviderTitle")}</p>
+            <div>
+                <label className="block text-xs font-medium text-stone-700 mb-1">
+                    {t("displayName")}
+                    <span className="text-red-500 ml-0.5">*</span>
+                </label>
+                <input
+                    type="text"
+                    value={displayName}
+                    onChange={(e) => setDisplayName(e.target.value)}
+                    autoComplete="off"
+                    className="w-full px-3 py-2 text-sm border border-stone-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent"
+                />
+            </div>
+            <div>
+                <label className="block text-xs font-medium text-stone-700 mb-1">
+                    Base URL
+                    <span className="text-red-500 ml-0.5">*</span>
+                </label>
+                <input
+                    type="url"
+                    value={baseUrl}
+                    onChange={(e) => setBaseUrl(e.target.value)}
+                    placeholder="https://api.example.com/v1"
+                    autoComplete="off"
+                    className="w-full px-3 py-2 text-sm border border-stone-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent"
+                />
+            </div>
+            {isError && <p className="text-xs text-red-600">{t("addModelFailed", { error: errorMsg })}</p>}
+            <div className="flex gap-2">
+                <button
+                    type="button"
+                    onClick={handleSubmit}
+                    disabled={!displayName.trim() || !baseUrl.trim() || isPending}
+                    className="px-4 py-2 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 disabled:bg-stone-300 disabled:cursor-not-allowed transition-colors"
+                >
+                    {isPending ? t("saving") : t("save")}
+                </button>
+                <button
+                    type="button"
+                    onClick={onClose}
+                    className="px-4 py-2 bg-stone-100 text-stone-600 text-xs font-medium rounded-lg hover:bg-stone-200 transition-colors"
                 >
                     {t("cancel")}
                 </button>
@@ -367,6 +464,7 @@ function ProviderLlmCard({
     const t = useTranslations("Settings");
     const pid = provider.providerId;
     const remote = useRemoteLlmModels(pid, provider.hasKey);
+    const [isEditingProvider, setIsEditingProvider] = useState(false);
 
     const mergedModels = useMemo(
         () => mergeCatalogAndRemoteModels(provider.models, remote.data),
@@ -438,24 +536,51 @@ function ProviderLlmCard({
                             )}
                         </div>
                         {isCardOpen ? (
-                            provider.hasKey ? (
-                                <p className="text-xs xl:text-sm text-emerald-600">
-                                    {t("apiKeyConfigured")}
-                                    {provider.secretUpdatedAtMs &&
-                                        ` · ${t("updatedAt", { date: new Date(provider.secretUpdatedAtMs as number).toLocaleDateString() })}`}
-                                </p>
-                            ) : (
-                                <p className="text-xs xl:text-sm text-amber-600">{t("needsApiKey")}</p>
-                            )
+                            <>
+                                {provider.baseUrl && (
+                                    <p className="text-xs xl:text-sm text-stone-500 truncate mb-1">{provider.baseUrl}</p>
+                                )}
+                                {provider.hasKey ? (
+                                    <p className="text-xs xl:text-sm text-emerald-600">
+                                        {t("apiKeyConfigured")}
+                                        {provider.secretUpdatedAtMs &&
+                                            ` · ${t("updatedAt", { date: new Date(provider.secretUpdatedAtMs as number).toLocaleDateString() })}`}
+                                    </p>
+                                ) : (
+                                    <p className="text-xs xl:text-sm text-amber-600">{t("needsApiKey")}</p>
+                                )}
+                            </>
                         ) : (
                             <p className="text-xs xl:text-sm text-stone-500 truncate">
-                                {provider.hasKey ? t("apiKeyConfigured") : t("needsApiKey")}
+                                {provider.baseUrl
+                                    ? provider.baseUrl
+                                    : provider.hasKey
+                                      ? t("apiKeyConfigured")
+                                      : t("needsApiKey")}
                             </p>
                         )}
                     </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                     <StatusBadge configured={provider.hasKey} />
+                    <button
+                        type="button"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            if (!isCardOpen) onToggleCard();
+                            setIsEditingProvider(true);
+                        }}
+                        title={t("editProvider")}
+                        className="p-1.5 xl:p-2 text-stone-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                    >
+                        <svg className="w-4 h-4 xl:w-5 xl:h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
+                            />
+                        </svg>
+                    </button>
                     {provider.isCustom && (
                         <button
                             type="button"
@@ -491,6 +616,16 @@ function ProviderLlmCard({
 
             {isCardOpen && (
             <div className="px-5 xl:px-6 pb-5 xl:pb-6 pt-0 border-t border-stone-100">
+                {isEditingProvider && (
+                    <EditProviderProfileForm
+                        provider={provider}
+                        onClose={() => setIsEditingProvider(false)}
+                        onSuccess={(msg) => {
+                            setIsEditingProvider(false);
+                            showSuccess(msg);
+                        }}
+                    />
+                )}
                 {/* API Key first */}
                 <div className="mb-4 xl:mb-6 mt-4 xl:mt-5">
                     <label className="block text-xs xl:text-sm font-medium text-stone-600 mb-1.5 uppercase tracking-wide">

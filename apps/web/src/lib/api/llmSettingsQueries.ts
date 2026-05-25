@@ -13,11 +13,15 @@ import {
     deleteCustomModel,
     addCustomProvider,
     deleteCustomProvider,
+    updateCustomProvider,
+    updateProviderProfile,
 } from "./llmSettingsApi";
 import type {
     UpdateActiveRequest,
     AddCustomModelRequest,
     AddCustomProviderRequest,
+    UpdateCustomProviderRequest,
+    UpdateProviderProfileRequest,
 } from "../contracts/llmSettingsTypes";
 
 // Query hook for LLM catalog
@@ -142,6 +146,41 @@ export function useDeleteCustomProvider() {
         mutationFn: (providerId: string) => deleteCustomProvider(providerId),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: queryKeys.llmCatalog });
+            queryClient.invalidateQueries({ queryKey: queryKeys.llmActive });
+        },
+    });
+}
+
+export function useUpdateCustomProvider() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({
+            providerId,
+            request,
+        }: {
+            providerId: string;
+            request: UpdateCustomProviderRequest;
+        }) => updateCustomProvider(providerId, request),
+        onSuccess: (_data, { providerId }) => {
+            queryClient.invalidateQueries({ queryKey: queryKeys.llmCatalog });
+            queryClient.invalidateQueries({ queryKey: queryKeys.llmRemoteModels(providerId) });
+        },
+    });
+}
+
+export function useUpdateProviderProfile() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({
+            providerId,
+            request,
+        }: {
+            providerId: string;
+            request: UpdateProviderProfileRequest;
+        }) => updateProviderProfile(providerId, request),
+        onSuccess: (_data, { providerId }) => {
+            queryClient.invalidateQueries({ queryKey: queryKeys.llmCatalog });
+            queryClient.invalidateQueries({ queryKey: queryKeys.llmRemoteModels(providerId) });
             queryClient.invalidateQueries({ queryKey: queryKeys.llmActive });
         },
     });
