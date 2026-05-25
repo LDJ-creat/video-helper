@@ -43,6 +43,7 @@ from core.schemas.settings import (
 	LLMRemoteModelsErrorDTO,
 	LLMActiveDTO,
 	LLMActiveTestDTO,
+	ProviderLLMTestRequestDTO,
 	AsrPrefetchRequestDTO,
 	OkDTO,
 	PutLLMActiveRequestDTO,
@@ -394,13 +395,23 @@ def put_llm_active_api(
 	return OkDTO(ok=True)
 
 
-# ─── Active test ──────────────────────────────────────────────────────────────
+# ─── LLM connectivity test ───────────────────────────────────────────────────
 
 
-@router.post("/settings/llm/active/test", response_model=LLMActiveTestDTO)
-def post_llm_active_test(request: Request, session: Session = Depends(get_db_session)):
-	active = get_llm_active(session)
-	if active is None:
+def _llm_connectivity_test_response(
+	*,
+	request: Request,
+	session: Session,
+	provider_id: str,
+	model_id: str,
+	log_prefix: str = "llm-test",
+) -> LLMActiveTestDTO | JSONResponse:
+	import time as _time
+
+	_t0 = _time.perf_counter()
+	provider_id = str(provider_id or "").strip().lower()
+	model_id = str(model_id or "").strip()
+	if not provider_id or not model_id:
 		return JSONResponse(
 			status_code=400,
 			content=build_error_envelope(
@@ -410,24 +421,10 @@ def post_llm_active_test(request: Request, session: Session = Depends(get_db_ses
 				request_id=getattr(request.state, "request_id", None),
 			),
 		)
-
-	provider_id_chk = str(active.get("providerId") or "").strip()
-	model_id_chk = str(active.get("modelId") or "").strip()
-	if not provider_id_chk or not model_id_chk:
-		return JSONResponse(
-			status_code=400,
-			content=build_error_envelope(
-				code=ErrorCode.VALIDATION_ERROR,
-				message="LLM is not configured",
-				details={"reason": "llm_not_configured"},
-				request_id=getattr(request.state, "request_id", None),
-			),
-		)
-
-	provider_id = str(active.get("providerId") or "").strip().lower()
-	model_id = str(active.get("modelId") or "").strip()
 
 	provider = _find_provider_merged(provider_id, session)
+	_t1 = _time.perf_counter()
+	logger.info("%s breakdown: _find_provider_merged %.1f ms", log_prefix, (_t1 - _t0) * 1000)
 	if provider is None:
 		return JSONResponse(
 			status_code=400,
@@ -499,6 +496,8 @@ def post_llm_active_test(request: Request, session: Session = Depends(get_db_ses
 			),
 		)
 
+	_t_pre = _time.perf_counter()
+	logger.info("%s breakdown: pre-flight %.1f ms, starting connectivity test", log_prefix, (_t_pre - _t0) * 1000)
 	try:
 		latency_ms = run_llm_connectivity_test(
 			base_url=base_url,
@@ -522,7 +521,49 @@ def post_llm_active_test(request: Request, session: Session = Depends(get_db_ses
 			),
 		)
 
+	logger.info("%s breakdown: OK latency_ms=%s", log_prefix, latency_ms)
 	return LLMActiveTestDTO(ok=True, latencyMs=int(latency_ms))
+
+
+@router.post("/settings/llm/active/test", response_model=LLMActiveTestDTO)
+def post_llm_active_test(request: Request, session: Session = Depends(get_db_session)):
+	active = get_llm_active(session)
+	if active is None:
+		return JSONResponse(
+			status_code=400,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message="LLM is not configured",
+				details={"reason": "llm_not_configured"},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
+	provider_id = str(active.get("providerId") or "").strip()
+	model_id = str(active.get("modelId") or "").strip()
+	return _llm_connectivity_test_response(
+		request=request,
+		session=session,
+		provider_id=provider_id,
+		model_id=model_id,
+		log_prefix="active-test",
+	)
+
+
+@router.post("/settings/llm/providers/{provider_id}/test", response_model=LLMActiveTestDTO)
+def post_llm_provider_test(
+	provider_id: str,
+	body: ProviderLLMTestRequestDTO,
+	request: Request,
+	session: Session = Depends(get_db_session),
+):
+	return _llm_connectivity_test_response(
+		request=request,
+		session=session,
+		provider_id=provider_id,
+		model_id=body.modelId,
+		log_prefix=f"provider-test:{provider_id}",
+	)
 
 
 # ─── Custom models ────────────────────────────────────────────────────────────

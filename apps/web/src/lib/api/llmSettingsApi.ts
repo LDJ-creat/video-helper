@@ -66,6 +66,16 @@ export async function testActiveLlmSettings(): Promise<TestResponse> {
     });
 }
 
+// Test a specific provider + model without changing active settings
+export async function testProviderLlmSettings(providerId: string, modelId: string): Promise<TestResponse> {
+    const url = `${config.apiBaseUrl}${endpoints.llmProviderTest(providerId)}`;
+    return apiFetch<TestResponse>(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ modelId }),
+    });
+}
+
 export async function fetchRemoteLlmModels(providerId: string): Promise<RemoteModelsResponse> {
     const url = `${config.apiBaseUrl}${endpoints.llmRemoteModels(providerId)}`;
     return apiFetch<RemoteModelsResponse>(url);

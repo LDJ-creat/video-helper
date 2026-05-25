@@ -74,6 +74,10 @@ class LLMActiveTestDTO(BaseModel):
 	latencyMs: int
 
 
+class ProviderLLMTestRequestDTO(BaseModel):
+	modelId: str
+
+
 # ─── Custom model DTOs ────────────────────────────────────────────────────────
 
 

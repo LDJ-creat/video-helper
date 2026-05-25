@@ -20,14 +20,19 @@ import { fetchQuizSessions } from "@/lib/api/ai";
 import { MessageSquare, Layout, BrainCircuit } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { cancelJob, resumeProjectJob } from "@/lib/api/jobApi";
+import { AnalysisProgressPanel } from "@/components/features/analysis/AnalysisProgressPanel";
+import { isDuplicateAnalyzedBlocked } from "@/lib/utils/analysisViewMode";
+
+const SUCCESS_NAV_DELAY_MS = 450;
 
 function JobProgress({ jobId, projectId }: { jobId: string; projectId: string }) {
-    const router = useRouter();
     const searchParams = useSearchParams();
     const queryClient = useQueryClient();
-    const t = useTranslations("Results.progress");
+    const router = useRouter();
 
     const didNavigateRef = useRef(false);
+    const successScheduledRef = useRef(false);
+    const [showSuccessTransition, setShowSuccessTransition] = useState(false);
 
     const buildResultUrl = useCallback(() => {
         const params = new URLSearchParams(searchParams?.toString() || "");
@@ -43,13 +48,20 @@ function JobProgress({ jobId, projectId }: { jobId: string; projectId: string })
         router.replace(buildResultUrl(), { scroll: false });
     }, [buildResultUrl, projectId, queryClient, router]);
 
+    const scheduleNavigateAfterSuccess = useCallback(() => {
+        if (didNavigateRef.current || successScheduledRef.current) return;
+        successScheduledRef.current = true;
+        setShowSuccessTransition(true);
+        window.setTimeout(() => navigateToResult(), SUCCESS_NAV_DELAY_MS);
+    }, [navigateToResult]);
+
     const { connectionMode } = useJobSse({
         jobId,
         onEvent: (event) => {
             if (event.type === "state" && event.stage === "assemble_result" && event.message === "status=succeeded") {
-                navigateToResult();
+                scheduleNavigateAfterSuccess();
             }
-        }
+        },
     });
 
     const pollingEnabled = connectionMode !== "sse";
@@ -60,30 +72,14 @@ function JobProgress({ jobId, projectId }: { jobId: string; projectId: string })
     const [isResuming, setIsResuming] = useState(false);
     const [isCanceling, setIsCanceling] = useState(false);
 
-    // Auto-refresh result when job succeeds via polling (backup to SSE)
     useEffect(() => {
         if (job?.status === "succeeded") {
-            navigateToResult();
+            scheduleNavigateAfterSuccess();
         }
-    }, [job?.status, navigateToResult]);
-
-    const progressPercent = Math.round((job?.progress || 0) * 100);
-    const details = job?.error?.details;
-    const detailsObj = (details && typeof details === "object") ? (details as Record<string, unknown>) : null;
-    const duplicateReason = detailsObj?.reason;
-    const isDuplicateBlocked = job?.status === "blocked" && duplicateReason === "already_analyzed";
-
-    const statusMessage = isDuplicateBlocked
-        ? t("alreadyAnalyzedStatus")
-        : (job?.stage ? t("processing", { stage: job.stage }) : t("preparing"));
-    const latestLog = logs?.items?.[logs.items.length - 1]?.message;
-
-    const canCancel = job?.status === "running" || job?.status === "queued" || job?.status === "blocked";
-    const canResume = job?.status === "failed" || job?.status === "canceled" || job?.status === "blocked";
-    const resumeLabel = isDuplicateBlocked ? t("reanalyze") : (job?.status === "failed" ? t("retry") : t("resume"));
+    }, [job?.status, scheduleNavigateAfterSuccess]);
 
     const handleResume = async () => {
-        if (!canResume || isResuming) return;
+        if (isResuming) return;
         setIsResuming(true);
         setActionError(null);
         try {
@@ -99,7 +95,7 @@ function JobProgress({ jobId, projectId }: { jobId: string; projectId: string })
     };
 
     const handleCancel = async () => {
-        if (!canCancel || isCanceling) return;
+        if (isCanceling) return;
         setIsCanceling(true);
         setActionError(null);
         try {
@@ -114,124 +110,24 @@ function JobProgress({ jobId, projectId }: { jobId: string; projectId: string })
         }
     };
 
+    const duplicateBlocked = isDuplicateAnalyzedBlocked(job);
+
     return (
         <ResultLayout>
-            <div className="flex flex-col items-center justify-center min-h-[60vh] max-w-2xl mx-auto p-6">
-                <div className="w-full bg-stone-100 rounded-full h-4 mb-4 overflow-hidden">
-                    <div
-                        className="bg-orange-500 h-full transition-all duration-500 ease-out"
-                        style={{ width: `${progressPercent}%` }}
-                    />
-                </div>
-
-                <h2 className="text-xl font-semibold text-stone-900 mb-2">
-                    {progressPercent}% - {statusMessage}
-                </h2>
-
-                {latestLog && (
-                    <p className="text-stone-500 text-sm font-mono bg-stone-50 px-3 py-1 rounded border border-stone-200">
-                        {latestLog}
-                    </p>
-                )}
-
-                {isDuplicateBlocked ? (
-                    <div className="mt-4 w-full rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-900">
-                        <p className="font-semibold">{t("alreadyAnalyzedTitle")}</p>
-                        <p className="mt-1 text-sm text-amber-800">{t("alreadyAnalyzedBody")}</p>
-                    </div>
-                ) : null}
-
-                {isDuplicateBlocked ? (
-                    <div className="mt-4 flex gap-3">
-                        <button
-                            onClick={navigateToResult}
-                            className="px-4 py-2 bg-white border border-stone-300 rounded shadow-sm hover:bg-stone-50 text-sm font-medium"
-                        >
-                            {t("viewExisting")}
-                        </button>
-                        <button
-                            onClick={handleResume}
-                            disabled={isResuming}
-                            className="px-4 py-2 bg-orange-600 text-white rounded hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
-                        >
-                            {isResuming ? t("reanalyzing") : resumeLabel}
-                        </button>
-                    </div>
-                ) : (canResume || canCancel ? (
-                    <div className="mt-4 flex gap-3">
-                        {canResume ? (
-                            <button
-                                onClick={handleResume}
-                                disabled={isResuming}
-                                className="px-4 py-2 bg-orange-600 text-white rounded hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
-                            >
-                                {isResuming ? t("resuming") : resumeLabel}
-                            </button>
-                        ) : null}
-
-                        {canCancel ? (
-                            <button
-                                onClick={handleCancel}
-                                disabled={isCanceling}
-                                className="px-4 py-2 bg-white border border-stone-300 rounded shadow-sm hover:bg-stone-50 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
-                            >
-                                {isCanceling ? t("canceling") : t("cancel")}
-                            </button>
-                        ) : null}
-                    </div>
-                ) : null)}
-
-                {actionError ? (
-                    <p className="mt-3 text-sm text-red-600 wrap-break-word max-w-full">{actionError}</p>
-                ) : null}
-
-                {job?.status === "failed" && job?.error && (
-                    <div className="mt-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 max-w-full">
-                        <h3 className="font-bold mb-1">{t("failed")}</h3>
-                        <p className="text-sm font-medium">{job.error.message}</p>
-
-                        {(() => {
-                            const details = job.error?.details;
-                            const detailsObj = (details && typeof details === "object") ? (details as Record<string, unknown>) : null;
-                            const httpStatus = detailsObj?.httpStatus;
-                            const outputTail = detailsObj?.outputTail;
-
-                            return (
-                                <div className="mt-3 space-y-2">
-                                    {httpStatus != null ? (
-                                        <div className="text-sm">
-                                            <span className="font-medium">HTTP 状态码：</span>
-                                            <span className="font-mono">{String(httpStatus)}</span>
-                                        </div>
-                                    ) : null}
-
-                                    {typeof outputTail === "string" && outputTail.trim() ? (
-                                        <div>
-                                            <div className="text-sm font-medium">yt-dlp 输出（截断）</div>
-                                            <pre className="mt-1 text-xs font-mono whitespace-pre-wrap overflow-auto bg-red-100/50 border border-red-200 rounded p-2">
-                                                {outputTail}
-                                            </pre>
-                                        </div>
-                                    ) : null}
-
-                                    <details className="text-xs">
-                                        <summary className="cursor-pointer">原始错误信息</summary>
-                                        <pre className="mt-1 font-mono whitespace-pre-wrap overflow-auto bg-red-100/50 border border-red-200 rounded p-2">
-                                            {JSON.stringify(job.error, null, 2)}
-                                        </pre>
-                                    </details>
-                                </div>
-                            );
-                        })()}
-                        <button
-                            onClick={() => router.push(`/projects`)}
-                            className="mt-4 px-4 py-2 bg-white border border-red-300 rounded shadow-sm hover:bg-red-50 text-sm font-medium"
-                        >
-                            {t("backToProjects")}
-                        </button>
-                    </div>
-                )}
-            </div>
+            <AnalysisProgressPanel
+                job={job}
+                logs={logs}
+                connectionMode={connectionMode}
+                projectId={projectId}
+                jobId={jobId}
+                showSuccessTransition={showSuccessTransition}
+                onResume={handleResume}
+                onCancel={handleCancel}
+                onNavigateToResult={duplicateBlocked ? navigateToResult : undefined}
+                isResuming={isResuming}
+                isCanceling={isCanceling}
+                actionError={actionError}
+            />
         </ResultLayout>
     );
 }

@@ -33,6 +33,8 @@
         "testing": "测试中...",
         "testSuccess": "连接测试成功！延迟: {latency}ms",
         "testFailed": "连接测试失败: {error}",
+        "expandProvider": "展开配置",
+        "collapseProvider": "收起配置",
         "availableProviders": "可用的模型提供方",
         "needsApiKey": "需要配置 API Key",
         "apiKeyConfigured": "API Key 已配置",
@@ -170,7 +172,22 @@
         },
         "progress": {
             "preparing": "准备中...",
-            "processing": "正在进行: {stage}...",
+            "processing": "正在{stage}…",
+            "loadingJob": "加载任务状态…",
+            "stepCounter": "步骤 {current} / {total}",
+            "stepperLabel": "分析进度步骤",
+            "connectionSse": "实时更新",
+            "connectionPolling": "轮询中",
+            "succeededTitle": "分析完成",
+            "succeededHint": "正在打开结果…",
+            "viewLogs": "查看运行日志",
+            "stages": {
+                "ingest": "导入视频",
+                "transcribe": "转写",
+                "analyze": "智能分析",
+                "extractKeyframes": "提取关键帧",
+                "assembleResult": "生成结果"
+            },
             "alreadyAnalyzedStatus": "已存在分析结果",
             "alreadyAnalyzedTitle": "该视频已分析过",
             "alreadyAnalyzedBody": "你可以直接查看已有分析结果，或选择重新分析以生成新的结果。",
@@ -183,7 +200,49 @@
             "resuming": "正在继续...",
             "cancel": "中断分析",
             "canceling": "正在中断...",
-            "backToProjects": "返回项目列表"
+            "backToProjects": "返回项目列表",
+            "error": {
+                "genericSummary": "分析任务未能完成",
+                "technicalDetails": "技术详情",
+                "httpStatus": "HTTP 状态码",
+                "ytdlpOutput": "yt-dlp 输出（截断）",
+                "timeoutDownload": {
+                    "summary": "下载视频超时",
+                    "suggestion": "请检查网络连接与视频链接是否有效。若为 B 站等平台，可在设置页上传 Cookies 后重试。"
+                },
+                "timeout": {
+                    "summary": "当前步骤执行超时",
+                    "suggestion": "请稍后重试；若反复失败，可尝试更换视频源或缩短视频时长。"
+                },
+                "contentBlocked": {
+                    "summary": "视频平台拒绝了访问",
+                    "suggestion": "请在设置页配置 yt-dlp Cookies，或尝试其他可访问的视频链接。"
+                },
+                "stageFailed": {
+                    "summary": "分析流水线执行失败",
+                    "suggestion": "请查看下方技术详情，修正配置后点击重试。"
+                },
+                "invalidUrl": {
+                    "summary": "视频链接无效或无法访问",
+                    "suggestion": "请确认 URL 格式正确，且视频在浏览器中可正常播放。"
+                },
+                "ffmpegMissing": {
+                    "summary": "缺少 FFmpeg",
+                    "suggestion": "请安装 FFmpeg 并确保已加入系统 PATH，然后重启后端服务。"
+                },
+                "ytdlpMissing": {
+                    "summary": "缺少 yt-dlp",
+                    "suggestion": "请安装 yt-dlp 并确保已加入系统 PATH，然后重启后端服务。"
+                },
+                "resourceExhausted": {
+                    "summary": "系统资源不足",
+                    "suggestion": "请关闭其他占用资源的程序，或稍后再试。"
+                },
+                "canceled": {
+                    "summary": "分析已中断",
+                    "suggestion": "你可以点击继续分析，从上次进度恢复。"
+                }
+            }
         },
         "notFound": "未找到分析结果"
     },

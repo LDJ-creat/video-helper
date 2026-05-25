@@ -7,6 +7,7 @@ import {
     updateProviderSecret,
     deleteProviderSecret,
     testActiveLlmSettings,
+    testProviderLlmSettings,
     fetchRemoteLlmModels,
     addCustomModel,
     deleteCustomModel,
@@ -87,6 +88,13 @@ export function useDeleteProviderSecret() {
 export function useTestActiveLlmSettings() {
     return useMutation({
         mutationFn: testActiveLlmSettings,
+    });
+}
+
+export function useTestProviderLlmSettings() {
+    return useMutation({
+        mutationFn: ({ providerId, modelId }: { providerId: string; modelId: string }) =>
+            testProviderLlmSettings(providerId, modelId),
     });
 }
 

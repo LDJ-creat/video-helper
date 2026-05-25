@@ -33,6 +33,8 @@
         "testing": "Testing...",
         "testSuccess": "Connection successful! Latency: {latency}ms",
         "testFailed": "Connection test failed: {error}",
+        "expandProvider": "Expand",
+        "collapseProvider": "Collapse",
         "availableProviders": "Available Model Providers",
         "needsApiKey": "Requires API Key",
         "apiKeyConfigured": "API Key configured",
@@ -170,7 +172,22 @@
         },
         "progress": {
             "preparing": "Preparing...",
-            "processing": "Processing: {stage}...",
+            "processing": "Working on {stage}…",
+            "loadingJob": "Loading job status…",
+            "stepCounter": "Step {current} of {total}",
+            "stepperLabel": "Analysis progress steps",
+            "connectionSse": "Live updates",
+            "connectionPolling": "Polling",
+            "succeededTitle": "Analysis complete",
+            "succeededHint": "Opening results…",
+            "viewLogs": "View run logs",
+            "stages": {
+                "ingest": "Import",
+                "transcribe": "Transcribe",
+                "analyze": "Analyze",
+                "extractKeyframes": "Keyframes",
+                "assembleResult": "Finalize"
+            },
             "alreadyAnalyzedStatus": "Existing result found",
             "alreadyAnalyzedTitle": "This video has already been analyzed",
             "alreadyAnalyzedBody": "You can view the existing result, or reanalyze to generate a new result.",
@@ -183,7 +200,49 @@
             "resuming": "Resuming...",
             "cancel": "Cancel Analysis",
             "canceling": "Canceling...",
-            "backToProjects": "Back to Projects"
+            "backToProjects": "Back to Projects",
+            "error": {
+                "genericSummary": "The analysis job could not be completed",
+                "technicalDetails": "Technical details",
+                "httpStatus": "HTTP status",
+                "ytdlpOutput": "yt-dlp output (truncated)",
+                "timeoutDownload": {
+                    "summary": "Video download timed out",
+                    "suggestion": "Check your network and URL. For some platforms, upload yt-dlp cookies in Settings and retry."
+                },
+                "timeout": {
+                    "summary": "The current step timed out",
+                    "suggestion": "Try again later, or use a different source or shorter video."
+                },
+                "contentBlocked": {
+                    "summary": "The platform blocked access",
+                    "suggestion": "Configure yt-dlp cookies in Settings, or try another accessible URL."
+                },
+                "stageFailed": {
+                    "summary": "The analysis pipeline failed",
+                    "suggestion": "See technical details below, fix the issue, then retry."
+                },
+                "invalidUrl": {
+                    "summary": "Invalid or unreachable video URL",
+                    "suggestion": "Verify the URL and that the video plays in your browser."
+                },
+                "ffmpegMissing": {
+                    "summary": "FFmpeg is not available",
+                    "suggestion": "Install FFmpeg, add it to PATH, and restart the backend."
+                },
+                "ytdlpMissing": {
+                    "summary": "yt-dlp is not available",
+                    "suggestion": "Install yt-dlp, add it to PATH, and restart the backend."
+                },
+                "resourceExhausted": {
+                    "summary": "System resources are exhausted",
+                    "suggestion": "Free up resources or try again later."
+                },
+                "canceled": {
+                    "summary": "Analysis was canceled",
+                    "suggestion": "You can resume from the last checkpoint."
+                }
+            }
         },
         "notFound": "Analysis result not found"
     },
