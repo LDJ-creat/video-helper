@@ -73,7 +73,10 @@
 			"title": "Video A",
 			"sourceType": "youtube",
 			"updatedAtMs": 1738030000000,
-			"latestResultId": "6a5c..."
+			"latestResultId": "6a5c...",
+			"categoryId": "00000000-0000-4000-8000-000000000001",
+			"categoryName": "默认",
+			"categorySlug": "default"
 		}
 	],
 	"nextCursor": "eyJ1cGRhdGVkQXRNcyI6MTczODAzMDAwMDAwMCwiaWQiOiIyZDJmLi4uIn0="
@@ -112,14 +115,29 @@ data: {"eventId":"13","tsMs":1738030000456,"jobId":"...","projectId":"...","stag
 
 ## 业务逻辑接口
 
-### 1) 项目（Project / Video Note）
+### 1) 项目类别（Category）
 
-- 创建项目接口：创建一个“视频笔记项目”，用于承载后续分析结果与用户编辑内容。
-- 获取项目列表接口（分页查询）：用于展示“不同视频对应的笔记列表”。
-- 获取项目详情接口：用于获取项目元信息（标题、来源、更新时间、latest_result 指针等）。
+- 获取类别列表：`GET /api/v1/categories`
+- 创建类别：`POST /api/v1/categories` Body `{ "name": "教程" }`
+- 重命名类别：`PATCH /api/v1/categories/{categoryId}` Body `{ "name": "新名称" }`
+- 删除类别：`DELETE /api/v1/categories/{categoryId}`（系统默认类不可删；非空类返回 409）
+
+`CategoryDTO`：`{ categoryId, name, slug, isSystem, projectCount }`
+
+系统默认类：`slug=default`，`categoryId=00000000-0000-4000-8000-000000000001`。历史项目迁移后均有 `categoryId`。
+
+### 2) 项目（Project / Video Note）
+
+- 创建项目接口：创建一个“视频笔记项目”，用于承载后续分析结果与用户编辑内容（通常由 `POST /jobs` 自动创建）。
+- 获取项目列表接口（分页查询）：`GET /api/v1/projects?categoryId=...`（可选按类筛选）。
+- 获取项目详情接口：用于获取项目元信息（标题、来源、类别、更新时间、latest_result 指针等）。
+- 修改项目类别：`PATCH /api/v1/projects/{projectId}` Body `{ "categoryId": "..." }`
+- 批量修改类别：`PATCH /api/v1/projects/category-batch` Body `{ "projectIds": ["..."], "categoryId": "..." }`（最多 100 条）
 - 删除项目接口：删除单个视频笔记项目（包含其数据与资源）。
 
-### 2) 分析任务（Job：长任务统一模型）
+列表项扩展字段：`categoryId`, `categoryName`, `categorySlug`（`slug=default` 时前端可用 i18n 显示「默认」）。
+
+### 3) 分析任务（Job：长任务统一模型）
 
 - 创建分析任务接口（创建 Job）：输入为视频来源（YouTube/B站 URL 或本地文件路径/上传资源引用等），后端异步执行分析。
 - 查询分析任务状态接口（轮询 Job，降级方案）：返回任务状态（queued/running/succeeded/failed/canceled）、进度 progress、stage、错误信息等。
@@ -144,15 +162,20 @@ data: {"eventId":"13","tsMs":1738030000456,"jobId":"...","projectId":"...","stag
 {
 	"sourceType": "youtube",
 	"sourceUrl": "https://www.youtube.com/watch?v=...",
-	"title": "optional"
+	"title": "optional",
+	"categoryId": "optional-uuid"
 }
 ```
+
+- `categoryId` 可选；缺省时使用系统默认类。
+- 若 URL 对应项目已存在（去重复用），**不会**因本次请求的 `categoryId` 覆盖已有项目的类别。
 
 2) `multipart/form-data`（上传文件）
 
 - `sourceType`: 固定为 `upload`
 - `file`: 视频文件
 - `title`: optional
+- `categoryId`: optional
 
 响应（两种方式一致）：
 
@@ -733,6 +756,7 @@ vNext 使用 SQLite：
 - `source_asset_id` TEXT      -- 如果是 upload_asset，则引用 assets.id
 - `duration_ms` INTEGER
 - `latest_result_id` TEXT     -- 指向 results.id
+- `category_id` TEXT          -- 指向 project_categories.id
 - `created_at` INTEGER NOT NULL
 - `updated_at` INTEGER NOT NULL
 - `deleted_at` INTEGER
@@ -741,6 +765,15 @@ vNext 使用 SQLite：
 
 - `projects(updated_at)`
 - `projects(source_type)`
+- `projects(category_id)`
+
+## 1b) project_categories（项目类别）
+
+- `id` / `category_id` TEXT PRIMARY KEY
+- `name` TEXT NOT NULL UNIQUE
+- `slug` TEXT NOT NULL UNIQUE
+- `is_system` INTEGER NOT NULL
+- `created_at_ms` / `updated_at_ms` INTEGER NOT NULL
 
 ## 2) jobs（长任务）
 
