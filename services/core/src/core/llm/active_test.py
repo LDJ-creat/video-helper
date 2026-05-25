@@ -108,39 +108,66 @@ def run_llm_connectivity_test(
 		version = (os.environ.get("ANTHROPIC_VERSION") or "2023-06-01").strip() or "2023-06-01"
 		payload: dict[str, Any] = {
 			"model": model,
-			"max_tokens": 16,
-			"messages": [{"role": "user", "content": "ping"}],
+			"max_tokens": 2,
+			"stream": True,
+			"messages": [{"role": "user", "content": "Reply with only the letter 'O'."}],
 		}
 		headers = {
 			"x-api-key": api_key,
 			"anthropic-version": version,
 			"Content-Type": "application/json",
-			"Accept": "application/json",
+			"Accept": "text/event-stream",
 		}
 	else:
 		payload = {
 			"model": model,
-			"messages": [{"role": "user", "content": "ping"}],
+			"max_tokens": 2,
+			"stream": True,
+			"messages": [{"role": "user", "content": "Reply with only the letter 'O'."}],
 		}
 		headers = {
 			"Authorization": f"Bearer {api_key}",
 			"Content-Type": "application/json",
-			"Accept": "application/json",
+			"Accept": "text/event-stream",
 		}
 
-	client = httpx.Client(timeout=timeout, transport=transport, headers=headers)
+	_t_payload = time.perf_counter()
+	logger.info(
+		"LLM connectivity test payload-built host=%s payload_ms=%.1f",
+		_safe_host_for_log(base_url),
+		(_t_payload - start) * 1000,
+	)
+
+	# trust_env=False: skip Windows WPAD / system proxy detection which can add ~2s latency
+	client = httpx.Client(timeout=timeout, transport=transport, headers=headers, trust_env=False)
+	_t_client = time.perf_counter()
+	logger.info(
+		"LLM connectivity test client-created host=%s client_init_ms=%.1f total_so_far=%.1f",
+		_safe_host_for_log(base_url),
+		(_t_client - _t_payload) * 1000,
+		(_t_client - start) * 1000,
+	)
 	try:
-		resp = client.post(url, json=payload)
-		elapsed_ms = int((time.perf_counter() - start) * 1000)
+		# Use streaming: only wait for the first chunk to confirm connectivity.
+		# This avoids waiting for the full response body (reasoning models can
+		# take 10+ seconds to complete generation, but connectivity is confirmed
+		# as soon as the first byte arrives).
+		status: int = 0
+		with client.stream("POST", url, json=payload) as stream:
+			status = stream.status_code
+			# Read just the first chunk to confirm the connection works.
+			# For error responses (4xx/5xx) the body may be empty, which is fine.
+			for _ in stream.iter_bytes():
+				break
+		elapsed_ms = int((time.perf_counter() - _t_client) * 1000)
 		logger.info(
-			"LLM connectivity test response host=%s status=%s elapsed_ms=%s body_len=%s",
+			"LLM connectivity test response host=%s status=%s elapsed_ms=%s (streaming, first-chunk)",
 			_safe_host_for_log(base_url),
-			resp.status_code,
+			status,
 			elapsed_ms,
-			len(resp.text or ""),
 		)
 	except httpx.ReadTimeout as e:
-		elapsed_ms = int((time.perf_counter() - start) * 1000)
+		elapsed_ms = int((time.perf_counter() - _t_client) * 1000)
 		logger.error(
 			"LLM connectivity test READ TIMEOUT host=%s post_url=%s model=%s elapsed_ms=%s timeout_read_s=%.1f "
 			"err_type=%s err=%s (upstream slow or stalled; try LLM_CONNECTIVITY_TEST_TIMEOUT_S, e.g. 90)",
@@ -154,7 +181,7 @@ def run_llm_connectivity_test(
 		)
 		raise LLMActiveTestError(reason="provider_unavailable") from e
 	except httpx.ConnectTimeout as e:
-		elapsed_ms = int((time.perf_counter() - start) * 1000)
+		elapsed_ms = int((time.perf_counter() - _t_client) * 1000)
 		logger.error(
 			"LLM connectivity test CONNECT TIMEOUT host=%s post_url=%s elapsed_ms=%s timeout_connect_s=%.1f err_type=%s err=%s",
 			_safe_host_for_log(base_url),
@@ -166,7 +193,7 @@ def run_llm_connectivity_test(
 		)
 		raise LLMActiveTestError(reason="provider_unavailable") from e
 	except httpx.TimeoutException as e:
-		elapsed_ms = int((time.perf_counter() - start) * 1000)
+		elapsed_ms = int((time.perf_counter() - _t_client) * 1000)
 		logger.error(
 			"LLM connectivity test OTHER TIMEOUT host=%s post_url=%s model=%s elapsed_ms=%s err_type=%s err=%s",
 			_safe_host_for_log(base_url),
@@ -178,7 +205,7 @@ def run_llm_connectivity_test(
 		)
 		raise LLMActiveTestError(reason="provider_unavailable") from e
 	except httpx.RequestError as e:
-		elapsed_ms = int((time.perf_counter() - start) * 1000)
+		elapsed_ms = int((time.perf_counter() - _t_client) * 1000)
 		logger.error(
 			"LLM connectivity test REQUEST ERROR host=%s post_url=%s model=%s elapsed_ms=%s err_type=%s err=%s",
 			_safe_host_for_log(base_url),
@@ -192,8 +219,7 @@ def run_llm_connectivity_test(
 	finally:
 		client.close()
 
-	latency_ms = int((time.perf_counter() - start) * 1000)
-	status = int(resp.status_code)
+	latency_ms = int((time.perf_counter() - _t_client) * 1000)
 	if status == 401:
 		raise LLMActiveTestError(reason="invalid_credentials")
 	if status == 403:
