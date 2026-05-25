@@ -167,7 +167,10 @@ jobs:
             exit 1
           fi
 
-          read -r width height < <(identify -format '%w %h' "$icon_png")
+          dims="$(identify -format '%w %h' "$icon_png")"
+          width="${dims%% *}"
+          height="${dims##* }"
+          echo "[linux-icon] dimensions=${width}x${height}"
           if [ "$width" -lt 256 ] || [ "$height" -lt 256 ]; then
             echo "::error::Linux icon must be at least 256x256, got ${width}x${height}" >&2
             exit 1
