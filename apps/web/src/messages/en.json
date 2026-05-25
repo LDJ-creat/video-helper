@@ -313,6 +313,10 @@
         "loading": "Loading...",
         "editorTitle": "Note Editor",
         "words": "words",
+        "exportMarkdown": "Export Markdown",
+        "exportEmpty": "No notes to export",
+        "exportDocumentTitle": "Video Notes: {title}",
+        "exportExportedAt": "Exported at",
         "saving": "Saving...",
         "saved": "✔ Saved",
         "saveFailed": "Save Failed"

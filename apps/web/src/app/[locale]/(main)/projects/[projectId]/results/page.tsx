@@ -154,7 +154,9 @@ export default function ResultPage() {
     const resultIs404 = !!resultError;
     const needsJobDiscovery = resultEnabled && resultIs404 && !jobId;
 
-    const { data: projectDetail, isLoading: projectDetailLoading } = useProjectDetail(projectId, { enabled: needsJobDiscovery });
+    const { data: projectDetail, isLoading: projectDetailLoading } = useProjectDetail(projectId, {
+        enabled: needsJobDiscovery || !!result,
+    });
     const discoveredJobId = projectDetail?.latestJobId;
 
     // Refs
@@ -333,6 +335,7 @@ export default function ResultPage() {
                             <NoteEditor
                                 ref={noteEditorRef}
                                 projectId={projectId}
+                                projectTitle={projectDetail?.title}
                                 resultId={result.resultId}
                                 contentBlocks={result.contentBlocks || []}
                                 onBlockNavigation={handleSeek}

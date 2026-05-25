@@ -313,6 +313,10 @@
         "loading": "加载中...",
         "editorTitle": "笔记编辑器",
         "words": "词",
+        "exportMarkdown": "导出 Markdown",
+        "exportEmpty": "暂无笔记内容可导出",
+        "exportDocumentTitle": "视频笔记：{title}",
+        "exportExportedAt": "导出时间",
         "saving": "保存中...",
         "saved": "✔ 已保存",
         "saveFailed": "保存失败"
