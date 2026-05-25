@@ -198,6 +198,13 @@ function getResourcesPath(): string {
     return process.resourcesPath;
 }
 
+function getWindowIconPath(): string {
+    const iconDir = path.join(getResourcesPath(), 'icons');
+    return process.platform === 'win32'
+        ? path.join(iconDir, 'icon.ico')
+        : path.join(iconDir, '1024x1024.png');
+}
+
 function getBackendExePath(): string {
     if (isDev) {
         return path.join(getResourcesPath(), 'services', 'core');
@@ -437,6 +444,7 @@ function createWindow(): void {
         width: 1440, height: 900,
         minWidth: 1024, minHeight: 600,
         title: 'Video Helper',
+        icon: getWindowIconPath(),
         webPreferences: {
             preload: path.join(__dirname, 'preload.js'),
             contextIsolation: true,

@@ -12,6 +12,7 @@
         "dev": "concurrently \"pnpm compile:watch\" \"electron .\"",
         "compile": "tsc -p tsconfig.json",
         "compile:watch": "tsc -p tsconfig.json --watch",
+        "build-icons": "electron-icon-builder --input=./resources/icon.png --output=./resources --flatten",
         "build": "pnpm compile && electron-builder",
         "pack": "pnpm compile && electron-builder --dir"
     },
@@ -24,6 +25,7 @@
         "concurrently": "^8.2.0",
         "electron": "^41.0.2",
         "electron-builder": "^25.0.0",
+        "electron-icon-builder": "^2.0.1",
         "typescript": "^5.3.0"
     },
     "build": {
@@ -49,6 +51,13 @@
             {
                 "from": "resources/backend",
                 "to": "backend",
+                "filter": [
+                    "**/*"
+                ]
+            },
+            {
+                "from": "resources/icons",
+                "to": "icons",
                 "filter": [
                     "**/*"
                 ]
@@ -94,11 +103,11 @@
                     ]
                 }
             ],
-            "icon": "resources/icon.ico"
+            "icon": "resources/icons/icon.ico"
         },
         "mac": {
             "artifactName": "Video-Helper-${version}-mac-${arch}.${ext}",
-            "icon": "resources/icon.icns",
+            "icon": "resources/icons/icon.icns",
             "target": [
                 "dmg",
                 "zip"
@@ -106,7 +115,7 @@
         },
         "linux": {
             "artifactName": "Video-Helper-${version}-linux-${arch}.${ext}",
-            "icon": "resources/icon.png",
+            "icon": "resources/icons/1024x1024.png",
             "target": [
                 "AppImage",
                 "tar.gz"
