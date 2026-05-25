@@ -117,12 +117,14 @@ def init_db() -> None:
 	from core.db.base import Base
 	from core.db.models.asset import Asset  # noqa: F401
 	from core.db.models.job import Job  # noqa: F401
-	from core.db.models.llm_settings import LLMActive, LLMProfileSecret  # noqa: F401
+	from core.db.models.llm_settings import LLMActive, LLMProfileSecret, LLMProviderOverride  # noqa: F401
 	from core.db.models.project import Project  # noqa: F401
+	from core.db.models.project_category import ProjectCategory  # noqa: F401
 	from core.db.models.result import Result  # noqa: F401
 
 	Base.metadata.create_all(bind=get_engine())
 	_ensure_sqlite_schema_compat()
+	_bootstrap_categories()
 
 
 def _ensure_sqlite_schema_compat() -> None:
@@ -257,6 +259,82 @@ def _ensure_sqlite_schema_compat() -> None:
 		if "note_json" not in result_cols:
 			# If old DB already had note column but not note_json, we keep it via rebuild above.
 			conn.execute(text("ALTER TABLE results ADD COLUMN note_json TEXT NOT NULL DEFAULT '{}'"))
+
+		# project_categories table + projects.category_id
+		from core.db.constants.categories import (
+			DEFAULT_CATEGORY_ID,
+			DEFAULT_CATEGORY_NAME,
+			DEFAULT_CATEGORY_SLUG,
+		)
+
+		tables = [
+			row[0]
+			for row in conn.execute(
+				text("SELECT name FROM sqlite_master WHERE type='table'")
+			).all()
+		]
+		if "project_categories" not in tables:
+			conn.execute(
+				text(
+					"""
+					CREATE TABLE project_categories (
+						category_id TEXT PRIMARY KEY,
+						name TEXT NOT NULL UNIQUE,
+						slug TEXT NOT NULL UNIQUE,
+						is_system INTEGER NOT NULL DEFAULT 0,
+						created_at_ms INTEGER NOT NULL,
+						updated_at_ms INTEGER NOT NULL
+					)
+					"""
+				)
+			)
+
+		try:
+			proj_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(projects)"))]
+		except Exception:
+			return
+
+		if "category_id" not in proj_cols:
+			conn.execute(text("ALTER TABLE projects ADD COLUMN category_id TEXT"))
+
+		now_ms = int(__import__("time").time() * 1000)
+		existing_default = conn.execute(
+			text("SELECT category_id FROM project_categories WHERE category_id = :id"),
+			{"id": DEFAULT_CATEGORY_ID},
+		).first()
+		if existing_default is None:
+			conn.execute(
+				text(
+					"""
+					INSERT INTO project_categories (
+						category_id, name, slug, is_system, created_at_ms, updated_at_ms
+					) VALUES (:id, :name, :slug, 1, :now, :now)
+					"""
+				),
+				{
+					"id": DEFAULT_CATEGORY_ID,
+					"name": DEFAULT_CATEGORY_NAME,
+					"slug": DEFAULT_CATEGORY_SLUG,
+					"now": now_ms,
+				},
+			)
+
+		conn.execute(
+			text(
+				"UPDATE projects SET category_id = :default_id WHERE category_id IS NULL"
+			),
+			{"default_id": DEFAULT_CATEGORY_ID},
+		)
+
+
+def _bootstrap_categories() -> None:
+	from core.db.repositories.categories import backfill_projects_default_category, ensure_default_category
+
+	SessionLocal = get_sessionmaker()
+	with SessionLocal() as session:
+		ensure_default_category(session)
+		backfill_projects_default_category(session)
+		session.commit()
 
 
 def get_db_session() -> Generator[Session, None, None]:

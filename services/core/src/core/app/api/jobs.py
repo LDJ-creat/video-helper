@@ -20,6 +20,8 @@ from core.contracts.stages import PublicStage, to_public_stage
 from core.app.sse.event_bus import GLOBAL_JOB_EVENT_BUS
 from core.app.metadata.video_metadata import MetadataError, extract_video_metadata
 from core.db.repositories.llm_settings import get_llm_active, get_llm_provider_secret_ciphertext, get_custom_provider
+from core.llm.provider_profile import get_resolved_builtin_base_url
+from core.db.repositories.categories import CategoryNameValidationError, resolve_category_id
 from core.db.repositories.jobs import get_job_by_id
 from core.db.models.job import Job
 from core.db.models.project import Project
@@ -308,7 +310,7 @@ async def _llm_preflight_or_error(request: Request, session: Session) -> JSONRes
 			else:
 				runtime_model = model_id
 		else:
-			base_url = provider.base_url
+			base_url = get_resolved_builtin_base_url(session, provider_id=provider_id) or provider.base_url
 			runtime_model = resolve_runtime_model_name(provider_id=provider.provider_id, model_id=model_id)
 
 		if not runtime_model:
@@ -384,6 +386,33 @@ async def _llm_preflight_or_error(request: Request, session: Session) -> JSONRes
 			content=build_error_envelope(
 				code=ErrorCode.VALIDATION_ERROR,
 				message="LLM preflight failed",
+				details={"reason": e.reason},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
+
+def _resolve_category_or_error(
+	request: Request, session: Session, category_id: str | None
+) -> str | JSONResponse:
+	try:
+		return resolve_category_id(session, category_id)
+	except CategoryNameValidationError as e:
+		if e.reason == "not_found":
+			return JSONResponse(
+				status_code=404,
+				content=build_error_envelope(
+					code=ErrorCode.CATEGORY_NOT_FOUND,
+					message="Category does not exist",
+					details={"categoryId": category_id},
+					request_id=getattr(request.state, "request_id", None),
+				),
+			)
+		return JSONResponse(
+			status_code=400,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message="Invalid category",
 				details={"reason": e.reason},
 				request_id=getattr(request.state, "request_id", None),
 			),
@@ -498,6 +527,10 @@ async def create_job(request: Request, session: Session = Depends(get_db_session
 			if preflight is not None:
 				return preflight
 
+		resolved_category = _resolve_category_or_error(request, session, req.categoryId)
+		if isinstance(resolved_category, JSONResponse):
+			return resolved_category
+
 		now_ms = _now_ms()
 		canonical_url = _canonical_source_url(source_type, req.sourceUrl)
 
@@ -545,12 +578,14 @@ async def create_job(request: Request, session: Session = Depends(get_db_session
 				duration_ms=None,
 				format=None,
 				latest_result_id=None,
+				category_id=resolved_category,
 				created_at_ms=now_ms,
 				updated_at_ms=now_ms,
 			)
 			session.add(project)
 		else:
 			# Keep stored URL canonical and fill missing title opportunistically.
+			# Do not update category_id when reusing an existing project.
 			changed = False
 			if isinstance(canonical_url, str) and canonical_url and existing.source_url != canonical_url:
 				existing.source_url = canonical_url
@@ -665,6 +700,12 @@ async def create_job(request: Request, session: Session = Depends(get_db_session
 			if preflight is not None:
 				return preflight
 
+		category_raw = form.get("categoryId")
+		category_id_form = str(category_raw).strip() if category_raw not in (None, "") else None
+		resolved_category = _resolve_category_or_error(request, session, category_id_form)
+		if isinstance(resolved_category, JSONResponse):
+			return resolved_category
+
 		now_ms = _now_ms()
 		project_id = str(uuid.uuid4())
 		job_id = str(uuid.uuid4())
@@ -723,6 +764,7 @@ async def create_job(request: Request, session: Session = Depends(get_db_session
 			duration_ms=meta.duration_ms,
 			format=meta.format,
 			latest_result_id=None,
+			category_id=resolved_category,
 			created_at_ms=now_ms,
 			updated_at_ms=now_ms,
 		)
