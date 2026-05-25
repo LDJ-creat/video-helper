@@ -16,24 +16,31 @@ function stepState(index: number, currentIndex: number): StepState {
     return "upcoming";
 }
 
-export function AnalysisStepper({ currentStage }: { currentStage: string | undefined }) {
+export function AnalysisStepper({
+    currentStage,
+    size = "md",
+}: {
+    currentStage: string | undefined;
+    size?: "md" | "lg";
+}) {
     const t = useTranslations("Results.progress");
     const currentIndex = getPublicStageIndex(currentStage);
+    const isLarge = size === "lg";
 
     return (
         <div className="w-full">
             {/* Mobile: compact */}
-            <div className="sm:hidden text-center mb-4">
-                <p className="text-xs text-stone-500">
+            <div className={`sm:hidden text-center ${isLarge ? "mb-5" : "mb-4"}`}>
+                <p className={`${isLarge ? "text-sm" : "text-xs"} text-stone-500`}>
                     {t("stepCounter", { current: currentIndex + 1, total: PUBLIC_STAGES_ORDER.length })}
                 </p>
-                <p className="text-sm font-semibold text-stone-900 mt-1">
+                <p className={`${isLarge ? "text-base" : "text-sm"} font-semibold text-stone-900 mt-1`}>
                     {t(`stages.${PUBLIC_STAGE_I18N_KEY[PUBLIC_STAGES_ORDER[currentIndex] as PublicStage]}`)}
                 </p>
             </div>
 
             {/* Desktop: full stepper */}
-            <ol className="hidden sm:flex items-start justify-between gap-1 w-full" aria-label={t("stepperLabel")}>
+            <ol className="hidden sm:flex items-start justify-between gap-2 w-full" aria-label={t("stepperLabel")}>
                 {PUBLIC_STAGES_ORDER.map((stage, index) => {
                     const state = stepState(index, currentIndex);
                     const label = t(`stages.${PUBLIC_STAGE_I18N_KEY[stage]}`);
@@ -46,14 +53,16 @@ export function AnalysisStepper({ currentStage }: { currentStage: string | undef
                             <div className="flex items-center w-full">
                                 {index > 0 ? (
                                     <div
-                                        className={`h-0.5 flex-1 ${index <= currentIndex ? "bg-orange-400" : "bg-stone-200"}`}
+                                        className={`${isLarge ? "h-1" : "h-0.5"} flex-1 ${index <= currentIndex ? "bg-orange-400" : "bg-stone-200"}`}
                                         aria-hidden
                                     />
                                 ) : (
                                     <div className="flex-1" aria-hidden />
                                 )}
                                 <span
-                                    className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold border-2 ${
+                                    className={`flex-shrink-0 rounded-full flex items-center justify-center font-semibold border-2 ${
+                                        isLarge ? "w-10 h-10 text-sm" : "w-7 h-7 text-xs"
+                                    } ${
                                         state === "completed"
                                             ? "bg-orange-500 border-orange-500 text-white"
                                             : state === "current"
@@ -62,7 +71,7 @@ export function AnalysisStepper({ currentStage }: { currentStage: string | undef
                                     }`}
                                 >
                                     {state === "completed" ? (
-                                        <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20" aria-hidden>
+                                        <svg className={`${isLarge ? "w-5 h-5" : "w-3.5 h-3.5"}`} fill="currentColor" viewBox="0 0 20 20" aria-hidden>
                                             <path
                                                 fillRule="evenodd"
                                                 d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
@@ -75,7 +84,7 @@ export function AnalysisStepper({ currentStage }: { currentStage: string | undef
                                 </span>
                                 {index < PUBLIC_STAGES_ORDER.length - 1 ? (
                                     <div
-                                        className={`h-0.5 flex-1 ${index < currentIndex ? "bg-orange-400" : "bg-stone-200"}`}
+                                        className={`${isLarge ? "h-1" : "h-0.5"} flex-1 ${index < currentIndex ? "bg-orange-400" : "bg-stone-200"}`}
                                         aria-hidden
                                     />
                                 ) : (
@@ -83,7 +92,7 @@ export function AnalysisStepper({ currentStage }: { currentStage: string | undef
                                 )}
                             </div>
                             <span
-                                className={`mt-2 text-[11px] font-medium text-center leading-tight px-0.5 ${
+                                className={`${isLarge ? "mt-3 text-sm" : "mt-2 text-[11px]"} font-medium text-center leading-tight px-0.5 ${
                                     state === "current" ? "text-orange-700" : state === "completed" ? "text-stone-600" : "text-stone-400"
                                 }`}
                             >

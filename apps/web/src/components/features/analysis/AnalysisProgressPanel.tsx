@@ -69,17 +69,20 @@ export function AnalysisProgressPanel({
     const connectionLabel =
         connectionMode === "sse" ? t("connectionSse") : connectionMode === "polling" ? t("connectionPolling") : null;
 
+    const isLarge = variant === "default";
     const containerClass =
         variant === "compact"
             ? "w-full space-y-5"
-            : "flex flex-col items-center justify-center min-h-[50vh] max-w-2xl mx-auto p-6 w-full space-y-6";
+            : "flex flex-col items-center justify-center min-h-[55vh] max-w-4xl mx-auto px-8 py-10 w-full space-y-8";
 
     if (viewMode === "loading" || !job) {
         return (
             <div className={containerClass}>
-                <div className="flex flex-col items-center gap-3 py-12">
-                    <div className="w-8 h-8 border-2 border-stone-200 border-t-orange-500 rounded-full animate-spin" />
-                    <p className="text-sm text-stone-500">{t("loadingJob")}</p>
+                <div className={`flex flex-col items-center ${isLarge ? "gap-4" : "gap-3"} py-12`}>
+                    <div
+                        className={`${isLarge ? "w-10 h-10 border-[3px]" : "w-8 h-8 border-2"} border-stone-200 border-t-orange-500 rounded-full animate-spin`}
+                    />
+                    <p className={`${isLarge ? "text-base" : "text-sm"} text-stone-500`}>{t("loadingJob")}</p>
                 </div>
             </div>
         );
@@ -88,9 +91,9 @@ export function AnalysisProgressPanel({
     if (successVisible && (viewMode === "succeeded" || showSuccessTransition)) {
         return (
             <div className={containerClass}>
-                <div className="flex flex-col items-center gap-4 py-12 text-center">
-                    <div className="w-14 h-14 rounded-full bg-emerald-100 flex items-center justify-center">
-                        <svg className="w-8 h-8 text-emerald-600" fill="currentColor" viewBox="0 0 20 20" aria-hidden>
+                <div className={`flex flex-col items-center ${isLarge ? "gap-5" : "gap-4"} py-12 text-center`}>
+                    <div className={`${isLarge ? "w-16 h-16" : "w-14 h-14"} rounded-full bg-emerald-100 flex items-center justify-center`}>
+                        <svg className={`${isLarge ? "w-9 h-9" : "w-8 h-8"} text-emerald-600`} fill="currentColor" viewBox="0 0 20 20" aria-hidden>
                             <path
                                 fillRule="evenodd"
                                 d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
@@ -98,8 +101,8 @@ export function AnalysisProgressPanel({
                             />
                         </svg>
                     </div>
-                    <h2 className="text-xl font-semibold text-stone-900">{t("succeededTitle")}</h2>
-                    <p className="text-sm text-stone-500">{t("succeededHint")}</p>
+                    <h2 className={`${isLarge ? "text-2xl" : "text-xl"} font-semibold text-stone-900`}>{t("succeededTitle")}</h2>
+                    <p className={`${isLarge ? "text-base" : "text-sm"} text-stone-500`}>{t("succeededHint")}</p>
                 </div>
             </div>
         );
@@ -109,7 +112,7 @@ export function AnalysisProgressPanel({
         <div className={containerClass}>
             {connectionLabel && viewMode === "running" ? (
                 <div className="w-full flex justify-end">
-                    <span className="text-xs text-stone-500 px-2 py-0.5 rounded-full bg-stone-100 border border-stone-200">
+                    <span className={`${isLarge ? "text-sm px-3 py-1" : "text-xs px-2 py-0.5"} text-stone-500 rounded-full bg-stone-100 border border-stone-200`}>
                         {connectionLabel}
                     </span>
                 </div>
@@ -117,10 +120,10 @@ export function AnalysisProgressPanel({
 
             {viewMode === "running" && (
                 <>
-                    <AnalysisStepper currentStage={job.stage} />
-                    <AnalysisProgressBar percent={progressPercent} stageLabel={stageLabel} animated />
+                    <AnalysisStepper currentStage={job.stage} size={isLarge ? "lg" : "md"} />
+                    <AnalysisProgressBar percent={progressPercent} stageLabel={stageLabel} animated size={isLarge ? "lg" : "md"} />
                     {userLog ? (
-                        <p className="w-full text-stone-600 text-sm bg-stone-50 px-4 py-2 rounded-xl border border-stone-200">
+                        <p className={`w-full text-stone-600 bg-stone-50 rounded-xl border border-stone-200 ${isLarge ? "text-base px-5 py-3" : "text-sm px-4 py-2"}`}>
                             {userLog}
                         </p>
                     ) : null}
@@ -129,7 +132,7 @@ export function AnalysisProgressPanel({
                             type="button"
                             onClick={onCancel}
                             disabled={isCanceling}
-                            className="px-4 py-2 bg-white border border-stone-300 rounded-xl shadow-sm hover:bg-stone-50 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium text-stone-700"
+                            className={`bg-white border border-stone-300 rounded-xl shadow-sm hover:bg-stone-50 disabled:opacity-50 disabled:cursor-not-allowed font-medium text-stone-700 ${isLarge ? "px-6 py-2.5 text-base" : "px-4 py-2 text-sm"}`}
                         >
                             {isCanceling ? t("canceling") : t("cancel")}
                         </button>
