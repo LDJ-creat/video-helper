@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 import os
 import random
@@ -17,6 +18,8 @@ from core.app.pipeline.llm_json_repair import repair_json_with_llm, _read_dump_r
 from core.contracts.error_codes import ErrorCode
 from core.db.session import get_data_dir
 from core.storage.safe_paths import PathTraversalBlockedError
+
+logger = logging.getLogger(__name__)
 
 
 CHUNKING_VERSION = 1
@@ -481,13 +484,13 @@ def _get_thread_provider(*, transport: object | None = None) -> AnalyzeProvider:
     return resolved
 
 
-def _call_llm_with_backoff(*, provider: AnalyzeProvider, task: str, messages: list[dict]) -> dict:
+def _call_llm_with_backoff(*, provider: AnalyzeProvider, task: str, messages: list[dict], max_tokens: int | None = None) -> dict:
     max_attempts = _clamp_int(_env_int("CHUNK_LLM_MAX_ATTEMPTS", 3), 1, 10)
     attempt = 0
     while True:
         attempt += 1
         try:
-            return provider.generate_json(task, {"messages": messages})
+            return provider.generate_json(task, {"messages": messages}, max_tokens=max_tokens)
         except AnalyzeError as e:
             # Retry on rate limit/upstream for chunk summaries only.
             reason = str((e.details or {}).get("reason") or "")
@@ -501,251 +504,288 @@ def _call_llm_with_backoff(*, provider: AnalyzeProvider, task: str, messages: li
 
 
 def ensure_chunk_summaries(
-    *,
-    project_id: str,
-    job_id: str,
-    transcript: dict,
-    transcript_meta: dict | None,
-    output_language: str | None,
-    duration_ms: int | None = None,
-    llm_transport: object | None = None,
+	*,
+	project_id: str,
+	job_id: str,
+	transcript: dict,
+	transcript_meta: dict | None,
+	output_language: str | None,
+	duration_ms: int | None = None,
+	llm_transport: object | None = None,
 ) -> list[dict]:
-    """Compute (or reuse) chunk summaries for long-video planning.
+	"""Compute (or reuse) chunk summaries for long-video planning.
 
-    Persistence layout:
-      DATA_DIR/<projectId>/artifacts/<jobId>/chunk_summaries/
-        manifest.json
-        chunk_<chunkId>.json
+	Persistence layout:
+	  DATA_DIR/<projectId>/artifacts/<jobId>/chunk_summaries/
+	    manifest.json
+	    chunk_<chunkId>.json
 
-    The function is deterministic w.r.t transcript + window settings.
-    """
+	The function is deterministic w.r.t transcript + window settings.
+	"""
+	t_start = time.perf_counter()
 
-    data_dir = get_data_dir().resolve()
-    base_dir = (data_dir / project_id / "artifacts" / job_id / "chunk_summaries").resolve()
-    if not base_dir.is_relative_to(data_dir):
-        raise PathTraversalBlockedError("chunk summaries dir escapes DATA_DIR")
-    base_dir.mkdir(parents=True, exist_ok=True)
+	data_dir = get_data_dir().resolve()
+	base_dir = (data_dir / project_id / "artifacts" / job_id / "chunk_summaries").resolve()
+	if not base_dir.is_relative_to(data_dir):
+		raise PathTraversalBlockedError("chunk summaries dir escapes DATA_DIR")
+	base_dir.mkdir(parents=True, exist_ok=True)
 
-    transcript_sha = None
-    if isinstance(transcript_meta, dict) and isinstance(transcript_meta.get("sha256"), str):
-        transcript_sha = transcript_meta.get("sha256")
+	transcript_sha = None
+	if isinstance(transcript_meta, dict) and isinstance(transcript_meta.get("sha256"), str):
+		transcript_sha = transcript_meta.get("sha256")
 
-    if duration_ms is None:
-        duration_ms = estimate_duration_ms(transcript=transcript, transcript_meta=transcript_meta)
+	if duration_ms is None:
+		duration_ms = estimate_duration_ms(transcript=transcript, transcript_meta=transcript_meta)
 
-    window_ms, chunks = chunk_transcript_segments(transcript=transcript, duration_ms=duration_ms)
-    if not chunks:
-        return []
+	window_ms, chunks = chunk_transcript_segments(transcript=transcript, duration_ms=duration_ms)
+	if not chunks:
+		return []
 
-    manifest_path = (base_dir / "manifest.json").resolve()
-    if not manifest_path.is_relative_to(data_dir):
-        raise PathTraversalBlockedError("chunk summaries manifest escapes DATA_DIR")
+	manifest_path = (base_dir / "manifest.json").resolve()
+	if not manifest_path.is_relative_to(data_dir):
+		raise PathTraversalBlockedError("chunk summaries manifest escapes DATA_DIR")
 
-    effective_lang = (output_language or "").strip() or "auto"
+	effective_lang = (output_language or "").strip() or "auto"
 
-    force_regen = _env_bool("CHUNK_SUMMARY_FORCE_REGEN", False)
+	force_regen = _env_bool("CHUNK_SUMMARY_FORCE_REGEN", False)
 
-    existing_manifest = _read_json_if_ok(manifest_path)
-    manifest_compatible = False
-    if isinstance(existing_manifest, dict):
-        manifest_compatible = (
-            existing_manifest.get("chunkingVersion") == CHUNKING_VERSION
-            and existing_manifest.get("promptsVersion") == PROMPTS_VERSION
-            and existing_manifest.get("windowMs") == int(window_ms)
-            and existing_manifest.get("outputLanguage") == effective_lang
-            and (transcript_sha is None or existing_manifest.get("transcriptSha256") == transcript_sha)
-        )
+	existing_manifest = _read_json_if_ok(manifest_path)
+	manifest_compatible = False
+	if isinstance(existing_manifest, dict):
+		manifest_compatible = (
+			existing_manifest.get("chunkingVersion") == CHUNKING_VERSION
+			and existing_manifest.get("promptsVersion") == PROMPTS_VERSION
+			and existing_manifest.get("windowMs") == int(window_ms)
+			and existing_manifest.get("outputLanguage") == effective_lang
+			and (transcript_sha is None or existing_manifest.get("transcriptSha256") == transcript_sha)
+		)
 
-    if manifest_compatible and not force_regen:
-        # Reuse if all expected chunk files exist and validate.
-        existing_chunks = existing_manifest.get("chunks") if isinstance(existing_manifest, dict) else None
-        if isinstance(existing_chunks, list) and existing_chunks:
-            out: list[dict] = []
-            ok = True
-            for c in existing_chunks:
-                if not isinstance(c, dict):
-                    ok = False
-                    break
-                cid = c.get("chunkId")
-                if not isinstance(cid, str) or not cid:
-                    ok = False
-                    break
-                p = (base_dir / f"chunk_{cid}.json").resolve()
-                if not p.is_relative_to(data_dir):
-                    ok = False
-                    break
-                payload = _read_json_if_ok(p)
-                if not isinstance(payload, dict):
-                    ok = False
-                    break
-                try:
-                    parsed = _model_validate(ChunkSummary, payload)
-                except Exception:
-                    ok = False
-                    break
-                out.append(_model_dump(parsed))
-            if ok:
-                return out
+	if manifest_compatible and not force_regen:
+		# Reuse if all expected chunk files exist and validate.
+		existing_chunks = existing_manifest.get("chunks") if isinstance(existing_manifest, dict) else None
+		if isinstance(existing_chunks, list) and existing_chunks:
+			out: list[dict] = []
+			ok = True
+			for c in existing_chunks:
+				if not isinstance(c, dict):
+					ok = False
+					break
+				cid = c.get("chunkId")
+				if not isinstance(cid, str) or not cid:
+					ok = False
+					break
+				p = (base_dir / f"chunk_{cid}.json").resolve()
+				if not p.is_relative_to(data_dir):
+					ok = False
+					break
+				payload = _read_json_if_ok(p)
+				if not isinstance(payload, dict):
+					ok = False
+					break
+				try:
+					parsed = _model_validate(ChunkSummary, payload)
+				except Exception:
+					ok = False
+					break
+				out.append(_model_dump(parsed))
+			if ok:
+				total_dur = time.perf_counter() - t_start
+				logger.info("[chunk_summaries] all chunks reused from cache count=%d dur=%.1fs", len(out), total_dur)
+				return out
 
-    # Ensure manifest is written first (defines the required chunk set).
-    manifest = {
-        "chunkingVersion": CHUNKING_VERSION,
-        "promptsVersion": PROMPTS_VERSION,
-        "windowMs": int(window_ms),
-        "outputLanguage": effective_lang,
-        "transcriptSha256": transcript_sha,
-        "chunks": [
-            {"chunkId": c.chunk_id, "startMs": int(c.start_ms), "endMs": int(c.end_ms)} for c in chunks
-        ],
-    }
-    _write_json_atomic(manifest_path, manifest)
+	# Ensure manifest is written first (defines the required chunk set).
+	manifest = {
+		"chunkingVersion": CHUNKING_VERSION,
+		"promptsVersion": PROMPTS_VERSION,
+		"windowMs": int(window_ms),
+		"outputLanguage": effective_lang,
+		"transcriptSha256": transcript_sha,
+		"chunks": [
+			{"chunkId": c.chunk_id, "startMs": int(c.start_ms), "endMs": int(c.end_ms)} for c in chunks
+		],
+	}
+	_write_json_atomic(manifest_path, manifest)
 
-    # Only reuse per-chunk cache if the manifest parameters match.
-    allow_chunk_cache = manifest_compatible and not force_regen
+	# Only reuse per-chunk cache if the manifest parameters match.
+	allow_chunk_cache = manifest_compatible and not force_regen
 
-    # Placeholder mode for tests/dev.
-    if (os.environ.get("CHUNK_SUMMARY_PROVIDER") or "").strip().lower() == "placeholder":
-        out: list[dict] = []
-        for c in chunks:
-            payload = {
-                "chunkId": c.chunk_id,
-                "startMs": int(c.start_ms),
-                "endMs": int(c.end_ms),
-                "summary": f"Chunk {c.chunk_id} summary (placeholder)",
-                "points": [
-                    {
-                        "text": "placeholder point",
-                        "importance": 2,
-                        "startMs": int(c.start_ms),
-                        "endMs": int(c.end_ms),
-                    }
-                ],
-                "terms": [],
-                "keyMoments": [],
-            }
-            p = (base_dir / f"chunk_{c.chunk_id}.json").resolve()
-            _write_json_atomic(p, payload)
-            out.append(payload)
-        return out
+	# Placeholder mode for tests/dev.
+	if (os.environ.get("CHUNK_SUMMARY_PROVIDER") or "").strip().lower() == "placeholder":
+		out: list[dict] = []
+		for c in chunks:
+			payload = {
+				"chunkId": c.chunk_id,
+				"startMs": int(c.start_ms),
+				"endMs": int(c.end_ms),
+				"summary": f"Chunk {c.chunk_id} summary (placeholder)",
+				"points": [
+					{
+						"text": "placeholder point",
+						"importance": 2,
+						"startMs": int(c.start_ms),
+						"endMs": int(c.end_ms),
+					}
+				],
+				"terms": [],
+				"keyMoments": [],
+			}
+			p = (base_dir / f"chunk_{c.chunk_id}.json").resolve()
+			_write_json_atomic(p, payload)
+			out.append(payload)
+		return out
 
-    max_concurrency = _clamp_int(_env_int("CHUNK_LLM_MAX_CONCURRENCY", 5), 1, 32)
+	max_concurrency = _clamp_int(_env_int("CHUNK_LLM_MAX_CONCURRENCY", 5), 1, 32)
 
-    # Worker fn: read cache, else call LLM and persist.
-    def compute_one(c: Chunk) -> dict:
-        p = (base_dir / f"chunk_{c.chunk_id}.json").resolve()
-        if not p.is_relative_to(data_dir):
-            raise PathTraversalBlockedError("chunk output escapes DATA_DIR")
+	# Stats tracking
+	chunk_stats: dict[str, Any] = {"total": len(chunks), "cached": 0, "computed": 0, "repaired": 0}
 
-        if allow_chunk_cache:
-            existing = _read_json_if_ok(p)
-            if isinstance(existing, dict):
-                try:
-                    parsed = _model_validate(ChunkSummary, existing)
-                    return _model_dump(parsed)
-                except Exception:
-                    pass
+	# Worker fn: read cache, else call LLM and persist.
+	def compute_one(c: Chunk) -> dict:
+		p = (base_dir / f"chunk_{c.chunk_id}.json").resolve()
+		if not p.is_relative_to(data_dir):
+			raise PathTraversalBlockedError("chunk output escapes DATA_DIR")
 
-        req = _build_chunk_summary_request(chunk=c, output_language=output_language)
-        messages = req.get("messages")
-        if not isinstance(messages, list):
-            raise AnalyzeError(
-                code=ErrorCode.JOB_STAGE_FAILED,
-                message="Invalid chunk summary request",
-                details={"reason": "chunk_summary_request_invalid"},
-            )
+		if allow_chunk_cache:
+			existing = _read_json_if_ok(p)
+			if isinstance(existing, dict):
+				try:
+					parsed = _model_validate(ChunkSummary, existing)
+					chunk_stats["cached"] += 1
+					return _model_dump(parsed)
+				except Exception:
+					pass
 
-        provider = _get_thread_provider(transport=llm_transport)
-        try:
-            raw = _call_llm_with_backoff(provider=provider, task="chunk_summary", messages=messages)
-        except AnalyzeError as exc:
-            details = dict(exc.details or {})
-            if details.get("reason") == "invalid_llm_output":
-                source_text = _read_dump_ref_text(details.get("dumpRef")) or details.get("error") or str(exc)
+		t_chunk_start = time.perf_counter()
+		req = _build_chunk_summary_request(chunk=c, output_language=output_language)
+		messages = req.get("messages")
+		if not isinstance(messages, list):
+			raise AnalyzeError(
+				code=ErrorCode.JOB_STAGE_FAILED,
+				message="Invalid chunk summary request",
+				details={"reason": "chunk_summary_request_invalid"},
+			)
 
-                def _validate_repaired(candidate: dict) -> dict:
-                    normalized = _normalize_chunk_summary(candidate, chunk=c)
-                    parsed = _model_validate(ChunkSummary, normalized)
-                    return _model_dump(parsed)
+		provider = _get_thread_provider(transport=llm_transport)
+		chunk_repaired = False
+		try:
+			raw = _call_llm_with_backoff(provider=provider, task="chunk_summary", messages=messages, max_tokens=2048)
+		except AnalyzeError as exc:
+			details = dict(exc.details or {})
+			if details.get("reason") == "invalid_llm_output":
+				source_text = _read_dump_ref_text(details.get("dumpRef")) or details.get("error") or str(exc)
 
-                issue = _validation_issue_from_exception(exc, output_keys=sorted([str(k) for k in details.keys()]))
-                issue["source"] = "provider_invalid_json"
-                out = repair_json_with_llm(
-                    provider=provider,
-                    task_name="chunk_summary",
-                    schema_summary=_CHUNK_SCHEMA_SUMMARY,
-                    source_text=str(source_text),
-                    validation_issue=issue,
-                    validate_and_normalize=_validate_repaired,
-                    repair_task_name="chunk_summary_repair",
-                    output_language=output_language,
-                    log_scope="chunk_summary",
-                )
-                _write_json_atomic(p, out)
-                return out
-            raise
+				def _validate_repaired(candidate: dict) -> dict:
+					normalized = _normalize_chunk_summary(candidate, chunk=c)
+					parsed = _model_validate(ChunkSummary, normalized)
+					return _model_dump(parsed)
 
-        if not isinstance(raw, dict):
-            issue = {"reason": "invalid_llm_output", "task": "chunk_summary", "outputType": type(raw).__name__, "error": "provider returned non-object"}
+				issue = _validation_issue_from_exception(exc, output_keys=sorted([str(k) for k in details.keys()]))
+				issue["source"] = "provider_invalid_json"
+				out = repair_json_with_llm(
+					provider=provider,
+					task_name="chunk_summary",
+					schema_summary=_CHUNK_SCHEMA_SUMMARY,
+					source_text=str(source_text),
+					validation_issue=issue,
+					validate_and_normalize=_validate_repaired,
+					repair_task_name="chunk_summary_repair",
+					output_language=output_language,
+					log_scope="chunk_summary",
+				)
+				chunk_repaired = True
+				_write_json_atomic(p, out)
+				chunk_dur = time.perf_counter() - t_chunk_start
+				chunk_stats["computed"] += 1
+				chunk_stats["repaired"] += 1
+				logger.info("[chunk] chunk=%s dur=%.1fs repaired=True cacheMiss", c.chunk_id, chunk_dur)
+				return out
+			raise
 
-            def _validate_repaired(candidate: dict) -> dict:
-                normalized = _normalize_chunk_summary(candidate, chunk=c)
-                parsed = _model_validate(ChunkSummary, normalized)
-                return _model_dump(parsed)
+		if not isinstance(raw, dict):
+			issue = {"reason": "invalid_llm_output", "task": "chunk_summary", "outputType": type(raw).__name__, "error": "provider returned non-object"}
 
-            out = repair_json_with_llm(
-                provider=provider,
-                task_name="chunk_summary",
-                schema_summary=_CHUNK_SCHEMA_SUMMARY,
-                source_text=_json_dumps_compact(raw),
-                validation_issue=issue,
-                validate_and_normalize=_validate_repaired,
-                repair_task_name="chunk_summary_repair",
-                output_language=output_language,
-                log_scope="chunk_summary",
-            )
-            _write_json_atomic(p, out)
-            return out
+			def _validate_repaired(candidate: dict) -> dict:
+				normalized = _normalize_chunk_summary(candidate, chunk=c)
+				parsed = _model_validate(ChunkSummary, normalized)
+				return _model_dump(parsed)
 
-        raw = _normalize_chunk_summary(raw, chunk=c)
-        try:
-            parsed = _model_validate(ChunkSummary, raw)
-        except ValidationError as e:
-            issue = _validation_issue_from_exception(e, output_keys=sorted([str(k) for k in raw.keys()]))
-            issue["source"] = "schema_validation"
+			out = repair_json_with_llm(
+				provider=provider,
+				task_name="chunk_summary",
+				schema_summary=_CHUNK_SCHEMA_SUMMARY,
+				source_text=_json_dumps_compact(raw),
+				validation_issue=issue,
+				validate_and_normalize=_validate_repaired,
+				repair_task_name="chunk_summary_repair",
+				output_language=output_language,
+				log_scope="chunk_summary",
+			)
+			chunk_repaired = True
+			_write_json_atomic(p, out)
+			chunk_dur = time.perf_counter() - t_chunk_start
+			chunk_stats["computed"] += 1
+			chunk_stats["repaired"] += 1
+			logger.info("[chunk] chunk=%s dur=%.1fs repaired=True cacheMiss", c.chunk_id, chunk_dur)
+			return out
 
-            def _validate_repaired(candidate: dict) -> dict:
-                normalized = _normalize_chunk_summary(candidate, chunk=c)
-                parsed2 = _model_validate(ChunkSummary, normalized)
-                return _model_dump(parsed2)
+		raw = _normalize_chunk_summary(raw, chunk=c)
+		try:
+			parsed = _model_validate(ChunkSummary, raw)
+		except ValidationError as e:
+			issue = _validation_issue_from_exception(e, output_keys=sorted([str(k) for k in raw.keys()]))
+			issue["source"] = "schema_validation"
 
-            out = repair_json_with_llm(
-                provider=provider,
-                task_name="chunk_summary",
-                schema_summary=_CHUNK_SCHEMA_SUMMARY,
-                source_text=_json_dumps_compact(raw),
-                validation_issue=issue,
-                validate_and_normalize=_validate_repaired,
-                repair_task_name="chunk_summary_repair",
-                output_language=output_language,
-                log_scope="chunk_summary",
-            )
-            _write_json_atomic(p, out)
-            return out
+			def _validate_repaired(candidate: dict) -> dict:
+				normalized = _normalize_chunk_summary(candidate, chunk=c)
+				parsed2 = _model_validate(ChunkSummary, normalized)
+				return _model_dump(parsed2)
 
-        out = _model_dump(parsed)
-        _write_json_atomic(p, out)
-        return out
+			out = repair_json_with_llm(
+				provider=provider,
+				task_name="chunk_summary",
+				schema_summary=_CHUNK_SCHEMA_SUMMARY,
+				source_text=_json_dumps_compact(raw),
+				validation_issue=issue,
+				validate_and_normalize=_validate_repaired,
+				repair_task_name="chunk_summary_repair",
+				output_language=output_language,
+				log_scope="chunk_summary",
+			)
+			chunk_repaired = True
+			_write_json_atomic(p, out)
+			chunk_dur = time.perf_counter() - t_chunk_start
+			chunk_stats["computed"] += 1
+			chunk_stats["repaired"] += 1
+			logger.info("[chunk] chunk=%s dur=%.1fs repaired=True cacheMiss", c.chunk_id, chunk_dur)
+			return out
 
-    # Bounded concurrency in threads.
-    from concurrent.futures import ThreadPoolExecutor, as_completed
+		out = _model_dump(parsed)
+		_write_json_atomic(p, out)
+		chunk_dur = time.perf_counter() - t_chunk_start
+		chunk_stats["computed"] += 1
+		logger.info("[chunk] chunk=%s dur=%.1fs repaired=%s cacheMiss", c.chunk_id, chunk_dur, chunk_repaired)
+		return out
 
-    out_by_id: dict[str, dict] = {}
-    with ThreadPoolExecutor(max_workers=max_concurrency) as ex:
-        futs = {ex.submit(compute_one, c): c for c in chunks}
-        for fut in as_completed(futs):
-            c = futs[fut]
-            out_by_id[c.chunk_id] = fut.result()
+	# Bounded concurrency in threads.
+	from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    # Preserve chronological order.
-    ordered = [out_by_id[c.chunk_id] for c in chunks if c.chunk_id in out_by_id]
-    return ordered
+	out_by_id: dict[str, dict] = {}
+	with ThreadPoolExecutor(max_workers=max_concurrency) as ex:
+		futs = {ex.submit(compute_one, c): c for c in chunks}
+		for fut in as_completed(futs):
+			c = futs[fut]
+			out_by_id[c.chunk_id] = fut.result()
+
+	# Preserve chronological order.
+	ordered = [out_by_id[c.chunk_id] for c in chunks if c.chunk_id in out_by_id]
+	total_dur = time.perf_counter() - t_start
+	logger.info(
+		"[chunk_summaries] done total=%d cached=%d computed=%d repaired=%d dur=%.1fs concurrency=%d",
+		chunk_stats["total"],
+		chunk_stats["cached"],
+		chunk_stats["computed"],
+		chunk_stats["repaired"],
+		total_dur,
+		max_concurrency,
+	)
+	return ordered

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import time
 from pathlib import Path
@@ -14,8 +15,10 @@ from core.contracts.error_codes import ErrorCode
 from core.db.session import get_data_dir
 from core.storage.safe_paths import PathTraversalBlockedError
 
+logger = logging.getLogger(__name__)
 
-DEFAULT_MAX_REPAIR_ATTEMPTS = 3
+
+DEFAULT_MAX_REPAIR_ATTEMPTS = 2
 
 
 def _now_ms() -> int:
@@ -113,6 +116,7 @@ def build_repair_request(
     schema_summary: str,
     source_text: str,
     validation_issue: dict,
+    validation_error_text: str | None = None,
     attempt: int,
     max_attempts: int,
     output_language: str | None = None,
@@ -122,12 +126,21 @@ def build_repair_request(
     if lang and lang.lower() != "auto":
         lang_hint = f" Preserve the user-visible language as {lang}."
 
+    raw_validation_error = (validation_error_text or validation_issue.get("error") or validation_issue.get("validationMessage") or "")
+    if isinstance(raw_validation_error, str):
+        raw_validation_error = raw_validation_error.strip()
+    else:
+        raw_validation_error = ""
+    if raw_validation_error:
+        raw_validation_error = _truncate_text(raw_validation_error, max_chars=_env_int("LLM_JSON_REPAIR_MAX_CHARS", 100_000))
+
     system = (
         f"You repair malformed JSON for the {task_name} task. "
         "Return ONLY one JSON object, no markdown, no code fences, no commentary. "
         "Preserve the intended content and fix only structure/schema issues. "
-        f"The repaired output MUST satisfy this schema: {schema_summary}."
-        f"{lang_hint}"
+        + (f"The raw validation error is: {raw_validation_error}. " if raw_validation_error else "")
+        + f"The repaired output MUST satisfy this schema: {schema_summary}."
+        + f"{lang_hint}"
     )
     user_payload = {
         "task": task_name,
@@ -135,6 +148,7 @@ def build_repair_request(
         "maxAttempts": int(max_attempts),
         "sourceOutput": source_text,
         "validationIssue": validation_issue,
+        "validationError": raw_validation_error or None,
         "schemaSummary": schema_summary,
         "instructions": [
             "Return exactly one JSON object.",
@@ -156,108 +170,142 @@ def build_repair_request(
 
 
 def repair_json_with_llm(
-    *,
-    provider: AnalyzeProvider,
-    task_name: str,
-    schema_summary: str,
-    source_text: str,
-    validation_issue: dict,
-    validate_and_normalize: Callable[[dict], dict],
-    repair_task_name: str | None = None,
-    output_language: str | None = None,
-    max_attempts: int = DEFAULT_MAX_REPAIR_ATTEMPTS,
-    log_scope: str | None = None,
+	*,
+	provider: AnalyzeProvider,
+	task_name: str,
+	schema_summary: str,
+	source_text: str,
+	validation_issue: dict,
+	validate_and_normalize: Callable[[dict], dict],
+	repair_task_name: str | None = None,
+	output_language: str | None = None,
+	max_attempts: int = DEFAULT_MAX_REPAIR_ATTEMPTS,
+	log_scope: str | None = None,
+	on_request_ready: Callable[[dict], None] | None = None,
 ) -> dict:
-    repair_task = repair_task_name or f"{task_name}_repair"
-    scope = log_scope or task_name
+	t_start = time.perf_counter()
+	repair_task = repair_task_name or f"{task_name}_repair"
+	scope = log_scope or task_name
 
-    current_source = _truncate_text(_coerce_text(source_text), max_chars=_env_int("LLM_JSON_REPAIR_MAX_CHARS", 100_000))
-    current_issue = dict(validation_issue or {"reason": "invalid_llm_output"})
-    last_error: dict[str, Any] | None = None
+	current_source = _truncate_text(_coerce_text(source_text), max_chars=_env_int("LLM_JSON_REPAIR_MAX_CHARS", 100_000))
+	current_issue = dict(validation_issue or {"reason": "invalid_llm_output"})
+	last_error: dict[str, Any] | None = None
+	last_trace_ref: str | None = None
 
-    max_attempts = max(1, min(int(max_attempts), 3))
+	max_attempts = max(1, min(int(max_attempts), 2))
 
-    for attempt in range(1, max_attempts + 1):
-        request = build_repair_request(
-            task_name=task_name,
-            schema_summary=schema_summary,
-            source_text=current_source,
-            validation_issue=current_issue,
-            attempt=attempt,
-            max_attempts=max_attempts,
-            output_language=output_language,
-        )
+	for attempt in range(1, max_attempts + 1):
+		t_attempt_start = time.perf_counter()
+		request = build_repair_request(
+			task_name=task_name,
+			schema_summary=schema_summary,
+			source_text=current_source,
+			validation_issue=current_issue,
+			validation_error_text=current_issue.get("error") if isinstance(current_issue.get("error"), str) else None,
+			attempt=attempt,
+			max_attempts=max_attempts,
+			output_language=output_language,
+		)
 
-        trace: dict[str, Any] = {
-            "task": task_name,
-            "repairTask": repair_task,
-            "attempt": attempt,
-            "maxAttempts": max_attempts,
-            "sourceOutput": current_source,
-            "validationIssue": current_issue,
-            "request": request,
-            "status": "pending",
-        }
+		if callable(on_request_ready):
+			try:
+				on_request_ready(
+					{
+						"task": task_name,
+						"repairTask": repair_task,
+						"attempt": attempt,
+						"maxAttempts": max_attempts,
+						"request": request,
+						"sourceOutput": current_source,
+						"validationIssue": current_issue,
+					}
+				)
+			except Exception:
+				pass
 
-        try:
-            repaired = provider.generate_json(repair_task, {"messages": request["messages"]})
-        except AnalyzeError as exc:
-            details = dict(exc.details or {})
-            raw_text = _read_dump_ref_text(details.get("dumpRef"))
-            trace["repairError"] = exc.to_error()
-            if raw_text is not None:
-                trace["repairRawOutput"] = _truncate_text(raw_text, max_chars=_env_int("LLM_JSON_REPAIR_MAX_CHARS", 100_000))
-            trace["status"] = "repair-error"
-            trace_ref = _write_json_log(
-                scope=scope,
-                filename=f"{_now_ms()}-attempt{attempt}-{_hash_text(_json_dumps_compact(trace))[:12]}.json",
-                payload=trace,
-            )
-            trace["traceRef"] = trace_ref
-            last_error = exc.to_error()
+		trace: dict[str, Any] = {
+			"task": task_name,
+			"repairTask": repair_task,
+			"attempt": attempt,
+			"maxAttempts": max_attempts,
+			"sourceOutput": current_source,
+			"validationIssue": current_issue,
+			"request": request,
+			"status": "pending",
+		}
 
-            if details.get("reason") == "invalid_llm_output" and raw_text:
-                current_source = _truncate_text(raw_text, max_chars=_env_int("LLM_JSON_REPAIR_MAX_CHARS", 100_000))
-                current_issue = _validation_issue_from_exception(exc, output_keys=[str(k) for k in details.keys()])
-                continue
-            raise
+		try:
+			repaired = provider.generate_json(repair_task, {"messages": request["messages"]})
+		except AnalyzeError as exc:
+			details = dict(exc.details or {})
+			raw_text = _read_dump_ref_text(details.get("dumpRef"))
+			trace["repairError"] = exc.to_error()
+			if raw_text is not None:
+				trace["repairRawOutput"] = _truncate_text(raw_text, max_chars=_env_int("LLM_JSON_REPAIR_MAX_CHARS", 100_000))
+			trace["status"] = "repair-error"
+			trace_ref = _write_json_log(
+				scope=scope,
+				filename=f"{_now_ms()}-attempt{attempt}-{_hash_text(_json_dumps_compact(trace))[:12]}.json",
+				payload=trace,
+			)
+			trace["traceRef"] = trace_ref
+			last_trace_ref = trace_ref
+			last_error = exc.to_error()
+			attempt_dur = time.perf_counter() - t_attempt_start
+			logger.warning("[repair] attempt=%d/%d task=%s status=repair-error dur=%.1fs", attempt, max_attempts, repair_task, attempt_dur)
 
-        trace["repairResponse"] = repaired
+			if details.get("reason") == "invalid_llm_output" and raw_text:
+				current_source = _truncate_text(raw_text, max_chars=_env_int("LLM_JSON_REPAIR_MAX_CHARS", 100_000))
+				current_issue = _validation_issue_from_exception(exc, output_keys=[str(k) for k in details.keys()])
+				continue
+			raise
 
-        try:
-            validated = validate_and_normalize(repaired)
-        except Exception as exc:  # noqa: BLE001
-            issue = _validation_issue_from_exception(exc, output_keys=sorted([str(k) for k in repaired.keys()]))
-            trace["validationError"] = issue
-            trace["status"] = "validation-error"
-            trace_ref = _write_json_log(
-                scope=scope,
-                filename=f"{_now_ms()}-attempt{attempt}-{_hash_text(_json_dumps_compact(trace))[:12]}.json",
-                payload=trace,
-            )
-            trace["traceRef"] = trace_ref
-            last_error = issue
-            current_source = _truncate_text(_coerce_text(repaired), max_chars=_env_int("LLM_JSON_REPAIR_MAX_CHARS", 100_000))
-            current_issue = issue
-            continue
+		trace["repairResponse"] = repaired
 
-        trace["repairedOutput"] = validated
-        trace["status"] = "success"
-        trace_ref = _write_json_log(
-            scope=scope,
-            filename=f"{_now_ms()}-attempt{attempt}-{_hash_text(_json_dumps_compact(trace))[:12]}.json",
-            payload=trace,
-        )
-        trace["traceRef"] = trace_ref
-        return validated
+		try:
+			validated = validate_and_normalize(repaired)
+		except Exception as exc:  # noqa: BLE001
+			issue = _validation_issue_from_exception(exc, output_keys=sorted([str(k) for k in repaired.keys()]))
+			trace["validationError"] = issue
+			trace["status"] = "validation-error"
+			trace_ref = _write_json_log(
+				scope=scope,
+				filename=f"{_now_ms()}-attempt{attempt}-{_hash_text(_json_dumps_compact(trace))[:12]}.json",
+				payload=trace,
+			)
+			trace["traceRef"] = trace_ref
+			last_trace_ref = trace_ref
+			last_error = issue
+			current_source = _truncate_text(_coerce_text(repaired), max_chars=_env_int("LLM_JSON_REPAIR_MAX_CHARS", 100_000))
+			current_issue = issue
+			attempt_dur = time.perf_counter() - t_attempt_start
+			logger.warning("[repair] attempt=%d/%d task=%s status=validation-error dur=%.1fs", attempt, max_attempts, repair_task, attempt_dur)
+			continue
 
-    details: dict[str, Any] = {
-        "reason": "invalid_llm_output",
-        "task": task_name,
-        "repairAttempts": max_attempts,
-        "error": last_error.get("error") if isinstance(last_error, dict) else "repair exhausted",
-    }
-    if isinstance(last_error, dict) and last_error.get("validation"):
-        details["validation"] = True
-        details["errors"] = last_error.get("errors")
-    raise AnalyzeError(code=ErrorCode.JOB_STAGE_FAILED, message="Invalid LLM output", details=details)
+		trace["repairedOutput"] = validated
+		trace["status"] = "success"
+		trace_ref = _write_json_log(
+			scope=scope,
+			filename=f"{_now_ms()}-attempt{attempt}-{_hash_text(_json_dumps_compact(trace))[:12]}.json",
+			payload=trace,
+		)
+		trace["traceRef"] = trace_ref
+		last_trace_ref = trace_ref
+		total_dur = time.perf_counter() - t_start
+		logger.info("[repair] success attempt=%d/%d task=%s dur=%.1fs totalDur=%.1fs", attempt, max_attempts, repair_task, time.perf_counter() - t_attempt_start, total_dur)
+		return validated
+
+	details: dict[str, Any] = {
+		"reason": "invalid_llm_output",
+		"task": task_name,
+		"repairAttempts": max_attempts,
+		"error": last_error.get("error") if isinstance(last_error, dict) else "repair exhausted",
+	}
+	if isinstance(last_error, dict) and last_error.get("validation"):
+		details["validation"] = True
+		details["errors"] = last_error.get("errors")
+	if last_trace_ref:
+		details["traceRef"] = last_trace_ref
+	total_dur = time.perf_counter() - t_start
+	logger.warning("[repair] exhausted task=%s maxAttempts=%d totalDur=%.1fs", repair_task, max_attempts, total_dur)
+	raise AnalyzeError(code=ErrorCode.JOB_STAGE_FAILED, message="Invalid LLM output", details=details)

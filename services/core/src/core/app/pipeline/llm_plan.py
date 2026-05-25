@@ -1,12 +1,18 @@
 from __future__ import annotations
 
+import json
+import logging
 import os
-from typing import Any
+import re
+import time
+from typing import Any, Callable
 from pydantic import BaseModel, Field, ValidationError
 
 from core.app.pipeline.analyze_provider import AnalyzeError, AnalyzeProvider, llm_provider_for_jobs
 from core.app.pipeline.llm_json_repair import repair_json_with_llm, _read_dump_ref_text, _validation_issue_from_exception
 from core.contracts.error_codes import ErrorCode
+
+logger = logging.getLogger(__name__)
 
 
 class PlanKeyframe(BaseModel):
@@ -65,10 +71,33 @@ class PlanOutput(BaseModel):
     mindmap: PlanMindmap
 
 
+class PlanContentBlocksOutput(BaseModel):
+    schemaVersion: str
+    contentBlocks: list[PlanContentBlock]
+
+
+class PlanMindmapOutput(BaseModel):
+    schemaVersion: str
+    mindmap: PlanMindmap
+
+
 _PLAN_SCHEMA_SUMMARY = (
     "Top-level JSON object with exactly schemaVersion:str, contentBlocks:list, mindmap:object. "
     "contentBlocks[] = {blockId:str, idx:int starting at 0, title:str, startMs:int, endMs:int, highlights:list}. "
     "highlights[] = {highlightId:str, idx:int starting at 0 per block, text:str, startMs:int, endMs:int, keyframe?:object, keyframes?:list, keyframeConfidence?:number}. "
+    "mindmap = {nodes:list, edges:list}. nodes[] = {id:str, type:root|topic|detail, label:str, level:0|1|2, data:object}. "
+    "topic/detail nodes should reference an existing contentBlocks[].blockId via data.targetBlockId; detail nodes may also reference data.targetHighlightId. "
+    "edges[] = {id:str, source:str, target:str, label?:str}."
+)
+
+_PLAN_CONTENT_BLOCKS_SCHEMA_SUMMARY = (
+    "Top-level JSON object with exactly schemaVersion:str, contentBlocks:list. "
+    "contentBlocks[] = {blockId:str, idx:int starting at 0, title:str, startMs:int, endMs:int, highlights:list}. "
+    "highlights[] = {highlightId:str, idx:int starting at 0 per block, text:str, startMs:int, endMs:int, keyframe?:object, keyframes?:list, keyframeConfidence?:number}."
+)
+
+_PLAN_MINDMAP_SCHEMA_SUMMARY = (
+    "Top-level JSON object with exactly schemaVersion:str, mindmap:object. "
     "mindmap = {nodes:list, edges:list}. nodes[] = {id:str, type:root|topic|detail, label:str, level:0|1|2, data:object}. "
     "topic/detail nodes should reference an existing contentBlocks[].blockId via data.targetBlockId; detail nodes may also reference data.targetHighlightId. "
     "edges[] = {id:str, source:str, target:str, label?:str}."
@@ -92,6 +121,36 @@ def _as_int(v: object) -> int | None:
     return None
 
 
+def _parse_jsonish_string(value: object) -> object:
+    if not isinstance(value, str):
+        return value
+    s = value.strip()
+    if len(s) < 2:
+        return value
+
+    candidates: list[str] = [s]
+    if s[0] not in "[{":
+        candidates.insert(0, f"{{{s}}}")
+
+    key_pattern = re.compile(r'(^|[\{,]\s*)([A-Za-z_][A-Za-z0-9_-]*)\s*:')
+
+    for candidate in candidates:
+        normalized = key_pattern.sub(r'\1"\2":', candidate)
+        try:
+            parsed = json.loads(normalized)
+        except Exception:
+            continue
+        if isinstance(parsed, (dict, list)):
+            return parsed
+    return value
+
+
+def _parse_jsonish_list_items(items: object) -> list[object] | None:
+    if not isinstance(items, list):
+        return None
+    return [_parse_jsonish_string(item) for item in items]
+
+
 def _normalize_plan_payload(plan: dict) -> dict:
     """Best-effort normalization for real-world LLM output.
 
@@ -109,9 +168,43 @@ def _normalize_plan_payload(plan: dict) -> dict:
     if "schemaVersion" not in plan or not isinstance(plan.get("schemaVersion"), str):
         plan["schemaVersion"] = "2026-02-06"
 
+    raw_blocks = plan.get("contentBlocks")
+    if isinstance(raw_blocks, list):
+        parsed_blocks = _parse_jsonish_list_items(raw_blocks)
+        if isinstance(parsed_blocks, list):
+            plan["contentBlocks"] = parsed_blocks
+            for block in parsed_blocks:
+                if isinstance(block, dict) and isinstance(block.get("highlights"), list):
+                    parsed_hls = _parse_jsonish_list_items(block.get("highlights"))
+                    if isinstance(parsed_hls, list):
+                        block["highlights"] = parsed_hls
+
+    raw_mindmap = plan.get("mindmap")
+    if isinstance(raw_mindmap, str):
+        parsed_mindmap = _parse_jsonish_string(raw_mindmap)
+        if isinstance(parsed_mindmap, dict):
+            plan["mindmap"] = parsed_mindmap
+            raw_mindmap = parsed_mindmap
+    if isinstance(raw_mindmap, dict):
+        raw_nodes = raw_mindmap.get("nodes")
+        if isinstance(raw_nodes, list):
+            parsed_nodes = _parse_jsonish_list_items(raw_nodes)
+            if isinstance(parsed_nodes, list):
+                raw_mindmap["nodes"] = parsed_nodes
+        raw_edges = raw_mindmap.get("edges")
+        if isinstance(raw_edges, list):
+            parsed_edges = _parse_jsonish_list_items(raw_edges)
+            if isinstance(parsed_edges, list):
+                raw_mindmap["edges"] = parsed_edges
+
     blocks = plan.get("contentBlocks")
     if not isinstance(blocks, list):
         return plan
+
+    parsed_blocks = _parse_jsonish_list_items(blocks)
+    if isinstance(parsed_blocks, list):
+        plan["contentBlocks"] = parsed_blocks
+        blocks = parsed_blocks
 
     # When blocks overlap slightly, strict validation fails. For real-world LLM output,
     # we merge overlapping blocks (keeping all highlights) and re-index blocks/highlights.
@@ -120,6 +213,7 @@ def _normalize_plan_payload(plan: dict) -> dict:
 
     # Normalize blocks.
     for b_i, b in enumerate(blocks):
+        b = _parse_jsonish_string(b)
         if not isinstance(b, dict):
             continue
 
@@ -153,6 +247,11 @@ def _normalize_plan_payload(plan: dict) -> dict:
         if not isinstance(hls, list):
             b["highlights"] = []
             hls = b["highlights"]
+
+        parsed_hls = _parse_jsonish_list_items(hls)
+        if isinstance(parsed_hls, list):
+            b["highlights"] = parsed_hls
+            hls = parsed_hls
 
         b_start = _as_int(b.get("startMs")) or 0
         b_end = _as_int(b.get("endMs")) or (b_start + 1)
@@ -576,12 +675,18 @@ def validate_plan(plan: dict) -> dict:
 
     # Validate mindmap structure.
     mindmap = out.get("mindmap")
+    mindmap = _parse_jsonish_string(mindmap)
     if not isinstance(mindmap, dict):
         raise ValueError("mindmap must be an object")
 
     mm_nodes = mindmap.get("nodes")
     if not isinstance(mm_nodes, list):
         raise ValueError("mindmap.nodes must be a list")
+
+    parsed_nodes = _parse_jsonish_list_items(mm_nodes)
+    if isinstance(parsed_nodes, list):
+        mindmap["nodes"] = parsed_nodes
+        mm_nodes = parsed_nodes
 
     node_ids: set[str] = set()
     root_count = 0
@@ -623,7 +728,12 @@ def validate_plan(plan: dict) -> dict:
     # Validate edges.
     mm_edges = mindmap.get("edges")
     if isinstance(mm_edges, list):
+        parsed_edges = _parse_jsonish_list_items(mm_edges)
+        if isinstance(parsed_edges, list):
+            mindmap["edges"] = parsed_edges
+            mm_edges = parsed_edges
         for e in mm_edges:
+            e = _parse_jsonish_string(e)
             if not isinstance(e, dict):
                 continue
             src = e.get("source")
@@ -634,6 +744,43 @@ def validate_plan(plan: dict) -> dict:
                 raise ValueError(f"mindmap edge target '{tgt}' must reference an existing node id")
 
     return out
+
+
+def validate_plan_content_blocks(payload: dict) -> dict:
+    if not isinstance(payload, dict):
+        raise ValueError("plan contentBlocks payload must be an object")
+
+    candidate = {
+        "schemaVersion": payload.get("schemaVersion") if isinstance(payload.get("schemaVersion"), str) else "2026-02-06",
+        "contentBlocks": payload.get("contentBlocks"),
+        "mindmap": {"nodes": [], "edges": []},
+    }
+    validated = validate_plan(candidate)
+    return {
+        "schemaVersion": validated.get("schemaVersion") if isinstance(validated.get("schemaVersion"), str) else "2026-02-06",
+        "contentBlocks": validated.get("contentBlocks") if isinstance(validated.get("contentBlocks"), list) else [],
+    }
+
+
+def validate_plan_mindmap(*, payload: dict, content_blocks: list[dict], schema_version: str = "2026-02-06") -> dict:
+    if not isinstance(payload, dict):
+        raise ValueError("plan mindmap payload must be an object")
+
+    raw_mindmap = payload.get("mindmap")
+    if isinstance(raw_mindmap, str):
+        payload = dict(payload)
+        payload["mindmap"] = _parse_jsonish_string(raw_mindmap)
+
+    candidate = {
+        "schemaVersion": schema_version,
+        "contentBlocks": content_blocks,
+        "mindmap": payload.get("mindmap"),
+    }
+    validated = validate_plan(candidate)
+    return {
+        "schemaVersion": validated.get("schemaVersion") if isinstance(validated.get("schemaVersion"), str) else schema_version,
+        "mindmap": validated.get("mindmap") if isinstance(validated.get("mindmap"), dict) else {"nodes": [], "edges": []},
+    }
 
 
 def _env_int(name: str, default: int) -> int:
@@ -704,6 +851,289 @@ def _sample_segments(segments: list[dict], *, max_segments: int, max_chars: int)
     return out
 
 
+def _compact_text(value: object, *, max_chars: int) -> str:
+    if not isinstance(value, str):
+        return ""
+    s = value.strip()
+    if len(s) <= max_chars:
+        return s
+    return s[:max_chars]
+
+
+def _compact_content_blocks_for_mindmap(
+    content_blocks: list[dict],
+    *,
+    max_blocks: int,
+    max_highlights_per_block: int,
+    max_title_chars: int,
+    max_highlight_text_chars: int,
+) -> list[dict]:
+    out: list[dict] = []
+    for b in content_blocks[: max(1, max_blocks)]:
+        if not isinstance(b, dict):
+            continue
+
+        block_id = b.get("blockId")
+        if not isinstance(block_id, str) or not block_id:
+            continue
+
+        item: dict = {
+            "blockId": block_id,
+            "idx": b.get("idx") if isinstance(b.get("idx"), int) else 0,
+            "title": _compact_text(b.get("title"), max_chars=max_title_chars),
+            "startMs": b.get("startMs") if isinstance(b.get("startMs"), int) else 0,
+            "endMs": b.get("endMs") if isinstance(b.get("endMs"), int) else 1,
+            "highlights": [],
+        }
+
+        highlights = b.get("highlights")
+        if isinstance(highlights, list):
+            compact_h: list[dict] = []
+            for h in highlights[: max(1, max_highlights_per_block)]:
+                if not isinstance(h, dict):
+                    continue
+                hid = h.get("highlightId")
+                if not isinstance(hid, str) or not hid:
+                    continue
+                compact_h.append(
+                    {
+                        "highlightId": hid,
+                        "idx": h.get("idx") if isinstance(h.get("idx"), int) else 0,
+                        "text": _compact_text(h.get("text"), max_chars=max_highlight_text_chars),
+                    }
+                )
+            item["highlights"] = compact_h
+
+        out.append(item)
+
+    return out
+
+
+def _clamp_int(value: int, *, lo: int, hi: int) -> int:
+    return max(lo, min(hi, value))
+
+
+def _derive_mindmap_limits(content_blocks: list[dict]) -> tuple[int, int]:
+    """Derive mindmap size limits from input complexity.
+
+    The limits are adaptive by default and can be bounded by env vars:
+    - LLM_PLAN_MINDMAP_MAX_TOPICS_MIN / MAX
+    - LLM_PLAN_MINDMAP_MAX_DETAILS_PER_TOPIC_MIN / MAX
+    """
+
+    block_count = len([b for b in content_blocks if isinstance(b, dict)])
+
+    min_topics_raw = _clamp_int(_env_int("LLM_PLAN_MINDMAP_MAX_TOPICS_MIN", 8), lo=1, hi=64)
+    max_topics_raw = _clamp_int(_env_int("LLM_PLAN_MINDMAP_MAX_TOPICS", 18), lo=1, hi=64)
+    if max_topics_raw < min_topics_raw:
+        min_topics_raw = max_topics_raw
+    min_topics = min_topics_raw
+    max_topics = max_topics_raw
+
+    min_details_raw = _clamp_int(_env_int("LLM_PLAN_MINDMAP_MAX_DETAILS_PER_TOPIC_MIN", 2), lo=1, hi=16)
+    max_details_raw = _clamp_int(_env_int("LLM_PLAN_MINDMAP_MAX_DETAILS_PER_TOPIC", 3), lo=1, hi=16)
+    if max_details_raw < min_details_raw:
+        min_details_raw = max_details_raw
+    min_details = min_details_raw
+    max_details = max_details_raw
+
+    if block_count <= 0:
+        return (min_topics, min_details)
+
+    # Topic scale: keep coverage while avoiding over-dense graphs.
+    topic_target = int(round(block_count * 0.65))
+    topic_limit = _clamp_int(topic_target, lo=min_topics, hi=max_topics)
+    topic_limit = min(topic_limit, block_count)
+
+    total_highlights = 0
+    for b in content_blocks:
+        if not isinstance(b, dict):
+            continue
+        hls = b.get("highlights")
+        if isinstance(hls, list):
+            total_highlights += len([h for h in hls if isinstance(h, dict)])
+
+    avg_highlights_per_block = (total_highlights / block_count) if block_count > 0 else 0.0
+    detail_target = 3 if avg_highlights_per_block >= 4.0 else 2
+    detail_limit = _clamp_int(detail_target, lo=min_details, hi=max_details)
+
+    return (topic_limit, detail_limit)
+
+
+def _build_plan_input_context(
+    *,
+    transcript: dict,
+    summaries: list[dict] | None,
+    output_language: str | None,
+) -> dict:
+    segments = transcript.get("segments") if isinstance(transcript, dict) else None
+    if not isinstance(segments, list):
+        segments = []
+    seg_dicts = [s for s in segments if isinstance(s, dict)]
+
+    has_summaries = isinstance(summaries, list) and bool(summaries)
+    include_transcript_with_summaries = _env_bool(
+        "LLM_PLAN_INCLUDE_TRANSCRIPT_WITH_SUMMARIES",
+        False,
+    )
+
+    max_segments = _env_int("LLM_PLAN_MAX_SEGMENTS", 60)
+    max_chars = _env_int("LLM_PLAN_MAX_CHARS", 12_000)
+    excerpt = (
+        _sample_segments(seg_dicts, max_segments=max_segments, max_chars=max_chars)
+        if (not has_summaries or include_transcript_with_summaries)
+        else []
+    )
+    include_transcript_text_with_summaries = _env_bool(
+        "LLM_PLAN_INCLUDE_TRANSCRIPT_TEXT_WITH_SUMMARIES",
+        False,
+    )
+    if has_summaries and include_transcript_with_summaries and (not include_transcript_text_with_summaries):
+        excerpt = [
+            {"startMs": s.get("startMs"), "endMs": s.get("endMs")}
+            for s in excerpt
+            if isinstance(s, dict) and isinstance(s.get("startMs"), int) and isinstance(s.get("endMs"), int)
+        ]
+
+    lang = (output_language or "").strip()
+    verify_on = _keyframe_verify_enabled()
+
+    return {
+        "has_summaries": has_summaries,
+        "summaries": summaries if isinstance(summaries, list) and summaries else None,
+        "excerpt": excerpt,
+        "lang": lang,
+        "verify_on": verify_on,
+    }
+
+
+def _generate_json_with_repair(
+	*,
+	provider: AnalyzeProvider,
+	task_name: str,
+	repair_task_name: str,
+	schema_summary: str,
+	request: dict,
+	validate_and_normalize,
+	output_language: str | None,
+	log_scope: str,
+	on_request_ready: Callable[[dict], None] | None = None,
+	max_tokens: int | None = None,
+) -> dict:
+	t_start = time.perf_counter()
+	messages = request.get("messages") if isinstance(request.get("messages"), list) else []
+	repaired = False
+	try:
+		if callable(on_request_ready):
+			try:
+				on_request_ready(
+					{
+						"task": task_name,
+						"repairTask": repair_task_name,
+						"request": request,
+						"phase": "initial",
+					}
+				)
+			except Exception:
+				pass
+		res = provider.generate_json(task_name, {"messages": messages}, max_tokens=max_tokens)
+	except AnalyzeError as exc:
+		details = dict(exc.details or {})
+		if details.get("reason") == "invalid_llm_output":
+			logger.info("[plan] repair triggered task=%s reason=invalid_json", task_name)
+			source_text = _read_dump_ref_text(details.get("dumpRef")) or details.get("error") or str(exc)
+			issue = _validation_issue_from_exception(exc, output_keys=sorted([str(k) for k in details.keys()]))
+			issue["source"] = "provider_invalid_json"
+			result = repair_json_with_llm(
+				provider=provider,
+				task_name=task_name,
+				schema_summary=schema_summary,
+				source_text=str(source_text),
+				validation_issue=issue,
+				validate_and_normalize=validate_and_normalize,
+				repair_task_name=repair_task_name,
+				output_language=output_language,
+				log_scope=log_scope,
+				on_request_ready=on_request_ready,
+			)
+			repaired = True
+			total_elapsed = time.perf_counter() - t_start
+			logger.info("[plan] done task=%s dur=%.1fs repaired=True", task_name, total_elapsed)
+			return result
+		raise
+
+	if not isinstance(res, dict):
+		logger.info("[plan] repair triggered task=%s reason=non_object outputType=%s", task_name, type(res).__name__)
+		issue = {
+			"reason": "invalid_llm_output",
+			"task": task_name,
+			"outputType": type(res).__name__,
+			"error": "provider returned non-object",
+		}
+		result = repair_json_with_llm(
+			provider=provider,
+			task_name=task_name,
+			schema_summary=schema_summary,
+			source_text=str(res),
+			validation_issue=issue,
+			validate_and_normalize=validate_and_normalize,
+			repair_task_name=repair_task_name,
+			output_language=output_language,
+			log_scope=log_scope,
+			on_request_ready=on_request_ready,
+		)
+		repaired = True
+		total_elapsed = time.perf_counter() - t_start
+		logger.info("[plan] done task=%s dur=%.1fs repaired=True", task_name, total_elapsed)
+		return result
+
+	try:
+		result = validate_and_normalize(res)
+		total_elapsed = time.perf_counter() - t_start
+		logger.info("[plan] done task=%s dur=%.1fs repaired=%s", task_name, total_elapsed, repaired)
+		return result
+	except ValidationError as e:
+		logger.info("[plan] repair triggered task=%s reason=schema_validation", task_name)
+		issue = _validation_issue_from_exception(e, output_keys=sorted([str(k) for k in res.keys()]))
+		issue["source"] = "schema_validation"
+		result = repair_json_with_llm(
+			provider=provider,
+			task_name=task_name,
+			schema_summary=schema_summary,
+			source_text=_json_dumps_compact(res),
+			validation_issue=issue,
+			validate_and_normalize=validate_and_normalize,
+			repair_task_name=repair_task_name,
+			output_language=output_language,
+			log_scope=log_scope,
+			on_request_ready=on_request_ready,
+		)
+		repaired = True
+		total_elapsed = time.perf_counter() - t_start
+		logger.info("[plan] done task=%s dur=%.1fs repaired=True (schema_validation)", task_name, total_elapsed)
+		return result
+	except ValueError as e:
+		logger.info("[plan] repair triggered task=%s reason=schema_validation valueError=%s", task_name, str(e)[:120])
+		issue = _validation_issue_from_exception(e, output_keys=sorted([str(k) for k in res.keys()]))
+		issue["source"] = "schema_validation"
+		result = repair_json_with_llm(
+			provider=provider,
+			task_name=task_name,
+			schema_summary=schema_summary,
+			source_text=_json_dumps_compact(res),
+			validation_issue=issue,
+			validate_and_normalize=validate_and_normalize,
+			repair_task_name=repair_task_name,
+			output_language=output_language,
+			log_scope=log_scope,
+			on_request_ready=on_request_ready,
+		)
+		repaired = True
+		total_elapsed = time.perf_counter() - t_start
+		logger.info("[plan] done task=%s dur=%.1fs repaired=True (valueError)", task_name, total_elapsed)
+		return result
+
+
 def _build_placeholder_plan(*, transcript: dict, schema_version: str) -> dict:
     segments = transcript.get("segments")
     seg_dicts = [s for s in segments if isinstance(s, dict)] if isinstance(segments, list) else []
@@ -771,111 +1201,327 @@ def _build_placeholder_plan(*, transcript: dict, schema_version: str) -> dict:
 
 
 def generate_plan(
+	*,
+	transcript: dict,
+	summaries: list[dict] | None = None,
+	output_language: str | None = None,
+	provider: AnalyzeProvider | None = None,
+	llm_transport: object | None = None,
+	cached_content_blocks: list[dict] | None = None,
+	on_content_blocks_ready: Callable[[dict], None] | None = None,
+	on_mindmap_ready: Callable[[dict], None] | None = None,
+	on_request_ready: Callable[[dict], None] | None = None,
+) -> dict:
+	"""Generate a unified analysis plan via LLM.
+
+	This stage is the single source of truth for:
+	- contentBlocks (with embedded highlights + optional keyframe.timeMs)
+	- mindmap graph (with targetBlockId/targetHighlightId anchors)
+
+	Raises AnalyzeError with details.reason in {missing_credentials, invalid_llm_output, ...}.
+	"""
+
+	t_plan_start = time.perf_counter()
+
+	if (os.environ.get("PLAN_PROVIDER") or "").strip().lower() == "placeholder":
+		# Smoke/dev escape hatch to validate the pipeline without relying on external LLM availability.
+		placeholder = _build_placeholder_plan(transcript=transcript, schema_version="2026-02-06")
+		return validate_plan(placeholder)
+
+	if provider is None:
+		resolved = llm_provider_for_jobs(transport=llm_transport)  # type: ignore[arg-type]
+		if resolved is None:
+			raise AnalyzeError(
+				code=ErrorCode.JOB_STAGE_FAILED,
+				message="LLM credentials missing",
+				details={"reason": "missing_credentials", "task": "plan"},
+			)
+		provider = resolved
+
+	blocks_out: dict
+	reused_cached_blocks = False
+	if isinstance(cached_content_blocks, list) and cached_content_blocks:
+		try:
+			blocks_out = validate_plan_content_blocks(
+				{
+					"schemaVersion": "2026-02-06",
+					"contentBlocks": cached_content_blocks,
+				}
+			)
+			reused_cached_blocks = True
+			logger.info("[plan] content_blocks reused from cache")
+		except Exception:
+			reused_cached_blocks = False
+			blocks_out = {}
+	else:
+		blocks_out = {}
+
+	t_blocks_start = time.perf_counter()
+	if not reused_cached_blocks:
+		req_blocks = build_plan_content_blocks_request(
+			transcript=transcript,
+			summaries=summaries,
+			output_language=output_language,
+		)
+		if not isinstance(req_blocks.get("messages"), list):
+			raise AnalyzeError(
+				code=ErrorCode.JOB_STAGE_FAILED,
+				message="Invalid plan contentBlocks request",
+				details={"reason": "plan_request_invalid", "task": "plan_content_blocks"},
+			)
+
+		blocks_out = _generate_json_with_repair(
+			provider=provider,
+			task_name="plan_content_blocks",
+			repair_task_name="plan_content_blocks_repair",
+			schema_summary=_PLAN_CONTENT_BLOCKS_SCHEMA_SUMMARY,
+			request=req_blocks,
+			validate_and_normalize=validate_plan_content_blocks,
+			output_language=output_language,
+			log_scope="plan",
+			on_request_ready=on_request_ready,
+			max_tokens=16384,
+		)
+
+	content_blocks = blocks_out.get("contentBlocks") if isinstance(blocks_out.get("contentBlocks"), list) else []
+	schema_version = blocks_out.get("schemaVersion") if isinstance(blocks_out.get("schemaVersion"), str) else "2026-02-06"
+	blocks_dur = time.perf_counter() - t_blocks_start
+	logger.info("[plan] content_blocks stage dur=%.1fs cached=%s blockCount=%s", blocks_dur, reused_cached_blocks, len(content_blocks))
+
+	if callable(on_content_blocks_ready):
+		try:
+			on_content_blocks_ready(
+				{
+					"schemaVersion": schema_version,
+					"contentBlocks": content_blocks,
+				}
+			)
+		except Exception:
+			pass
+
+	t_mindmap_start = time.perf_counter()
+	req_mindmap = build_plan_mindmap_request(
+		content_blocks=content_blocks,
+		transcript=transcript,
+		summaries=summaries,
+		output_language=output_language,
+		schema_version=schema_version,
+	)
+	if not isinstance(req_mindmap.get("messages"), list):
+		raise AnalyzeError(
+			code=ErrorCode.JOB_STAGE_FAILED,
+			message="Invalid plan mindmap request",
+			details={"reason": "plan_request_invalid", "task": "plan_mindmap"},
+		)
+
+	mindmap_out = _generate_json_with_repair(
+		provider=provider,
+		task_name="plan_mindmap",
+		repair_task_name="plan_mindmap_repair",
+		schema_summary=_PLAN_MINDMAP_SCHEMA_SUMMARY,
+		request=req_mindmap,
+		validate_and_normalize=lambda payload: validate_plan_mindmap(
+			payload=payload,
+			content_blocks=content_blocks,
+			schema_version=schema_version,
+		),
+		output_language=output_language,
+		log_scope="plan",
+		on_request_ready=on_request_ready,
+		max_tokens=8192,
+	)
+	mindmap_dur = time.perf_counter() - t_mindmap_start
+	logger.info("[plan] mindmap stage dur=%.1fs", mindmap_dur)
+
+	if callable(on_mindmap_ready):
+		try:
+			on_mindmap_ready(
+				{
+					"schemaVersion": schema_version,
+					"mindmap": mindmap_out.get("mindmap") if isinstance(mindmap_out.get("mindmap"), dict) else {"nodes": [], "edges": []},
+				}
+			)
+		except Exception:
+			pass
+
+	merged = {
+		"schemaVersion": schema_version,
+		"contentBlocks": content_blocks,
+		"mindmap": mindmap_out.get("mindmap") if isinstance(mindmap_out.get("mindmap"), dict) else {"nodes": [], "edges": []},
+	}
+	result = validate_plan(merged)
+	total_dur = time.perf_counter() - t_plan_start
+	logger.info("[plan] generate_plan total dur=%.1fs blocks=%.1fs mindmap=%.1fs", total_dur, blocks_dur, mindmap_dur)
+	return result
+
+
+def build_plan_content_blocks_request(
     *,
     transcript: dict,
     summaries: list[dict] | None = None,
     output_language: str | None = None,
-    provider: AnalyzeProvider | None = None,
-    llm_transport: object | None = None,
 ) -> dict:
-    """Generate a unified analysis plan via LLM.
+    ctx = _build_plan_input_context(
+        transcript=transcript,
+        summaries=summaries,
+        output_language=output_language,
+    )
 
-    This stage is the single source of truth for:
-    - contentBlocks (with embedded highlights + optional keyframe.timeMs)
-    - mindmap graph (with targetBlockId/targetHighlightId anchors)
+    has_summaries = bool(ctx.get("has_summaries"))
+    excerpt = ctx.get("excerpt") if isinstance(ctx.get("excerpt"), list) else []
+    lang = ctx.get("lang") if isinstance(ctx.get("lang"), str) else ""
+    verify_on = bool(ctx.get("verify_on"))
 
-    Raises AnalyzeError with details.reason in {missing_credentials, invalid_llm_output, ...}.
-    """
-
-    if (os.environ.get("PLAN_PROVIDER") or "").strip().lower() == "placeholder":
-        # Smoke/dev escape hatch to validate the pipeline without relying on external LLM availability.
-        placeholder = _build_placeholder_plan(transcript=transcript, schema_version="2026-02-06")
-        return validate_plan(placeholder)
-
-    if provider is None:
-        resolved = llm_provider_for_jobs(transport=llm_transport)  # type: ignore[arg-type]
-        if resolved is None:
-            raise AnalyzeError(
-                code=ErrorCode.JOB_STAGE_FAILED,
-                message="LLM credentials missing",
-                details={"reason": "missing_credentials", "task": "plan"},
-            )
-        provider = resolved
-
-    req = build_plan_request(transcript=transcript, summaries=summaries, output_language=output_language)
-    messages = req.get("messages")
-    if not isinstance(messages, list):
-        raise AnalyzeError(
-            code=ErrorCode.JOB_STAGE_FAILED,
-            message="Invalid plan request",
-            details={"reason": "plan_request_invalid"},
+    lang_hint = ""
+    if lang and lang.lower() != "auto":
+        lang_hint = (
+            " Output language requirement: Write ALL user-visible strings in the language specified by `outputLanguage` ("
+            + lang
+            + "). This includes block titles and highlight text."
         )
 
-    try:
-        res = provider.generate_json("plan", {"messages": messages})
-    except AnalyzeError as exc:
-        details = dict(exc.details or {})
-        if details.get("reason") == "invalid_llm_output":
-            source_text = _read_dump_ref_text(details.get("dumpRef")) or details.get("error") or str(exc)
-            issue = _validation_issue_from_exception(exc, output_keys=sorted([str(k) for k in details.keys()]))
-            issue["source"] = "provider_invalid_json"
-            return repair_json_with_llm(
-                provider=provider,
-                task_name="plan",
-                schema_summary=_PLAN_SCHEMA_SUMMARY,
-                source_text=str(source_text),
-                validation_issue=issue,
-                validate_and_normalize=validate_plan,
-                repair_task_name="plan_repair",
-                output_language=output_language,
-                log_scope="plan",
-            )
-        raise
+    kfc_requirement = (
+        "If you include keyframes, also include highlight.keyframeConfidence (number 0..1) indicating how confident you are that the keyframe is useful. Use low confidence when unsure. "
+        if verify_on
+        else ""
+    )
+    hl_schema = (
+        "highlights[] item: {highlightId:str, idx:int, text:str, startMs:int, endMs:int, keyframes?:[{timeMs:int}], keyframeConfidence:number}. "
+        if verify_on
+        else "highlights[] item: {highlightId:str, idx:int, text:str, startMs:int, endMs:int, keyframes?:[{timeMs:int}]}. "
+    )
 
-    if not isinstance(res, dict):
-        issue = {"reason": "invalid_llm_output", "task": "plan", "outputType": type(res).__name__, "error": "provider returned non-object"}
-        return repair_json_with_llm(
-            provider=provider,
-            task_name="plan",
-            schema_summary=_PLAN_SCHEMA_SUMMARY,
-            source_text=str(res),
-            validation_issue=issue,
-            validate_and_normalize=validate_plan,
-            repair_task_name="plan_repair",
-            output_language=output_language,
-            log_scope="plan",
+    system = (
+        "You are a video learning assistant. Goal: help users learn/review WITHOUT rewatching the whole video. "
+        "Return ONLY one JSON object (no markdown). "
+        + (
+            "If `summaries` are provided, treat them as the PRIMARY source of content. The transcript segments may be omitted entirely (empty) for cost reasons; do NOT rely on transcript text when summaries exist. "
+            if has_summaries
+            else ""
+        )
+        + "Generate content blocks and highlights only. Do NOT generate mindmap in this step. "
+        "Write high-quality notes: blocks are coherent modules; highlights are the key knowledge points. "
+        "Do NOT over-split: prefer fewer, more complete highlights; merge nearby points when they belong together. "
+        "Highlight text may be refined/summarized (not verbatim transcript). Skip trivial content. "
+        "Keyframes are OPTIONAL but CRUCIAL for understanding: actively evaluate if a screenshot (slide/diagram/code/formula/UI) is necessary. DO NOT skip it if it helps learning. "
+        + kfc_requirement
+        + "If keyframes are present, set keyframes item timeMs (int, ms) within that highlight's [startMs,endMs). "
+        + "Schema keys MUST be exactly: schemaVersion, contentBlocks. All times MUST be int ms. "
+        + "contentBlocks[] item: {blockId:str, idx:int, title:str, startMs:int, endMs:int, highlights:[...]}. "
+        + hl_schema
+        + "Constraints: contentBlocks idx contiguous from 0; no overlapping blocks; per-block highlights idx contiguous from 0; highlight ranges within block."
+        + lang_hint
+    )
+
+    user_payload: dict = {
+        "task": "plan_content_blocks",
+        "schemaVersion": "2026-02-06",
+        "transcript": {"segments": excerpt},
+    }
+    if lang:
+        user_payload["outputLanguage"] = lang
+    if has_summaries and isinstance(ctx.get("summaries"), list):
+        user_payload["summaries"] = ctx.get("summaries")
+
+    return {
+        "task": "plan_content_blocks",
+        "schemaVersion": "2026-02-06",
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": _json_dumps_compact(user_payload)},
+        ],
+        "system": system,
+        "userPayload": user_payload,
+    }
+
+
+def build_plan_mindmap_request(
+    *,
+    content_blocks: list[dict],
+    transcript: dict,
+    summaries: list[dict] | None = None,
+    output_language: str | None = None,
+    schema_version: str = "2026-02-06",
+) -> dict:
+    ctx = _build_plan_input_context(
+        transcript=transcript,
+        summaries=summaries,
+        output_language=output_language,
+    )
+
+    has_summaries = bool(ctx.get("has_summaries"))
+    lang = ctx.get("lang") if isinstance(ctx.get("lang"), str) else ""
+    compact_input = _env_bool("LLM_PLAN_MINDMAP_COMPACT_INPUT", False)
+    max_topics, max_details_per_topic = _derive_mindmap_limits(content_blocks)
+    max_label_chars = _env_int("LLM_PLAN_MINDMAP_MAX_LABEL_CHARS", 36)
+
+    mindmap_input_blocks = content_blocks
+    if compact_input:
+        mindmap_input_blocks = _compact_content_blocks_for_mindmap(
+            content_blocks,
+            max_blocks=max_topics,
+            max_highlights_per_block=max_details_per_topic,
+            max_title_chars=max_label_chars,
+            max_highlight_text_chars=max_label_chars,
         )
 
-    try:
-        return validate_plan(res)
-    except ValidationError as e:
-        issue = _validation_issue_from_exception(e, output_keys=sorted([str(k) for k in res.keys()]))
-        issue["source"] = "schema_validation"
-        return repair_json_with_llm(
-            provider=provider,
-            task_name="plan",
-            schema_summary=_PLAN_SCHEMA_SUMMARY,
-            source_text=_json_dumps_compact(res),
-            validation_issue=issue,
-            validate_and_normalize=validate_plan,
-            repair_task_name="plan_repair",
-            output_language=output_language,
-            log_scope="plan",
+    lang_hint = ""
+    if lang and lang.lower() != "auto":
+        lang_hint = (
+            " Output language requirement: Write ALL node labels in the language specified by `outputLanguage` ("
+            + lang
+            + ")."
         )
-    except ValueError as e:
-        issue = _validation_issue_from_exception(e, output_keys=sorted([str(k) for k in res.keys()]))
-        issue["source"] = "schema_validation"
-        return repair_json_with_llm(
-            provider=provider,
-            task_name="plan",
-            schema_summary=_PLAN_SCHEMA_SUMMARY,
-            source_text=_json_dumps_compact(res),
-            validation_issue=issue,
-            validate_and_normalize=validate_plan,
-            repair_task_name="plan_repair",
-            output_language=output_language,
-            log_scope="plan",
+
+    system = (
+        "You are a video learning assistant. Goal: help users learn/review WITHOUT rewatching the whole video. "
+        "Return ONLY one JSON object (no markdown). "
+        + (
+            "If `summaries` are provided, treat them as the PRIMARY source of content for relationship quality. "
+            if has_summaries
+            else ""
         )
+        + "Generate mindmap only from provided contentBlocks. Do NOT modify contentBlocks. "
+        + "Keep the graph concise and readable for UI: at most "
+        + str(max_topics)
+        + " topic nodes and at most "
+        + str(max_details_per_topic)
+        + " detail nodes per topic. "
+        + "Each node label MUST be short, plain, and <= "
+        + str(max_label_chars)
+        + " characters. Prefer noun phrases, avoid long sentences and punctuation-heavy prose. "
+        "Schema keys MUST be exactly: schemaVersion, mindmap. "
+        "mindmap: {nodes:[], edges:[]}. "
+        "nodes and edges MUST be arrays of objects, never arrays of JSON strings. "
+        "node fields: {id:str, type:str, label:str, level:int, data:{targetBlockId?:str, targetHighlightId?:str}}. "
+        "node types: exactly 1 root(type=\"root\",level=0,no targetBlockId); "
+        "topic(type=\"topic\",level=1,data.targetBlockId REQUIRED referencing contentBlocks[].blockId); "
+        "detail(type=\"detail\",level=2,data.targetBlockId REQUIRED, data.targetHighlightId OPTIONAL). "
+        "edge fields: {id:str, source:str, target:str, label?:str}. source/target MUST reference node ids. label is OPTIONAL. "
+        "Topology: root->topics->details (DAG). root has no incoming edges."
+        + lang_hint
+    )
+
+    user_payload: dict = {
+        "task": "plan_mindmap",
+        "schemaVersion": schema_version,
+        "contentBlocks": mindmap_input_blocks,
+    }
+    if lang:
+        user_payload["outputLanguage"] = lang
+    if has_summaries and isinstance(ctx.get("summaries"), list):
+        user_payload["summaries"] = ctx.get("summaries")
+
+    return {
+        "task": "plan_mindmap",
+        "schemaVersion": schema_version,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": _json_dumps_compact(user_payload)},
+        ],
+        "system": system,
+        "userPayload": user_payload,
+    }
 
 
 def build_plan_request(
@@ -890,38 +1536,15 @@ def build_plan_request(
     the backend's prompts/schema and submit a validated plan back.
     """
 
-    segments = transcript.get("segments") if isinstance(transcript, dict) else None
-    if not isinstance(segments, list):
-        segments = []
-    seg_dicts = [s for s in segments if isinstance(s, dict)]
-
-    has_summaries = isinstance(summaries, list) and bool(summaries)
-    include_transcript_with_summaries = _env_bool(
-        "LLM_PLAN_INCLUDE_TRANSCRIPT_WITH_SUMMARIES",
-        False,
+    ctx = _build_plan_input_context(
+        transcript=transcript,
+        summaries=summaries,
+        output_language=output_language,
     )
 
-    max_segments = _env_int("LLM_PLAN_MAX_SEGMENTS", 60)
-    max_chars = _env_int("LLM_PLAN_MAX_CHARS", 12_000)
-    excerpt = (
-        _sample_segments(seg_dicts, max_segments=max_segments, max_chars=max_chars)
-        if (not has_summaries or include_transcript_with_summaries)
-        else []
-    )
-    include_transcript_text_with_summaries = _env_bool(
-        "LLM_PLAN_INCLUDE_TRANSCRIPT_TEXT_WITH_SUMMARIES",
-        False,
-    )
-    if has_summaries and include_transcript_with_summaries and (not include_transcript_text_with_summaries):
-        # Long-video reduce: summaries are the primary content.
-        # Keep only timing anchors (startMs/endMs) to avoid spending tokens on raw transcript text.
-        excerpt = [
-            {"startMs": s.get("startMs"), "endMs": s.get("endMs")}
-            for s in excerpt
-            if isinstance(s, dict) and isinstance(s.get("startMs"), int) and isinstance(s.get("endMs"), int)
-        ]
-
-    lang = (output_language or "").strip()
+    has_summaries = bool(ctx.get("has_summaries"))
+    excerpt = ctx.get("excerpt") if isinstance(ctx.get("excerpt"), list) else []
+    lang = ctx.get("lang") if isinstance(ctx.get("lang"), str) else ""
     lang_hint = ""
     if lang and lang.lower() != "auto":
         lang_hint = (
@@ -930,7 +1553,7 @@ def build_plan_request(
             + "). This includes block titles, highlight text, and mindmap node labels."
         )
 
-    verify_on = _keyframe_verify_enabled()
+    verify_on = bool(ctx.get("verify_on"))
     kfc_requirement = (
         "If you include keyframes, also include highlight.keyframeConfidence (number 0..1) indicating how confident you are that the keyframe is useful. Use low confidence when unsure. "
         if verify_on
@@ -977,8 +1600,8 @@ def build_plan_request(
     }
     if lang:
         user_payload["outputLanguage"] = lang
-    if isinstance(summaries, list) and summaries:
-        user_payload["summaries"] = summaries
+    if has_summaries and isinstance(ctx.get("summaries"), list):
+        user_payload["summaries"] = ctx.get("summaries")
 
     return {
         "task": "plan",

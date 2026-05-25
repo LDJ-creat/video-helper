@@ -7,7 +7,7 @@ import os
 import time
 import logging
 from urllib.parse import urlparse
-from typing import Any, Protocol
+from typing import Any, Iterable, Protocol
 
 import httpx
 from sqlalchemy.exc import OperationalError
@@ -22,7 +22,7 @@ from core.llm.secrets_crypto import decrypt_api_key
 logger = logging.getLogger(__name__)
 
 class AnalyzeProvider(Protocol):
-	def generate_json(self, task_name: str, input_dict: dict) -> dict: ...
+	def generate_json(self, task_name: str, input_dict: dict, *, max_tokens: int | None = None) -> dict: ...
 
 
 @dataclass(frozen=True)
@@ -153,6 +153,69 @@ def _normalize_model_id(model: str) -> str:
 	return m
 
 
+def _parse_openai_sse_chunks(line_iter: Iterable[str]) -> tuple[str, int]:
+	"""Parse OpenAI-compatible SSE stream, concatenate delta.content.
+
+	Returns (full_text, chunk_count).
+	"""
+	parts: list[str] = []
+	chunk_count = 0
+	for line in line_iter:
+		line = line.strip()
+		if not line or line.startswith(":"):
+			continue
+		if line == "data: [DONE]":
+			break
+		if line.startswith("data: "):
+			payload_str = line[6:]
+			try:
+				obj = json.loads(payload_str)
+				choices = obj.get("choices")
+				if isinstance(choices, list) and choices:
+					delta = choices[0].get("delta", {})
+					content = delta.get("content")
+					if isinstance(content, str):
+						parts.append(content)
+						chunk_count += 1
+			except json.JSONDecodeError:
+				pass
+	return "".join(parts), chunk_count
+
+
+def _parse_anthropic_sse_chunks(line_iter: Iterable[str]) -> tuple[str, int]:
+	"""Parse Anthropic SSE stream, concatenate content_block_delta delta.text.
+
+	Returns (full_text, chunk_count).
+	"""
+	parts: list[str] = []
+	chunk_count = 0
+	current_event = ""
+	for line in line_iter:
+		line = line.strip()
+		if not line:
+			continue
+		if line.startswith(":"):
+			continue
+		if line.startswith("event: "):
+			current_event = line[7:].strip()
+			if current_event == "message_stop":
+				break
+			continue
+		if line.startswith("data: "):
+			payload_str = line[6:]
+			if current_event == "content_block_delta":
+				try:
+					obj = json.loads(payload_str)
+					delta = obj.get("delta", {})
+					text = delta.get("text")
+					if isinstance(text, str):
+						parts.append(text)
+						chunk_count += 1
+				except json.JSONDecodeError:
+					pass
+	return "".join(parts), chunk_count
+
+
 class LLMAnalyzeProvider:
 	"""OpenAI-compatible chat-completions style client.
 
@@ -175,12 +238,13 @@ class LLMAnalyzeProvider:
 		self._transport = transport
 
 		self._client = httpx.Client(
-			timeout=self._timeout_s,
+			timeout=httpx.Timeout(connect=30.0, read=120.0, write=30.0, pool=10.0),
 			transport=self._transport,
+			trust_env=False,
 			headers={
 				"Authorization": f"Bearer {self._api_key}",
 				"Content-Type": "application/json",
-				"Accept": "application/json",
+				"Accept": "text/event-stream",
 			},
 		)
 
@@ -193,16 +257,20 @@ class LLMAnalyzeProvider:
 			return self._api_base
 		return self._api_base + "/v1/chat/completions"
 
-	def generate_json(self, task_name: str, input_dict: dict) -> dict:
+	def generate_json(self, task_name: str, input_dict: dict, *, max_tokens: int | None = None) -> dict:
+		t_start = time.perf_counter()
 		messages = input_dict.get("messages")
 		if not isinstance(messages, list) or not messages:
 			raise AnalyzeError(code=ErrorCode.JOB_STAGE_FAILED, message="Invalid LLM input", details={"reason": "invalid_input", "task": task_name})
 
+		effective_max_tokens = max_tokens or _env_int("LLM_MAX_TOKENS", 4096)
 		payload: dict[str, Any] = {
 			"model": self._model,
 			"messages": messages,
 			"temperature": 0.2,
 			"response_format": {"type": "json_object"},
+			"stream": True,
+			"max_tokens": effective_max_tokens,
 		}
 
 		debug_enabled = _env_bool("LLM_DEBUG", False)
@@ -222,25 +290,36 @@ class LLMAnalyzeProvider:
 
 		if debug_enabled:
 			logger.info(
-				"[LLM] request queued task=%s model=%s endpoint=%s promptHash=%s promptLen=%s timeoutS=%s",
+				"[LLM] request queued task=%s model=%s endpoint=%s promptHash=%s promptLen=%s maxTokens=%s",
 				task_name,
 				self._model,
 				self._endpoint_url(),
 				debug_meta.get("promptHash"),
 				debug_meta.get("promptLen"),
-				self._timeout_s,
+				payload["max_tokens"],
 			)
 
 		# Default retries: reduces flakiness on providers with slow first-byte latency.
 		max_attempts = max(1, _env_int("LLM_MAX_ATTEMPTS", 3))
 		attempt = 0
-		resp: httpx.Response | None = None
+		full_text: str | None = None
+		status: int | None = None
+		chunk_count = 0
+		stream_elapsed_s = 0.0
 		while attempt < max_attempts:
 			attempt += 1
 			try:
 				if debug_enabled:
-					logger.info("[LLM] request start task=%s attempt=%s/%s", task_name, attempt, max_attempts)
-				resp = self._client.post(self._endpoint_url(), json=payload)
+					logger.info("[LLM] request start task=%s attempt=%s/%s (streaming)", task_name, attempt, max_attempts)
+				t_stream_start = time.perf_counter()
+				with self._client.stream("POST", self._endpoint_url(), json=payload) as stream:
+					status = int(stream.status_code)
+					# For error status codes, read body from stream for error details.
+					if status >= 400:
+						_ = stream.read()
+						break
+					full_text, chunk_count = _parse_openai_sse_chunks(stream.iter_lines())
+				stream_elapsed_s = time.perf_counter() - t_stream_start
 			except httpx.TimeoutException:
 				if attempt < max_attempts:
 					# Exponential backoff (0.5s, 1s, 2s, 4s...) capped.
@@ -273,14 +352,12 @@ class LLMAnalyzeProvider:
 				raise AnalyzeError(code=ErrorCode.JOB_STAGE_FAILED, message="LLM request failed", details=details)
 
 			# Retry on transient upstream failures.
-			status = int(resp.status_code)
-			if status >= 500 and attempt < max_attempts:
+			if status is not None and status >= 500 and attempt < max_attempts:
 				time.sleep(min(8.0, 0.5 * (2 ** (attempt - 1))))
 				continue
 			break
 
-		assert resp is not None
-		status = int(resp.status_code)
+		assert status is not None
 		if status == 401:
 			details = {"reason": "missing_credentials", "task": task_name}
 			if debug_enabled:
@@ -302,38 +379,39 @@ class LLMAnalyzeProvider:
 				details["debug"] = debug_meta
 			raise AnalyzeError(code=ErrorCode.JOB_STAGE_FAILED, message="LLM returned error", details=details)
 
-		# Parse response.
-		try:
-			body = resp.json()
-		except Exception:
-			raw = resp.text or ""
-			dump_ref = _maybe_dump_text_under_data_dir(
-				rel_dir="logs/llm_invalid_json",
-				filename=f"{task_name}-nonjson-{_hash_text(raw)}.txt",
-				text=raw,
-				force=True,
+		# Parse assembled text as JSON.
+		if full_text is None:
+			raise AnalyzeError(
+				code=ErrorCode.JOB_STAGE_FAILED,
+				message="LLM returned empty stream",
+				details={"reason": "invalid_llm_output", "task": task_name},
 			)
-			details = {
-				"reason": "invalid_llm_output",
-				"task": task_name,
-				"httpStatus": status,
-				"bodyLen": len(raw),
-				"dumpRef": dump_ref,
-				"hint": "Set LLM_DUMP_INVALID_JSON=1 to dump raw model output under DATA_DIR/logs/llm_invalid_json",
-			}
-			if debug_enabled:
-				details["debug"] = debug_meta
-			raise AnalyzeError(code=ErrorCode.JOB_STAGE_FAILED, message="LLM returned non-JSON response", details=details)
 
-		parsed = _parse_openai_style_json(body, task_name)
+		t_parse_start = time.perf_counter()
+		parsed = _parse_content_as_json(full_text, task_name)
+		parse_elapsed_s = time.perf_counter() - t_parse_start
 		if not isinstance(parsed, dict):
 			raise AnalyzeError(
 				code=ErrorCode.JOB_STAGE_FAILED,
 				message="LLM output is not a JSON object",
 				details={"reason": "invalid_llm_output", "task": task_name},
 			)
-		if debug_enabled:
-			logger.info("[LLM] request ok task=%s httpStatus=%s", task_name, status)
+
+		total_elapsed_s = time.perf_counter() - t_start
+		# Always log timing info for performance tracking (not gated by LLM_DEBUG).
+		logger.info(
+			"[LLM] ok task=%s model=%s maxTokens=%s streamDur=%.1fs chunks=%d contentLen=%d parseDur=%.2fs totalDur=%.1fs attempt=%s/%s",
+			task_name,
+			self._model,
+			effective_max_tokens,
+			stream_elapsed_s,
+			chunk_count,
+			len(full_text),
+			parse_elapsed_s,
+			total_elapsed_s,
+			attempt,
+			max_attempts,
+		)
 		return parsed
 
 
@@ -374,13 +452,14 @@ class AnthropicAnalyzeProvider:
 		self._anthropic_version = version or "2023-06-01"
 
 		self._client = httpx.Client(
-			timeout=self._timeout_s,
+			timeout=httpx.Timeout(connect=30.0, read=120.0, write=30.0, pool=10.0),
 			transport=self._transport,
+			trust_env=False,
 			headers={
 				"x-api-key": self._api_key,
 				"anthropic-version": self._anthropic_version,
 				"Content-Type": "application/json",
-				"Accept": "application/json",
+				"Accept": "text/event-stream",
 			},
 		)
 
@@ -392,7 +471,8 @@ class AnthropicAnalyzeProvider:
 			return self._api_base + "/messages"
 		return self._api_base + "/v1/messages"
 
-	def generate_json(self, task_name: str, input_dict: dict) -> dict:
+	def generate_json(self, task_name: str, input_dict: dict, *, max_tokens: int | None = None) -> dict:
+		t_start = time.perf_counter()
 		messages = input_dict.get("messages")
 		if not isinstance(messages, list) or not messages:
 			raise AnalyzeError(code=ErrorCode.JOB_STAGE_FAILED, message="Invalid LLM input", details={"reason": "invalid_input", "task": task_name})
@@ -416,11 +496,14 @@ class AnthropicAnalyzeProvider:
 				content = f"[{m.get('role')}]: {content}"
 			anthropic_messages.append({"role": role, "content": [{"type": "text", "text": content}]})
 
+		effective_max_tokens = max(64, max_tokens or _env_int("LLM_MAX_TOKENS", 4096))
+
 		payload: dict[str, Any] = {
 			"model": self._model,
 			"messages": anthropic_messages or [{"role": "user", "content": [{"type": "text", "text": "{}"}]}],
 			"temperature": 0.2,
-			"max_tokens": max(64, _env_int("LLM_MAX_TOKENS", 4096)),
+			"max_tokens": effective_max_tokens,
+			"stream": True,
 		}
 		if system_parts:
 			payload["system"] = "\n\n".join([p for p in system_parts if p.strip()])
@@ -442,24 +525,34 @@ class AnthropicAnalyzeProvider:
 
 		if debug_enabled:
 			logger.info(
-				"[LLM] request queued task=%s model=%s endpoint=%s promptHash=%s promptLen=%s timeoutS=%s",
+				"[LLM] request queued task=%s model=%s endpoint=%s promptHash=%s promptLen=%s maxTokens=%s",
 				task_name,
 				self._model,
 				self._endpoint_url(),
 				debug_meta.get("promptHash"),
 				debug_meta.get("promptLen"),
-				self._timeout_s,
+				effective_max_tokens,
 			)
 
 		max_attempts = max(1, _env_int("LLM_MAX_ATTEMPTS", 3))
 		attempt = 0
-		resp: httpx.Response | None = None
+		full_text: str | None = None
+		status: int | None = None
+		chunk_count = 0
+		stream_elapsed_s = 0.0
 		while attempt < max_attempts:
 			attempt += 1
 			try:
 				if debug_enabled:
-					logger.info("[LLM] request start task=%s attempt=%s/%s", task_name, attempt, max_attempts)
-				resp = self._client.post(self._endpoint_url(), json=payload)
+					logger.info("[LLM] request start task=%s attempt=%s/%s (streaming)", task_name, attempt, max_attempts)
+				t_stream_start = time.perf_counter()
+				with self._client.stream("POST", self._endpoint_url(), json=payload) as stream:
+					status = int(stream.status_code)
+					if status >= 400:
+						_ = stream.read()
+						break
+					full_text, chunk_count = _parse_anthropic_sse_chunks(stream.iter_lines())
+				stream_elapsed_s = time.perf_counter() - t_stream_start
 			except httpx.TimeoutException:
 				if attempt < max_attempts:
 					time.sleep(min(8.0, 0.5 * (2 ** (attempt - 1))))
@@ -489,14 +582,12 @@ class AnthropicAnalyzeProvider:
 					details["debug"] = debug_meta
 				raise AnalyzeError(code=ErrorCode.JOB_STAGE_FAILED, message="LLM request failed", details=details)
 
-			status = int(resp.status_code)
-			if status >= 500 and attempt < max_attempts:
+			if status is not None and status >= 500 and attempt < max_attempts:
 				time.sleep(min(8.0, 0.5 * (2 ** (attempt - 1))))
 				continue
 			break
 
-		assert resp is not None
-		status = int(resp.status_code)
+		assert status is not None
 		if status in {401, 403}:
 			details = {"reason": "missing_credentials", "task": task_name}
 			if debug_enabled:
@@ -513,37 +604,38 @@ class AnthropicAnalyzeProvider:
 				details["debug"] = debug_meta
 			raise AnalyzeError(code=ErrorCode.JOB_STAGE_FAILED, message="LLM returned error", details=details)
 
-		try:
-			body = resp.json()
-		except Exception:
-			raw = resp.text or ""
-			dump_ref = _maybe_dump_text_under_data_dir(
-				rel_dir="logs/llm_invalid_json",
-				filename=f"{task_name}-nonjson-{_hash_text(raw)}.txt",
-				text=raw,
-				force=True,
+		# Parse assembled text as JSON.
+		if full_text is None:
+			raise AnalyzeError(
+				code=ErrorCode.JOB_STAGE_FAILED,
+				message="LLM returned empty stream",
+				details={"reason": "invalid_llm_output", "task": task_name},
 			)
-			details = {
-				"reason": "invalid_llm_output",
-				"task": task_name,
-				"httpStatus": status,
-				"bodyLen": len(raw),
-				"dumpRef": dump_ref,
-				"hint": "Set LLM_DUMP_INVALID_JSON=1 to dump raw model output under DATA_DIR/logs/llm_invalid_json",
-			}
-			if debug_enabled:
-				details["debug"] = debug_meta
-			raise AnalyzeError(code=ErrorCode.JOB_STAGE_FAILED, message="LLM returned non-JSON response", details=details)
 
-		parsed = _parse_anthropic_style_json(body, task_name)
+		t_parse_start = time.perf_counter()
+		parsed = _parse_content_as_json(full_text, task_name)
+		parse_elapsed_s = time.perf_counter() - t_parse_start
 		if not isinstance(parsed, dict):
 			raise AnalyzeError(
 				code=ErrorCode.JOB_STAGE_FAILED,
 				message="LLM output is not a JSON object",
 				details={"reason": "invalid_llm_output", "task": task_name},
 			)
-		if debug_enabled:
-			logger.info("[LLM] request ok task=%s httpStatus=%s", task_name, status)
+
+		total_elapsed_s = time.perf_counter() - t_start
+		logger.info(
+			"[LLM] ok task=%s model=%s maxTokens=%s streamDur=%.1fs chunks=%d contentLen=%d parseDur=%.2fs totalDur=%.1fs attempt=%s/%s provider=anthropic",
+			task_name,
+			self._model,
+			effective_max_tokens,
+			stream_elapsed_s,
+			chunk_count,
+			len(full_text),
+			parse_elapsed_s,
+			total_elapsed_s,
+			attempt,
+			max_attempts,
+		)
 		return parsed
 
 
@@ -635,7 +727,7 @@ def llm_provider_from_env(*, transport: httpx.BaseTransport | None = None) -> An
 	api_key = _env_str("LLM_API_KEY")
 	model = _normalize_model_id(_env_str("LLM_MODEL") or "minimaxai/minimax-m2.1")
 	# Default to a higher timeout to tolerate slow first-byte latency.
-	timeout_s = float(_env_int("LLM_TIMEOUT_S", 180))
+	timeout_s = float(_env_int("LLM_TIMEOUT_S", 360))
 
 	if not api_base or not api_key:
 		raise AnalyzeError(
@@ -731,7 +823,7 @@ def _try_llm_runtime_from_sqlite(*, transport: httpx.BaseTransport | None = None
 				details={"reason": "invalid_credentials"},
 			)
 
-	timeout_s = float(_env_int("LLM_TIMEOUT_S", 180))
+	timeout_s = float(_env_int("LLM_TIMEOUT_S", 360))
 	return LLMRuntimeConfig(
 		provider_id=resolved_provider_id,
 		api_base=api_base,
@@ -750,7 +842,7 @@ def llm_runtime_for_jobs(*, transport: httpx.BaseTransport | None = None) -> LLM
 	api_base = _env_str("LLM_API_BASE")
 	api_key = _env_str("LLM_API_KEY")
 	model = _normalize_model_id(_env_str("LLM_MODEL") or "minimaxai/minimax-m2.1")
-	timeout_s = float(_env_int("LLM_TIMEOUT_S", 180))
+	timeout_s = float(_env_int("LLM_TIMEOUT_S", 360))
 	if not api_base or not api_key:
 		return None
 	return LLMRuntimeConfig(provider_id=None, api_base=api_base, api_key=api_key, model=model, timeout_s=timeout_s)

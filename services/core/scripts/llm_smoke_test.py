@@ -47,7 +47,7 @@ def main() -> int:
     api_base = (os.environ.get("LLM_API_BASE") or "").strip().rstrip("/")
     api_key = (os.environ.get("LLM_API_KEY") or "").strip()
     model = _normalize_model_id((os.environ.get("LLM_MODEL") or "minimaxai/minimax-m2.1").strip())
-    timeout_s = float((os.environ.get("LLM_TIMEOUT_S") or "120").strip() or "120")
+    timeout_s = float((os.environ.get("LLM_TIMEOUT_S") or "360").strip() or "360")
 
     if not api_base or not api_key:
         print("LLM smoke test FAILED")
@@ -76,7 +76,7 @@ def main() -> int:
     print(f"LLM smoke test sending: endpoint={endpoint} model={model} timeout_s={timeout_s}")
 
     try:
-        with httpx.Client(timeout=timeout_s, headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"}) as client:
+        with httpx.Client(timeout=timeout_s, headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"}, trust_env=False) as client:
             resp = client.post(endpoint, json=payload)
     except httpx.TimeoutException:
         print("LLM smoke test FAILED")

@@ -192,7 +192,7 @@ def test_ensure_chunk_summaries_auto_repairs_and_logs(monkeypatch: pytest.Monkey
         def __init__(self):
             self.calls: list[str] = []
 
-        def generate_json(self, task_name: str, input_dict: dict) -> dict:  # noqa: ARG002
+        def generate_json(self, task_name: str, input_dict: dict, *, max_tokens: int | None = None) -> dict:  # noqa: ARG002
             self.calls.append(task_name)
             if task_name == "chunk_summary":
                 return ["not", "a", "dict"]

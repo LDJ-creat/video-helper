@@ -48,6 +48,148 @@ def _sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _write_json_atomic(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + f".{_now_ms()}.tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":"), default=str), encoding="utf-8")
+    json.loads(tmp.read_text("utf-8"))
+    tmp.replace(path)
+
+
+def _plan_artifacts_dir(*, project_id: str, job_id: str) -> Path:
+    data_dir = get_data_dir().resolve()
+    base_dir = (data_dir / project_id / "artifacts" / "plan" / job_id).resolve()
+    if not base_dir.is_relative_to(data_dir):
+        raise ValueError("plan artifact dir escapes DATA_DIR")
+
+    return base_dir
+
+
+def _plan_request_artifacts_dir(*, project_id: str, job_id: str) -> Path:
+    return _plan_artifacts_dir(project_id=project_id, job_id=job_id) / "llm_requests"
+
+
+def _persist_plan_chain_metadata(*, project_id: str, job_id: str, chain_type: str, duration_ms: int | None, summaries_count: int | None) -> None:
+    data_dir = get_data_dir().resolve()
+    base_dir = _plan_artifacts_dir(project_id=project_id, job_id=job_id)
+    meta_path = (base_dir / "analysis_chain.json").resolve()
+    if not meta_path.is_relative_to(data_dir):
+        raise ValueError("plan chain metadata escapes DATA_DIR")
+
+    payload = {
+        "projectId": project_id,
+        "jobId": job_id,
+        "chainType": chain_type,
+        "durationMs": duration_ms,
+        "summariesCount": summaries_count,
+    }
+    _write_json_atomic(meta_path, payload)
+
+
+def _persist_plan_request_event(*, project_id: str, job_id: str, chain_type: str, event: dict, sequence: int) -> None:
+    data_dir = get_data_dir().resolve()
+    base_dir = _plan_request_artifacts_dir(project_id=project_id, job_id=job_id)
+    base_dir.mkdir(parents=True, exist_ok=True)
+
+    request_path = (base_dir / f"{sequence:02d}-{event.get('task', 'request')}.json").resolve()
+    if not request_path.is_relative_to(data_dir):
+        raise ValueError("plan request artifact escapes DATA_DIR")
+
+    payload = {
+        "projectId": project_id,
+        "jobId": job_id,
+        "chainType": chain_type,
+        **event,
+    }
+    _write_json_atomic(request_path, payload)
+
+
+def _persist_plan_content_blocks_artifacts(*, project_id: str, job_id: str, payload: dict, chain_type: str | None = None) -> None:
+    data_dir = get_data_dir().resolve()
+    base_dir = _plan_artifacts_dir(project_id=project_id, job_id=job_id)
+
+    schema_version = payload.get("schemaVersion") if isinstance(payload.get("schemaVersion"), str) else "2026-02-06"
+    manifest_path = (base_dir / "manifest.json").resolve()
+    if not manifest_path.is_relative_to(data_dir):
+        raise ValueError("plan manifest escapes DATA_DIR")
+
+    manifest = {
+        "schemaVersion": schema_version,
+        "projectId": project_id,
+        "jobId": job_id,
+        "stage": "content_blocks",
+        "contentBlocksFile": "content_blocks.json",
+    }
+    if isinstance(chain_type, str) and chain_type:
+        manifest["chainType"] = chain_type
+
+    content_blocks = payload.get("contentBlocks") if isinstance(payload.get("contentBlocks"), list) else None
+
+    _write_json_atomic(manifest_path, manifest)
+    if content_blocks is not None:
+        _write_json_atomic((base_dir / "content_blocks.json").resolve(), {"schemaVersion": schema_version, "contentBlocks": content_blocks})
+
+
+def _persist_plan_artifacts(*, project_id: str, job_id: str, payload: dict, chain_type: str | None = None) -> None:
+    data_dir = get_data_dir().resolve()
+    base_dir = _plan_artifacts_dir(project_id=project_id, job_id=job_id)
+
+    schema_version = payload.get("schemaVersion") if isinstance(payload.get("schemaVersion"), str) else "2026-02-06"
+    manifest_path = (base_dir / "manifest.json").resolve()
+    if not manifest_path.is_relative_to(data_dir):
+        raise ValueError("plan manifest escapes DATA_DIR")
+
+    manifest = {
+        "schemaVersion": schema_version,
+        "projectId": project_id,
+        "jobId": job_id,
+        "stage": "complete",
+        "contentBlocksFile": "content_blocks.json",
+        "mindmapFile": "mindmap.json",
+    }
+    if isinstance(chain_type, str) and chain_type:
+        manifest["chainType"] = chain_type
+
+    content_blocks = payload.get("contentBlocks") if isinstance(payload.get("contentBlocks"), list) else None
+    mindmap = payload.get("mindmap") if isinstance(payload.get("mindmap"), dict) else None
+
+    _write_json_atomic(manifest_path, manifest)
+    if content_blocks is not None:
+        _write_json_atomic((base_dir / "content_blocks.json").resolve(), {"schemaVersion": schema_version, "contentBlocks": content_blocks})
+    if mindmap is not None:
+        _write_json_atomic((base_dir / "mindmap.json").resolve(), {"schemaVersion": schema_version, "mindmap": mindmap})
+
+
+def _persist_plan_failure_trace(*, project_id: str, job_id: str, details: dict, chain_type: str | None = None) -> None:
+    data_dir = get_data_dir().resolve()
+    base_dir = _plan_artifacts_dir(project_id=project_id, job_id=job_id)
+    base_dir.mkdir(parents=True, exist_ok=True)
+
+    failure_path = (base_dir / "mindmap_repair_failed.json").resolve()
+    if not failure_path.is_relative_to(data_dir):
+        raise ValueError("plan failure artifact escapes DATA_DIR")
+
+    payload: dict = {
+        "projectId": project_id,
+        "jobId": job_id,
+        "stage": details.get("task") if isinstance(details.get("task"), str) else "plan",
+        "details": details,
+    }
+    if isinstance(chain_type, str) and chain_type:
+        payload["chainType"] = chain_type
+
+    trace_ref = details.get("traceRef")
+    if isinstance(trace_ref, str) and trace_ref:
+        trace_path = (data_dir / trace_ref).resolve()
+        if trace_path.is_relative_to(data_dir) and trace_path.exists() and trace_path.is_file():
+            try:
+                payload["repairTrace"] = json.loads(trace_path.read_text("utf-8"))
+            except Exception:
+                payload["repairTraceRaw"] = trace_path.read_text("utf-8", errors="ignore")
+
+    _write_json_atomic(failure_path, payload)
+
+
 def _abort_if_canceled(*, session: Session, job: Job, project_id: str, stage: str) -> bool:
     """Best-effort cancel check.
 
@@ -527,8 +669,83 @@ class PipelineJobProcessor:
                         duration_ms = estimate_duration_ms(transcript=transcript, transcript_meta=job.transcript_meta)
 
                     use_long = should_use_long_video_path(duration_ms=duration_ms, segments=seg_dicts, total_chars=int(total_chars))
+                    chain_type = "long_video" if use_long else "short_video"
+
+                    try:
+                        _persist_plan_chain_metadata(
+                            project_id=job.project_id,
+                            job_id=job.job_id,
+                            chain_type=chain_type,
+                            duration_ms=duration_ms,
+                            summaries_count=None,
+                        )
+                    except Exception:
+                        pass
 
                     summaries: list[dict] | None = None
+
+                    def _generate_plan_with_reuse(*, summaries_in: list[dict] | None) -> dict:
+                        cached_blocks: list[dict] | None = None
+                        cached_plan = getattr(job, "external_plan", None)
+                        if isinstance(cached_plan, dict):
+                            cb = cached_plan.get("contentBlocks")
+                            if isinstance(cb, list) and cb:
+                                cached_blocks = cb
+
+                        def _persist_partial_content_blocks(payload: dict) -> None:
+                            cb2 = payload.get("contentBlocks") if isinstance(payload, dict) else None
+                            sv2 = payload.get("schemaVersion") if isinstance(payload, dict) and isinstance(payload.get("schemaVersion"), str) else "2026-02-06"
+                            if not isinstance(cb2, list) or not cb2:
+                                return
+                            try:
+                                job.external_plan = {
+                                    "schemaVersion": sv2,
+                                    "contentBlocks": cb2,
+                                    "mindmap": {"nodes": [], "edges": []},
+                                    "_partial": "content_blocks",
+                                }
+                                job.updated_at_ms = _now_ms()
+                                session.add(job)
+                                session.commit()
+                                _persist_plan_content_blocks_artifacts(project_id=job.project_id, job_id=job.job_id, payload=payload, chain_type=chain_type)
+                            except Exception:
+                                pass
+
+                        request_sequence = 0
+
+                        def _persist_request_event(event: dict) -> None:
+                            nonlocal request_sequence
+                            request_sequence += 1
+                            try:
+                                _persist_plan_request_event(
+                                    project_id=job.project_id,
+                                    job_id=job.job_id,
+                                    chain_type=chain_type,
+                                    event=event,
+                                    sequence=request_sequence,
+                                )
+                            except Exception:
+                                pass
+
+                        try:
+                            return generate_plan(
+                                transcript=transcript,
+                                summaries=summaries_in,
+                                output_language=getattr(job, "output_language", None),
+                                cached_content_blocks=cached_blocks,
+                                on_content_blocks_ready=_persist_partial_content_blocks,
+                                on_mindmap_ready=lambda payload: _persist_plan_artifacts(project_id=job.project_id, job_id=job.job_id, payload=payload, chain_type=chain_type),
+                                on_request_ready=_persist_request_event,
+                            )
+                        except AnalyzeError as exc:
+                            details = dict(exc.details or {})
+                            if details.get("task") in {"plan_mindmap", "plan_content_blocks", "plan"}:
+                                try:
+                                    _persist_plan_failure_trace(project_id=job.project_id, job_id=job.job_id, details=details, chain_type=chain_type)
+                                except Exception:
+                                    pass
+                            raise
+
                     if use_long:
                         job.stage = "chunk_summaries"
                         job.progress = max(job.progress or 0.0, 0.55)
@@ -560,6 +777,17 @@ class PipelineJobProcessor:
                                 status="ok",
                             )
 
+                        try:
+                            _persist_plan_chain_metadata(
+                                project_id=job.project_id,
+                                job_id=job.job_id,
+                                chain_type=chain_type,
+                                duration_ms=duration_ms,
+                                summaries_count=len(summaries or []),
+                            )
+                        except Exception:
+                            pass
+
                         job.progress = max(job.progress or 0.0, 0.6)
                         job.updated_at_ms = _now_ms()
                         session.add(job)
@@ -581,11 +809,21 @@ class PipelineJobProcessor:
                         GLOBAL_JOB_EVENT_BUS.emit_progress(job_id=job.job_id, project_id=job.project_id, stage=job.stage, progress=job.progress, message="progress=0.6")
 
                         with time_pipeline_step(project_id=job.project_id, task_id=job.job_id, step="plan"):
-                            plan = generate_plan(
-                                transcript=transcript,
-                                summaries=summaries,
-                                output_language=getattr(job, "output_language", None),
+                            plan = _generate_plan_with_reuse(summaries_in=summaries)
+                    else:
+                        try:
+                            _persist_plan_chain_metadata(
+                                project_id=job.project_id,
+                                job_id=job.job_id,
+                                chain_type=chain_type,
+                                duration_ms=duration_ms,
+                                summaries_count=0,
                             )
+                        except Exception:
+                            pass
+
+                        with time_pipeline_step(project_id=job.project_id, task_id=job.job_id, step="plan"):
+                            plan = _generate_plan_with_reuse(summaries_in=None)
 
                     # Cache the validated plan for resumability (avoid re-calling LLM if later stages fail).
                     try:

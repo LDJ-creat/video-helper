@@ -39,14 +39,38 @@ if SRC_DIR not in sys.path:
 _load_env_file(os.path.join(PROJECT_ROOT, ".env"))
 
 
-from core.main import app  # noqa: E402
+def _should_enable_reload() -> bool:
+    """Enable reload in local development, but keep container/runtime defaults off.
+
+    CORE_RELOAD can override the default explicitly.
+    """
+
+    raw_reload = os.environ.get("CORE_RELOAD")
+    if raw_reload is not None:
+        return raw_reload.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+    # The packaged Docker runtime sets DATA_DIR=/app/data.
+    # Treat that as a production-like environment and avoid auto-reload there.
+    return os.environ.get("DATA_DIR") != "/app/data"
 
 
 def main() -> None:
     import uvicorn
 
     port = int(os.environ.get("PORT", "8000"))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    reload_enabled = _should_enable_reload()
+    reload_dirs = [PROJECT_ROOT] if reload_enabled else None
+    reload_excludes = [".venv", "build", "data", "__pycache__"] if reload_enabled else None
+
+    uvicorn.run(
+        "core.main:app",
+        host="0.0.0.0",
+        port=port,
+        reload=reload_enabled,
+        reload_dirs=reload_dirs,
+        reload_excludes=reload_excludes,
+        app_dir=SRC_DIR,
+    )
 
 
 if __name__ == "__main__":

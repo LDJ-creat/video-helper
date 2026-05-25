@@ -347,7 +347,6 @@ async def _llm_preflight_or_error(request: Request, session: Session) -> JSONRes
 				),
 			)
 
-		base_url = provider.base_url
 		model = runtime_model
 	else:
 		base_url = _env_str("LLM_API_BASE")
@@ -365,9 +364,9 @@ async def _llm_preflight_or_error(request: Request, session: Session) -> JSONRes
 			)
 
 	# Keep job creation fast even if operator sets a large timeout for full requests.
-	env_timeout_s = float(max(1, _env_int("LLM_TIMEOUT_S", 180)))
+	env_timeout_s = float(max(1, _env_int("LLM_TIMEOUT_S", 360)))
 	# Some providers have slow first-byte latency; allow override for smoke/ops.
-	preflight_cap_s = float(max(1, _env_int("LLM_PREFLIGHT_TIMEOUT_S", 30)))
+	preflight_cap_s = float(max(1, _env_int("LLM_PREFLIGHT_TIMEOUT_S", 45)))
 	timeout_s = min(preflight_cap_s, env_timeout_s)
 
 	try:

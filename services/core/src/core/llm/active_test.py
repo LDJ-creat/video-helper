@@ -82,6 +82,9 @@ def run_llm_connectivity_test(
 
 	Returns latency in ms on success.
 	Raises LLMActiveTestError with stable reasons on failure.
+
+	5xx responses are retried up to 2 times (3 total attempts) with 1–2 s
+	backoff to handle transient provider unavailability.
 	"""
 	read_s = _connectivity_read_timeout_s(timeout_s)
 	connect_s = min(30.0, max(10.0, read_s * 0.5))
@@ -147,89 +150,117 @@ def run_llm_connectivity_test(
 		(_t_client - _t_payload) * 1000,
 		(_t_client - start) * 1000,
 	)
+
+	_MAX_RETRIES = 2  # 3 total attempts for 5xx
+	last_status: int = 0
+
 	try:
-		# Use streaming: only wait for the first chunk to confirm connectivity.
-		# This avoids waiting for the full response body (reasoning models can
-		# take 10+ seconds to complete generation, but connectivity is confirmed
-		# as soon as the first byte arrives).
-		status: int = 0
-		with client.stream("POST", url, json=payload) as stream:
-			status = stream.status_code
-			# Read just the first chunk to confirm the connection works.
-			# For error responses (4xx/5xx) the body may be empty, which is fine.
-			for _ in stream.iter_bytes():
-				break
-		elapsed_ms = int((time.perf_counter() - _t_client) * 1000)
-		logger.info(
-			"LLM connectivity test response host=%s status=%s elapsed_ms=%s (streaming, first-chunk)",
-			_safe_host_for_log(base_url),
-			status,
-			elapsed_ms,
-		)
-	except httpx.ReadTimeout as e:
-		elapsed_ms = int((time.perf_counter() - _t_client) * 1000)
-		logger.error(
-			"LLM connectivity test READ TIMEOUT host=%s post_url=%s model=%s elapsed_ms=%s timeout_read_s=%.1f "
-			"err_type=%s err=%s (upstream slow or stalled; try LLM_CONNECTIVITY_TEST_TIMEOUT_S, e.g. 90)",
-			_safe_host_for_log(base_url),
-			url,
-			(model or "")[:120],
-			elapsed_ms,
-			read_s,
-			type(e).__name__,
-			str(e),
-		)
-		raise LLMActiveTestError(reason="provider_unavailable") from e
-	except httpx.ConnectTimeout as e:
-		elapsed_ms = int((time.perf_counter() - _t_client) * 1000)
-		logger.error(
-			"LLM connectivity test CONNECT TIMEOUT host=%s post_url=%s elapsed_ms=%s timeout_connect_s=%.1f err_type=%s err=%s",
-			_safe_host_for_log(base_url),
-			url,
-			elapsed_ms,
-			connect_s,
-			type(e).__name__,
-			str(e),
-		)
-		raise LLMActiveTestError(reason="provider_unavailable") from e
-	except httpx.TimeoutException as e:
-		elapsed_ms = int((time.perf_counter() - _t_client) * 1000)
-		logger.error(
-			"LLM connectivity test OTHER TIMEOUT host=%s post_url=%s model=%s elapsed_ms=%s err_type=%s err=%s",
-			_safe_host_for_log(base_url),
-			url,
-			(model or "")[:120],
-			elapsed_ms,
-			type(e).__name__,
-			str(e),
-		)
-		raise LLMActiveTestError(reason="provider_unavailable") from e
-	except httpx.RequestError as e:
-		elapsed_ms = int((time.perf_counter() - _t_client) * 1000)
-		logger.error(
-			"LLM connectivity test REQUEST ERROR host=%s post_url=%s model=%s elapsed_ms=%s err_type=%s err=%s",
-			_safe_host_for_log(base_url),
-			url,
-			(model or "")[:120],
-			elapsed_ms,
-			type(e).__name__,
-			str(e),
-		)
-		raise LLMActiveTestError(reason="provider_unavailable") from e
+		for attempt in range(_MAX_RETRIES + 1):
+			if attempt > 0:
+				backoff_s = 1.0 * attempt  # 1s, 2s
+				logger.warning(
+					"LLM connectivity test retry host=%s attempt=%s/%s backoff_s=%.1f last_status=%s",
+					_safe_host_for_log(base_url),
+					attempt,
+					_MAX_RETRIES,
+					backoff_s,
+					last_status,
+				)
+				time.sleep(backoff_s)
+
+			try:
+				# Use streaming: only wait for the first chunk to confirm connectivity.
+				# This avoids waiting for the full response body (reasoning models can
+				# take 10+ seconds to complete generation, but connectivity is confirmed
+				# as soon as the first byte arrives).
+				status: int = 0
+				with client.stream("POST", url, json=payload) as stream:
+					status = stream.status_code
+					# Read just the first chunk to confirm the connection works.
+					# For error responses (4xx/5xx) the body may be empty, which is fine.
+					for _ in stream.iter_bytes():
+						break
+				elapsed_ms = int((time.perf_counter() - _t_client) * 1000)
+				logger.info(
+					"LLM connectivity test response host=%s status=%s elapsed_ms=%s (streaming, first-chunk) attempt=%s",
+					_safe_host_for_log(base_url),
+					status,
+					elapsed_ms,
+					attempt,
+				)
+				last_status = status
+			except httpx.ReadTimeout as e:
+				elapsed_ms = int((time.perf_counter() - _t_client) * 1000)
+				logger.error(
+					"LLM connectivity test READ TIMEOUT host=%s post_url=%s model=%s elapsed_ms=%s timeout_read_s=%.1f "
+					"err_type=%s err=%s (upstream slow or stalled; try LLM_CONNECTIVITY_TEST_TIMEOUT_S, e.g. 90)",
+					_safe_host_for_log(base_url),
+					url,
+					(model or "")[:120],
+					elapsed_ms,
+					read_s,
+					type(e).__name__,
+					str(e),
+				)
+				raise LLMActiveTestError(reason="provider_unavailable") from e
+			except httpx.ConnectTimeout as e:
+				elapsed_ms = int((time.perf_counter() - _t_client) * 1000)
+				logger.error(
+					"LLM connectivity test CONNECT TIMEOUT host=%s post_url=%s elapsed_ms=%s timeout_connect_s=%.1f err_type=%s err=%s",
+					_safe_host_for_log(base_url),
+					url,
+					elapsed_ms,
+					connect_s,
+					type(e).__name__,
+					str(e),
+				)
+				raise LLMActiveTestError(reason="provider_unavailable") from e
+			except httpx.TimeoutException as e:
+				elapsed_ms = int((time.perf_counter() - _t_client) * 1000)
+				logger.error(
+					"LLM connectivity test OTHER TIMEOUT host=%s post_url=%s model=%s elapsed_ms=%s err_type=%s err=%s",
+					_safe_host_for_log(base_url),
+					url,
+					(model or "")[:120],
+					elapsed_ms,
+					type(e).__name__,
+					str(e),
+				)
+				raise LLMActiveTestError(reason="provider_unavailable") from e
+			except httpx.RequestError as e:
+				elapsed_ms = int((time.perf_counter() - _t_client) * 1000)
+				logger.error(
+					"LLM connectivity test REQUEST ERROR host=%s post_url=%s model=%s elapsed_ms=%s err_type=%s err=%s",
+					_safe_host_for_log(base_url),
+					url,
+					(model or "")[:120],
+					elapsed_ms,
+					type(e).__name__,
+					str(e),
+				)
+				raise LLMActiveTestError(reason="provider_unavailable") from e
+
+			# Non-retryable: 4xx errors exit immediately.
+			if status == 401:
+				raise LLMActiveTestError(reason="invalid_credentials")
+			if status == 403:
+				raise LLMActiveTestError(reason="invalid_credentials")
+			if status == 404:
+				raise LLMActiveTestError(reason="model_not_found")
+			if 400 <= status < 500:
+				raise LLMActiveTestError(reason="provider_unavailable")
+
+			# 5xx: retry if attempts remain.
+			if status >= 500 and attempt < _MAX_RETRIES:
+				continue
+
+			# 5xx exhausted, or success.
+			if status >= 500:
+				raise LLMActiveTestError(reason="provider_unavailable")
+
+			return max(0, int((time.perf_counter() - _t_client) * 1000))
+
+		# Exhausted all retries (loop completed without returning/raising).
+		raise LLMActiveTestError(reason="provider_unavailable")
 	finally:
 		client.close()
-
-	latency_ms = int((time.perf_counter() - _t_client) * 1000)
-	if status == 401:
-		raise LLMActiveTestError(reason="invalid_credentials")
-	if status == 403:
-		raise LLMActiveTestError(reason="invalid_credentials")
-	if status == 404:
-		raise LLMActiveTestError(reason="model_not_found")
-	if status >= 500:
-		raise LLMActiveTestError(reason="provider_unavailable")
-	if status >= 400:
-		# Best-effort parse, but keep stable reason.
-		raise LLMActiveTestError(reason="provider_unavailable")
-
-	return max(0, latency_ms)

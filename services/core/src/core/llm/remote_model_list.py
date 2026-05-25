@@ -143,7 +143,7 @@ def fetch_remote_models_for_provider(
 			"Accept": "application/json",
 		}
 
-	client = httpx.Client(timeout=max(5.0, float(timeout_s)), transport=transport, headers=headers)
+	client = httpx.Client(timeout=max(5.0, float(timeout_s)), transport=transport, headers=headers, trust_env=False)
 	try:
 		resp = client.get(url)
 	except httpx.RequestError as e:

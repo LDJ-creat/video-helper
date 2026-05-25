@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 import uuid
 from typing import AsyncGenerator, Any
 from urllib.parse import urlparse
@@ -48,6 +49,7 @@ def generate_quiz(
     output_language: str | None = None
 ) -> QuizDTO:
     """Generate a quiz based on context."""
+    t_start = time.perf_counter()
     provider = llm_provider_for_jobs()
     if not provider:
         raise AnalyzeError(code=ErrorCode.JOB_STAGE_FAILED, message="LLM not configured")
@@ -71,7 +73,7 @@ def generate_quiz(
     ]
     
     try:
-        data = provider.generate_json(task_name=f"quiz-{project_id}", input_dict={"messages": messages})
+        data = provider.generate_json(task_name=f"quiz-{project_id}", input_dict={"messages": messages}, max_tokens=2048)
     except Exception as e:
         logger.error(f"Quiz generation failed: {e}")
         raise e
@@ -90,7 +92,9 @@ def generate_quiz(
             correctAnswer=item["correct_answer"],
             explanation=item.get("explanation", "")
         ))
-        
+    
+    total_dur = time.perf_counter() - t_start
+    logger.info("[quiz] generated questionCount=%d dur=%.1fs", len(items), total_dur)
     return QuizDTO(sessionId=str(uuid.uuid4()), items=items)
 
 
@@ -168,7 +172,7 @@ async def stream_chat(
         logger.info(f"Connecting to Anthropic at {url} with model {model}")
 
         try:
-            async with httpx.AsyncClient(timeout=timeout, trust_env=True) as client:
+            async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
                 resp = await client.post(url, json=payload, headers=headers)
                 if resp.status_code != 200:
                     yield json.dumps({"content": f"\n\n**Error**: LLM Provider returned {resp.status_code}."})
@@ -214,7 +218,7 @@ async def stream_chat(
     logger.info(f"Connecting to LLM at {url} with model {model}")
 
     try:
-        async with httpx.AsyncClient(timeout=timeout, trust_env=True) as client:
+        async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
             try:
                 async with client.stream("POST", url, json=payload, headers=headers) as response:
                     if response.status_code != 200:
