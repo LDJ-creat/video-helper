@@ -9,8 +9,25 @@ export type Project = {
   durationMs?: number;         // 可选
   latestResultId?: string;     // UUID，指向最新结果
   latestJobId?: string;        // UUID，指向最新 Job（分析任务）
+  categoryId?: string;
+  categoryName?: string;
+  categorySlug?: string;
   createdAtMs: number;         // Unix epoch milliseconds
   updatedAtMs: number;
+};
+
+export type PatchProjectCategoryRequest = {
+  categoryId: string;
+};
+
+export type BatchUpdateCategoryRequest = {
+  projectIds: string[];
+  categoryId: string;
+};
+
+export type BatchUpdateCategoryResponse = {
+  updated: number;
+  failed: { projectId: string; reason: string }[];
 };
 
 // 列表响应（cursor 分页）

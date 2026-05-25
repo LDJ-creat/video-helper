@@ -8,7 +8,7 @@ import { Clock, ArrowRight, PlayCircle } from "lucide-react";
 export function RecentProjects() {
     const t = useTranslations("HomePage");
     const tProj = useTranslations("Projects");
-    const { data, isLoading } = useProjects();
+    const { data, isLoading } = useProjects(null);
 
     const projects = data?.pages?.[0]?.items?.slice(0, 4) ?? [];
 

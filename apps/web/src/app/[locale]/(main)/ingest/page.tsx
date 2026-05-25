@@ -1,11 +1,14 @@
 "use client";
 
 import { HealthBanner } from "@/components/HealthBanner";
+import { CategorySelect } from "@/components/features/categories/CategorySelect";
 import { useCreateJobFromUrl, useCreateJobFromUpload } from "@/lib/api/jobCreationQueries";
 import { useCookiesStatus, useUploadCookies } from "@/lib/api/cookiesQueries";
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import type { ApiErrorEnvelope } from "@/lib/api/apiClient";
 import { useLocale, useTranslations } from "next-intl";
+import { useSearchParams } from "next/navigation";
+import { logIngestCategory } from "@/lib/categories/ingestCategoryDebug";
 
 type TabType = "url" | "upload";
 
@@ -244,13 +247,32 @@ function CookiesUploadSection() {
 
 // ─── URL Form ───────────────────────────────────────────────────────────────
 
+function usePresetCategoryId(): string | null {
+    const searchParams = useSearchParams();
+    const raw = searchParams.get("categoryId");
+    logIngestCategory("read-search-params", {
+        categoryId: raw,
+        allParams: Object.fromEntries(searchParams.entries()),
+    });
+    return raw;
+}
+
 function UrlForm() {
     const t = useTranslations("Ingest.urlForm");
     const locale = useLocale();
+    const presetCategoryId = usePresetCategoryId();
     const [sourceUrl, setSourceUrl] = useState("");
     const [title, setTitle] = useState("");
     const [outputLanguage, setOutputLanguage] = useState(locale === "zh" ? "zh-Hans" : "en");
+    const [categoryId, setCategoryId] = useState<string | null>(null);
     const mutation = useCreateJobFromUrl();
+
+    useEffect(() => {
+        if (presetCategoryId) {
+            logIngestCategory("url-form-apply-preset", { presetCategoryId });
+            setCategoryId(presetCategoryId);
+        }
+    }, [presetCategoryId]);
 
     const isValidUrl = (url: string) => {
         try {
@@ -271,6 +293,7 @@ function UrlForm() {
             sourceUrl: sourceUrl.trim(),
             title: title.trim() || undefined,
             outputLanguage: outputLanguage.trim() || undefined,
+            categoryId: categoryId ?? undefined,
         });
     };
 
@@ -280,6 +303,12 @@ function UrlForm() {
 
     return (
         <form onSubmit={handleSubmit} className="space-y-6 xl:space-y-8">
+            <CategorySelect
+                value={categoryId}
+                onChange={setCategoryId}
+                presetCategoryId={presetCategoryId}
+            />
+
             <div className="space-y-2 xl:space-y-3">
                 <label htmlFor="url" className="block text-sm xl:text-base font-medium text-stone-700">
                     {t("labelUrl")} <span className="text-red-500">*</span>
@@ -357,10 +386,12 @@ function UploadForm() {
     const tUrl = useTranslations("Ingest.urlForm");
     const locale = useLocale();
     const tOptions = useTranslations("Ingest.urlForm.options");
+    const presetCategoryId = usePresetCategoryId();
 
     const [file, setFile] = useState<File | null>(null);
     const [title, setTitle] = useState("");
     const [outputLanguage, setOutputLanguage] = useState(locale === "zh" ? "zh-Hans" : "en");
+    const [categoryId, setCategoryId] = useState<string | null>(null);
     const mutation = useCreateJobFromUpload();
     const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -390,6 +421,7 @@ function UploadForm() {
             file,
             title: title.trim() || undefined,
             outputLanguage: outputLanguage.trim() || undefined,
+            categoryId: categoryId ?? undefined,
         });
     };
 
@@ -399,6 +431,12 @@ function UploadForm() {
 
     return (
         <form onSubmit={handleSubmit} className="space-y-6">
+            <CategorySelect
+                value={categoryId}
+                onChange={setCategoryId}
+                presetCategoryId={presetCategoryId}
+            />
+
             {/* DnD Video Upload Zone */}
             <div className="space-y-2">
                 <label className="block text-sm font-medium text-stone-700">

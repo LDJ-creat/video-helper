@@ -28,7 +28,8 @@ export async function createJobFromUrl(
 export async function createJobFromUpload(
     file: File,
     title?: string,
-    outputLanguage?: string
+    outputLanguage?: string,
+    categoryId?: string
 ): Promise<CreateJobResponse> {
     const url = `${config.apiBaseUrl}${endpoints.jobs()}`;
     const formData = new FormData();
@@ -39,6 +40,9 @@ export async function createJobFromUpload(
     }
     if (outputLanguage) {
         formData.append("outputLanguage", outputLanguage);
+    }
+    if (categoryId) {
+        formData.append("categoryId", categoryId);
     }
 
     return apiFetch<CreateJobResponse>(url, {

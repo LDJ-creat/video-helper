@@ -9,6 +9,7 @@ export type CreateJobUrlRequest = {
     sourceUrl: string;
     title?: string;
     outputLanguage?: string;
+    categoryId?: string;
 };
 
 export type CreateJobResponse = {
