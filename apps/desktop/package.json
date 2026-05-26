@@ -13,6 +13,8 @@
         "compile": "tsc -p tsconfig.json",
         "compile:watch": "tsc -p tsconfig.json --watch",
         "build-icons": "electron-icon-builder --input=./resources/icon.png --output=./resources --flatten",
+        "fix-icons": "uv run --directory ../../services/core python ../../scripts/desktop/fix_icon_checkerboard.py --sync-ico",
+        "remove-icon-black-bg": "uv run --directory ../../services/core python ../../scripts/desktop/remove_black_background.py --sync-icons",
         "build": "pnpm compile && electron-builder",
         "pack": "pnpm compile && electron-builder --dir"
     },
