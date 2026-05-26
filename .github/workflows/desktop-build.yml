@@ -41,6 +41,8 @@ permissions:
 
 jobs:
   check_versions:
+    # push 到 main 时可在 commit message 写 [skip ci] 或 [ci skip] 跳过桌面端构建（如仅 CI/镜像修复）
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || (github.event_name == 'push' && !contains(github.event.head_commit.message, '[skip ci]') && !contains(github.event.head_commit.message, '[ci skip]')) }}
     name: Check package versions
     runs-on: ubuntu-latest
     steps:
@@ -67,6 +69,7 @@ jobs:
         run: node .github/scripts/check_versions.js
 
   build:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || (github.event_name == 'push' && !contains(github.event.head_commit.message, '[skip ci]') && !contains(github.event.head_commit.message, '[ci skip]')) }}
     name: Build (${{ matrix.os }})
     needs: [check_versions]
     runs-on: ${{ matrix.os }}

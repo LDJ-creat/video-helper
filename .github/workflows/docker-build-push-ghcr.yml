@@ -30,6 +30,9 @@ jobs:
           - image: web
             context: .
             dockerfile: apps/web/Dockerfile
+            # 与根 package.json packageManager / desktop-build.yml (pnpm@9) 对齐，避免 corepack 拉到需 Node 22+ 的 pnpm
+            build_args: |
+              PNPM_VERSION=9.15.9
 
     steps:
       - name: Checkout
@@ -78,5 +81,6 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: ${{ matrix.build_args }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

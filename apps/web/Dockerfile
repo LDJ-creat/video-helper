@@ -1,15 +1,18 @@
 FROM node:20-slim AS base
 
-# 启用 pnpm
+# 启用 pnpm（须固定 major 9：corepack 默认可能解析到需 Node 22+ 的版本，Node 20 会报 ERR_UNKNOWN_BUILTIN_MODULE: node:sqlite）
+ARG PNPM_VERSION=9.15.9
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
-RUN corepack enable
+RUN npm install -g corepack@latest \
+    && corepack enable \
+    && corepack prepare "pnpm@${PNPM_VERSION}" --activate
 
 # 1) 依赖安装阶段（仅 web + workspace 解析所需 manifests）
 FROM base AS deps
 WORKDIR /app
 
-COPY pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/web/package.json ./apps/web/package.json
 # pnpm -r / workspace 需要能解析到其它 workspace 包的 manifest（本仓库目前只有 desktop/web）
 COPY apps/desktop/package.json ./apps/desktop/package.json
