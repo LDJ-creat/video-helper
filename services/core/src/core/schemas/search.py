@@ -6,6 +6,11 @@ from pydantic import BaseModel
 class SearchItemDTO(BaseModel):
 	projectId: str
 	title: str | None = None
+	sourceType: str
+	updatedAtMs: int
+	categoryId: str | None = None
+	categoryName: str | None = None
+	categorySlug: str | None = None
 
 
 class SearchResponseDTO(BaseModel):

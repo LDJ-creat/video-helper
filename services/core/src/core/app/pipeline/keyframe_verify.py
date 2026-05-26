@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import os
 import random
 import shutil
@@ -16,6 +17,8 @@ from core.app.pipeline.analyze_provider import AnalyzeError, AnalyzeProvider, ll
 from core.contracts.error_codes import ErrorCode
 from core.db.models.asset import Asset
 from core.db.session import get_data_dir
+
+logger = logging.getLogger(__name__)
 
 
 def _now_ms() -> int:
@@ -153,13 +156,13 @@ def _coerce_confidence(val: object) -> float | None:
     return None
 
 
-def _call_llm_with_backoff(*, provider: AnalyzeProvider, messages: list[dict]) -> dict:
+def _call_llm_with_backoff(*, provider: AnalyzeProvider, messages: list[dict], max_tokens: int | None = None) -> dict:
     max_attempts = max(1, _env_int("KEYFRAME_VERIFY_MAX_ATTEMPTS", 2))
     attempt = 0
     while True:
         attempt += 1
         try:
-            res = provider.generate_json("keyframe_verify", {"messages": messages})
+            res = provider.generate_json("keyframe_verify", {"messages": messages}, max_tokens=max_tokens)
             if not isinstance(res, dict):
                 raise AnalyzeError(
                     code=ErrorCode.JOB_STAGE_FAILED,
@@ -251,146 +254,159 @@ def build_verify_request_multimodal(
 
 
 def verify_and_maybe_adjust_plan_keyframes(
-    *,
-    session: Session,
-    content_blocks: list[dict],
-    output_language: str | None,
-    mode: str,
-    budget: VerifyBudget,
+	*,
+	session: Session,
+	content_blocks: list[dict],
+	output_language: str | None,
+	mode: str,
+	budget: VerifyBudget,
 ) -> tuple[list[int], int, int]:
-    """Verify keyframes and adjust plan in-place.
+	"""Verify keyframes and adjust plan in-place.
 
-    Returns: (new_times_to_extract, verified_count, dropped_count)
-    """
+	Returns: (new_times_to_extract, verified_count, dropped_count)
+	"""
+	t_start = time.perf_counter()
 
-    if mode not in {"ocr", "multimodal"}:
-        return ([], 0, 0)
+	if mode not in {"ocr", "multimodal"}:
+		return ([], 0, 0)
 
-    resolved = llm_provider_for_jobs()
-    if resolved is None:
-        raise AnalyzeError(
-            code=ErrorCode.JOB_STAGE_FAILED,
-            message="LLM credentials missing",
-            details={"reason": "missing_credentials", "task": "keyframe_verify"},
-        )
-    provider: AnalyzeProvider = resolved
+	resolved = llm_provider_for_jobs()
+	if resolved is None:
+		raise AnalyzeError(
+			code=ErrorCode.JOB_STAGE_FAILED,
+			message="LLM credentials missing",
+			details={"reason": "missing_credentials", "task": "keyframe_verify"},
+		)
+	provider: AnalyzeProvider = resolved
 
-    threshold = float(get_verify_threshold())
+	threshold = float(get_verify_threshold())
 
-    verify_used_job = 0
-    verified_count = 0
-    dropped_count = 0
-    new_times: list[int] = []
+	verify_used_job = 0
+	verified_count = 0
+	dropped_count = 0
+	retried_count = 0
+	new_times: list[int] = []
 
-    for b in content_blocks:
-        if verify_used_job >= budget.max_verify_per_job:
-            break
-        if not isinstance(b, dict):
-            continue
-        hls = b.get("highlights")
-        if not isinstance(hls, list):
-            continue
+	for b in content_blocks:
+		if verify_used_job >= budget.max_verify_per_job:
+			break
+		if not isinstance(b, dict):
+			continue
+		hls = b.get("highlights")
+		if not isinstance(hls, list):
+			continue
 
-        for h in hls:
-            if verify_used_job >= budget.max_verify_per_job:
-                break
-            if not isinstance(h, dict):
-                continue
+		for h in hls:
+			if verify_used_job >= budget.max_verify_per_job:
+				break
+			if not isinstance(h, dict):
+				continue
 
-            kfs = h.get("keyframes")
-            if not isinstance(kfs, list) or not kfs:
-                continue
+			kfs = h.get("keyframes")
+			if not isinstance(kfs, list) or not kfs:
+				continue
 
-            # Trigger only on low-confidence (or explicit) highlights.
-            conf = _coerce_confidence(h.get("keyframeConfidence"))
-            if conf is None or conf >= threshold:
-                continue
+			# Trigger only on low-confidence (or explicit) highlights.
+			conf = _coerce_confidence(h.get("keyframeConfidence"))
+			if conf is None or conf >= threshold:
+				continue
 
-            # Only verify at most once per highlight (budget).
-            if budget.max_verify_per_highlight <= 0:
-                continue
+			# Only verify at most once per highlight (budget).
+			if budget.max_verify_per_highlight <= 0:
+				continue
 
-            kf0 = kfs[0] if isinstance(kfs[0], dict) else None
-            if not isinstance(kf0, dict):
-                continue
+			kf0 = kfs[0] if isinstance(kfs[0], dict) else None
+			if not isinstance(kf0, dict):
+				continue
 
-            tm = kf0.get("timeMs")
-            if not isinstance(tm, int):
-                continue
+			tm = kf0.get("timeMs")
+			if not isinstance(tm, int):
+				continue
 
-            asset_id = kf0.get("assetId")
-            if not isinstance(asset_id, str) or not asset_id:
-                # Not extractable yet.
-                continue
+			asset_id = kf0.get("assetId")
+			if not isinstance(asset_id, str) or not asset_id:
+				# Not extractable yet.
+				continue
 
-            highlight_text = h.get("text")
-            if not isinstance(highlight_text, str):
-                highlight_text = ""
+			highlight_text = h.get("text")
+			if not isinstance(highlight_text, str):
+				highlight_text = ""
 
-            hs = h.get("startMs")
-            he = h.get("endMs")
-            if not isinstance(hs, int) or not isinstance(he, int) or he <= hs:
-                continue
+			hs = h.get("startMs")
+			he = h.get("endMs")
+			if not isinstance(hs, int) or not isinstance(he, int) or he <= hs:
+				continue
 
-            image_abs = _resolve_asset_image_abs(session=session, asset_id=asset_id)
-            if image_abs is None:
-                continue
+			image_abs = _resolve_asset_image_abs(session=session, asset_id=asset_id)
+			if image_abs is None:
+				continue
 
-            keep: bool | None = None
-            try:
-                if mode == "ocr":
-                    ocr_text = _run_tesseract_ocr(image_abs=image_abs)
-                    # If OCR dependency is missing, skip silently (do not fail the job).
-                    if ocr_text is None:
-                        continue
-                    messages = build_verify_request_text_only(
-                        highlight_text=highlight_text,
-                        time_range=(int(hs), int(he)),
-                        ocr_text=ocr_text,
-                        output_language=output_language,
-                    )
-                    res = _call_llm_with_backoff(provider=provider, messages=messages)
-                else:
-                    data_url = _encode_image_data_url(image_abs=image_abs)
-                    if data_url is None:
-                        continue
-                    messages = build_verify_request_multimodal(
-                        highlight_text=highlight_text,
-                        time_range=(int(hs), int(he)),
-                        image_data_url=data_url,
-                        output_language=output_language,
-                    )
-                    res = _call_llm_with_backoff(provider=provider, messages=messages)
+			keep: bool | None = None
+			try:
+				if mode == "ocr":
+					ocr_text = _run_tesseract_ocr(image_abs=image_abs)
+					# If OCR dependency is missing, skip silently (do not fail the job).
+					if ocr_text is None:
+						continue
+					messages = build_verify_request_text_only(
+						highlight_text=highlight_text,
+						time_range=(int(hs), int(he)),
+						ocr_text=ocr_text,
+						output_language=output_language,
+					)
+					res = _call_llm_with_backoff(provider=provider, messages=messages, max_tokens=512)
+				else:
+					data_url = _encode_image_data_url(image_abs=image_abs)
+					if data_url is None:
+						continue
+					messages = build_verify_request_multimodal(
+						highlight_text=highlight_text,
+						time_range=(int(hs), int(he)),
+						image_data_url=data_url,
+						output_language=output_language,
+					)
+					res = _call_llm_with_backoff(provider=provider, messages=messages, max_tokens=512)
 
-                keep = bool(res.get("keep")) if isinstance(res, dict) and "keep" in res else None
-            finally:
-                verify_used_job += 1
-                verified_count += 1
+				keep = bool(res.get("keep")) if isinstance(res, dict) and "keep" in res else None
+			finally:
+				verify_used_job += 1
+				verified_count += 1
 
-            if keep is True:
-                continue
+			if keep is True:
+				continue
 
-            # Not kept: attempt one retry by selecting a nearby time within the local search window.
-            allow_retry = budget.retry_max > 0
-            if allow_retry:
-                mid = int((int(hs) + int(he)) // 2)
-                direction = 1 if mid >= int(tm) else -1
-                step = min(int(budget.local_search_window_ms), abs(mid - int(tm)))
-                if step <= 0:
-                    step = int(budget.local_search_window_ms)
-                new_tm = int(tm) + direction * int(step)
-                new_tm = _clamp_int(new_tm, int(hs), int(he) - 1)
-                if new_tm != int(tm):
-                    # Replace keyframes with the new candidate (assetId will be backfilled after extraction).
-                    h["keyframes"] = [{"timeMs": int(new_tm)}]
-                    h["keyframe"] = {"timeMs": int(new_tm)}
-                    new_times.append(int(new_tm))
-                    budget.retry_max -= 1
-                    continue
+			# Not kept: attempt one retry by selecting a nearby time within the local search window.
+			allow_retry = budget.retry_max > 0
+			if allow_retry:
+				mid = int((int(hs) + int(he)) // 2)
+				direction = 1 if mid >= int(tm) else -1
+				step = min(int(budget.local_search_window_ms), abs(mid - int(tm)))
+				if step <= 0:
+					step = int(budget.local_search_window_ms)
+				new_tm = int(tm) + direction * int(step)
+				new_tm = _clamp_int(new_tm, int(hs), int(he) - 1)
+				if new_tm != int(tm):
+					# Replace keyframes with the new candidate (assetId will be backfilled after extraction).
+					h["keyframes"] = [{"timeMs": int(new_tm)}]
+					h["keyframe"] = {"timeMs": int(new_tm)}
+					new_times.append(int(new_tm))
+					retried_count += 1
+					budget.retry_max -= 1
+					continue
 
-            # No retry possible: drop keyframes.
-            h["keyframes"] = []
-            h["keyframe"] = None
-            dropped_count += 1
+			# No retry possible: drop keyframes.
+			h["keyframes"] = []
+			h["keyframe"] = None
+			dropped_count += 1
 
-    return (new_times, verified_count, dropped_count)
+	total_dur = time.perf_counter() - t_start
+	logger.info(
+		"[keyframe_verify] done mode=%s verified=%d kept=%d dropped=%d retried=%d dur=%.1fs",
+		mode,
+		verified_count,
+		verified_count - dropped_count - retried_count,
+		dropped_count,
+		retried_count,
+		total_dur,
+	)
+	return (new_times, verified_count, dropped_count)

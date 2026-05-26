@@ -12,6 +12,23 @@ class ProjectDTO(BaseModel):
     updatedAtMs: int
     latestResultId: str | None
     latestJobId: str | None = None
+    categoryId: str | None = None
+    categoryName: str | None = None
+    categorySlug: str | None = None
+
+
+class PatchProjectRequest(BaseModel):
+    categoryId: str
+
+
+class BatchUpdateCategoryRequest(BaseModel):
+    projectIds: list[str]
+    categoryId: str
+
+
+class BatchUpdateCategoryResponse(BaseModel):
+    updated: int
+    failed: list[dict[str, str]] = []
 
 
 class ProjectsPageDTO(BaseModel):

@@ -27,6 +27,7 @@ class CreateJobRequest(BaseModel):
     title: str | None = None
     outputLanguage: str | None = None
     llmMode: Literal["backend", "external"] | None = None
+    categoryId: str | None = None
 
 
 class JobCreatedDTO(BaseModel):

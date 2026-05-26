@@ -1,6 +1,8 @@
 export const queryKeys = {
   health: ["health"] as const,
-  projects: ["projects"] as const,
+  categories: ["categories"] as const,
+  projects: (categoryId?: string | null) =>
+    categoryId ? (["projects", { categoryId }] as const) : (["projects"] as const),
   project: (projectId: string) => ["projects", projectId] as const,
   jobs: ["jobs"] as const,
   job: (jobId: string) => ["jobs", jobId] as const,
@@ -13,6 +15,7 @@ export const queryKeys = {
   // LLM Settings query keys
   llmCatalog: ["llm", "catalog"] as const,
   llmActive: ["llm", "active"] as const,
+  llmRemoteModels: (providerId: string) => ["llm", "remote-models", providerId] as const,
   // AI Feature keys
   chatSessions: (projectId: string) => ["chat", "sessions", projectId] as const,
   chatMessages: (sessionId: string) => ["chat", "messages", sessionId] as const,

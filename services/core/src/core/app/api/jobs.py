@@ -19,7 +19,9 @@ from core.contracts.progress import normalize_progress
 from core.contracts.stages import PublicStage, to_public_stage
 from core.app.sse.event_bus import GLOBAL_JOB_EVENT_BUS
 from core.app.metadata.video_metadata import MetadataError, extract_video_metadata
-from core.db.repositories.llm_settings import get_llm_active, get_llm_provider_secret_ciphertext
+from core.db.repositories.llm_settings import get_llm_active, get_llm_provider_secret_ciphertext, get_custom_provider
+from core.llm.provider_profile import get_resolved_builtin_base_url
+from core.db.repositories.categories import CategoryNameValidationError, resolve_category_id
 from core.db.repositories.jobs import get_job_by_id
 from core.db.models.job import Job
 from core.db.models.project import Project
@@ -31,6 +33,7 @@ from core.llm.secrets_crypto import decrypt_api_key
 from core.schemas.jobs import CreateJobRequest, JobCreatedDTO, JobDTO, ResumeProjectJobRequest
 from core.schemas.logs import JobLogsPageDTO, LogItemDTO
 from core.app.logs.job_logs import read_job_logs_page
+from core.app.logs.pipeline_timings import time_pipeline_step
 from core.app.pipeline.llm_plan import build_plan_request, validate_plan
 from core.app.pipeline.chunk_summaries import (
 	chunk_transcript_segments,
@@ -289,29 +292,39 @@ async def _llm_preflight_or_error(request: Request, session: Session) -> JSONRes
 		model_id = (active.get("modelId") or "").strip()
 		provider = find_provider(provider_id)
 		if provider is None:
-			return JSONResponse(
-				status_code=400,
-				content=build_error_envelope(
-					code=ErrorCode.VALIDATION_ERROR,
-					message="Invalid LLM settings",
-					details={"reason": "unknown_provider", "providerId": provider_id},
-					request_id=getattr(request.state, "request_id", None),
-				),
-			)
+			custom = get_custom_provider(session, provider_id=provider_id)
+			if custom is None:
+				return JSONResponse(
+					status_code=400,
+					content=build_error_envelope(
+						code=ErrorCode.VALIDATION_ERROR,
+						message="Invalid LLM settings",
+						details={"reason": "unknown_provider", "providerId": provider_id},
+						request_id=getattr(request.state, "request_id", None),
+					),
+				)
+			base_url = (custom.get("baseUrl") or "").strip()
+			if ":" in model_id:
+				_, rest = model_id.split(":", 1)
+				runtime_model = rest.strip() or model_id
+			else:
+				runtime_model = model_id
+		else:
+			base_url = get_resolved_builtin_base_url(session, provider_id=provider_id) or provider.base_url
+			runtime_model = resolve_runtime_model_name(provider_id=provider.provider_id, model_id=model_id)
 
-		runtime_model = resolve_runtime_model_name(provider_id=provider.provider_id, model_id=model_id)
 		if not runtime_model:
 			return JSONResponse(
 				status_code=400,
 				content=build_error_envelope(
 					code=ErrorCode.VALIDATION_ERROR,
 					message="Invalid LLM settings",
-					details={"reason": "model_not_found", "providerId": provider.provider_id, "modelId": model_id},
+					details={"reason": "model_not_found", "providerId": provider_id, "modelId": model_id},
 					request_id=getattr(request.state, "request_id", None),
 				),
 			)
 
-		ciphertext = get_llm_provider_secret_ciphertext(session, provider_id=provider.provider_id)
+		ciphertext = get_llm_provider_secret_ciphertext(session, provider_id=provider_id)
 		if not ciphertext:
 			return JSONResponse(
 				status_code=400,
@@ -336,7 +349,6 @@ async def _llm_preflight_or_error(request: Request, session: Session) -> JSONRes
 				),
 			)
 
-		base_url = provider.base_url
 		model = runtime_model
 	else:
 		base_url = _env_str("LLM_API_BASE")
@@ -354,9 +366,9 @@ async def _llm_preflight_or_error(request: Request, session: Session) -> JSONRes
 			)
 
 	# Keep job creation fast even if operator sets a large timeout for full requests.
-	env_timeout_s = float(max(1, _env_int("LLM_TIMEOUT_S", 180)))
+	env_timeout_s = float(max(1, _env_int("LLM_TIMEOUT_S", 360)))
 	# Some providers have slow first-byte latency; allow override for smoke/ops.
-	preflight_cap_s = float(max(1, _env_int("LLM_PREFLIGHT_TIMEOUT_S", 30)))
+	preflight_cap_s = float(max(1, _env_int("LLM_PREFLIGHT_TIMEOUT_S", 45)))
 	timeout_s = min(preflight_cap_s, env_timeout_s)
 
 	try:
@@ -374,6 +386,33 @@ async def _llm_preflight_or_error(request: Request, session: Session) -> JSONRes
 			content=build_error_envelope(
 				code=ErrorCode.VALIDATION_ERROR,
 				message="LLM preflight failed",
+				details={"reason": e.reason},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
+
+def _resolve_category_or_error(
+	request: Request, session: Session, category_id: str | None
+) -> str | JSONResponse:
+	try:
+		return resolve_category_id(session, category_id)
+	except CategoryNameValidationError as e:
+		if e.reason == "not_found":
+			return JSONResponse(
+				status_code=404,
+				content=build_error_envelope(
+					code=ErrorCode.CATEGORY_NOT_FOUND,
+					message="Category does not exist",
+					details={"categoryId": category_id},
+					request_id=getattr(request.state, "request_id", None),
+				),
+			)
+		return JSONResponse(
+			status_code=400,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message="Invalid category",
 				details={"reason": e.reason},
 				request_id=getattr(request.state, "request_id", None),
 			),
@@ -488,6 +527,10 @@ async def create_job(request: Request, session: Session = Depends(get_db_session
 			if preflight is not None:
 				return preflight
 
+		resolved_category = _resolve_category_or_error(request, session, req.categoryId)
+		if isinstance(resolved_category, JSONResponse):
+			return resolved_category
+
 		now_ms = _now_ms()
 		canonical_url = _canonical_source_url(source_type, req.sourceUrl)
 
@@ -535,12 +578,14 @@ async def create_job(request: Request, session: Session = Depends(get_db_session
 				duration_ms=None,
 				format=None,
 				latest_result_id=None,
+				category_id=resolved_category,
 				created_at_ms=now_ms,
 				updated_at_ms=now_ms,
 			)
 			session.add(project)
 		else:
 			# Keep stored URL canonical and fill missing title opportunistically.
+			# Do not update category_id when reusing an existing project.
 			changed = False
 			if isinstance(canonical_url, str) and canonical_url and existing.source_url != canonical_url:
 				existing.source_url = canonical_url
@@ -655,6 +700,12 @@ async def create_job(request: Request, session: Session = Depends(get_db_session
 			if preflight is not None:
 				return preflight
 
+		category_raw = form.get("categoryId")
+		category_id_form = str(category_raw).strip() if category_raw not in (None, "") else None
+		resolved_category = _resolve_category_or_error(request, session, category_id_form)
+		if isinstance(resolved_category, JSONResponse):
+			return resolved_category
+
 		now_ms = _now_ms()
 		project_id = str(uuid.uuid4())
 		job_id = str(uuid.uuid4())
@@ -713,6 +764,7 @@ async def create_job(request: Request, session: Session = Depends(get_db_session
 			duration_ms=meta.duration_ms,
 			format=meta.format,
 			latest_result_id=None,
+			category_id=resolved_category,
 			created_at_ms=now_ms,
 			updated_at_ms=now_ms,
 		)
@@ -1330,6 +1382,8 @@ async def submit_job_plan(jobId: str, request: Request, session: Session = Depen
 		)
 
 	if not isinstance(payload, dict):
+		with time_pipeline_step(project_id=job.project_id, task_id=job.job_id, step="plan_submit.validate", details={"reason": "plan_not_object"}):
+			pass
 		return JSONResponse(
 			status_code=400,
 			content=build_error_envelope(
@@ -1341,7 +1395,8 @@ async def submit_job_plan(jobId: str, request: Request, session: Session = Depen
 		)
 
 	try:
-		normalized = validate_plan(payload)
+		with time_pipeline_step(project_id=job.project_id, task_id=job.job_id, step="plan_submit.validate"):
+			normalized = validate_plan(payload)
 	except Exception as e:
 		return JSONResponse(
 			status_code=400,
@@ -1363,8 +1418,9 @@ async def submit_job_plan(jobId: str, request: Request, session: Session = Depen
 	job.claim_token = None
 	job.lease_expires_at_ms = None
 	job.updated_at_ms = now_ms
-	session.add(job)
-	session.commit()
+	with time_pipeline_step(project_id=job.project_id, task_id=job.job_id, step="plan_submit.persist"):
+		session.add(job)
+		session.commit()
 
 	# Best-effort notify watchers.
 	try:

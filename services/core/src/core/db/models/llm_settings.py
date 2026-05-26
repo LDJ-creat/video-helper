@@ -49,3 +49,14 @@ class LLMCustomProvider(Base):
 	display_name: Mapped[str] = mapped_column(String, nullable=False)
 	base_url: Mapped[str] = mapped_column(String, nullable=False)
 	created_at_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class LLMProviderOverride(Base):
+	"""User overrides for built-in catalog providers (display_name, base_url)."""
+
+	__tablename__ = "llm_provider_overrides"
+
+	provider_id: Mapped[str] = mapped_column(String, primary_key=True)
+	display_name: Mapped[str | None] = mapped_column(String, nullable=True)
+	base_url: Mapped[str | None] = mapped_column(String, nullable=True)
+	updated_at_ms: Mapped[int] = mapped_column(Integer, nullable=False)

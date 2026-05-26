@@ -9,6 +9,7 @@ from pathlib import Path
 
 from core.app.pipeline.media_source import plan_media_source
 from core.app.pipeline.transcript_store import store_transcript_json
+from core.app.logs.pipeline_timings import time_pipeline_step
 from core.contracts.error_codes import ErrorCode
 from core.db.models.project import Project
 from core.db.session import get_data_dir
@@ -290,12 +291,13 @@ def run_real_transcribe(
 		th = threading.Thread(target=_download_heartbeat, name="ytdlp-download-heartbeat", daemon=True)
 		th.start()
 		try:
-			res = download_with_ytdlp(
-				url=plan.source_url,
-				output_dir=plan.download_dir_abs / job_id,
-				base_filename="source",
-				timeout_s=timeout_s,
-			)
+			with time_pipeline_step(project_id=project.project_id, task_id=job_id, step="transcribe.download"):
+				res = download_with_ytdlp(
+					url=plan.source_url,
+					output_dir=plan.download_dir_abs / job_id,
+					base_filename="source",
+					timeout_s=timeout_s,
+				)
 		finally:
 			stop_evt.set()
 		updated_source_path = res.rel_path
@@ -310,11 +312,12 @@ def run_real_transcribe(
 	# Extract audio
 	_progress(0.25, "audio=extracting")
 	audio_start = time.perf_counter()
-	audio_result = extract_audio_wav_16k_mono(
-		input_path=media_abs,
-		output_dir=(get_data_dir() / project.project_id / "artifacts" / job_id),
-		base_filename="audio",
-	)
+	with time_pipeline_step(project_id=project.project_id, task_id=job_id, step="transcribe.audio_extract"):
+		audio_result = extract_audio_wav_16k_mono(
+			input_path=media_abs,
+			output_dir=(get_data_dir() / project.project_id / "artifacts" / job_id),
+			base_filename="audio",
+		)
 	audio_ms = int(max(0.0, (time.perf_counter() - audio_start) * 1000.0))
 	audio_dur_s = _wav_duration_s(audio_result.abs_path)
 	_progress(0.35, f"audio=ok wav={audio_result.rel_path} ms={audio_ms} durS={int(audio_dur_s) if audio_dur_s else 'unknown'}")
@@ -333,16 +336,17 @@ def run_real_transcribe(
 	if best_of <= 0:
 		best_of = 0
 	asr_start = time.perf_counter()
-	asr = transcribe_with_faster_whisper(
-		audio_path=audio_result.abs_path,
-		model_size=model_size,
-		device=device,
-		device_index=device_index,
-		compute_type=compute_type,
-		vad_filter=vad_filter,
-		beam_size=(beam_size or None),
-		best_of=(best_of or None),
-	)
+	with time_pipeline_step(project_id=project.project_id, task_id=job_id, step="transcribe.asr"):
+		asr = transcribe_with_faster_whisper(
+			audio_path=audio_result.abs_path,
+			model_size=model_size,
+			device=device,
+			device_index=device_index,
+			compute_type=compute_type,
+			vad_filter=vad_filter,
+			beam_size=(beam_size or None),
+			best_of=(best_of or None),
+		)
 	asr_ms = int(max(0.0, (time.perf_counter() - asr_start) * 1000.0))
 	rtf = None
 	if audio_dur_s and audio_dur_s > 0.01:
@@ -354,7 +358,8 @@ def run_real_transcribe(
 	)
 
 	# Persist transcript file
-	stored = store_transcript_json(project_id=project.project_id, job_id=job_id, transcript=transcript)
+	with time_pipeline_step(project_id=project.project_id, task_id=job_id, step="transcribe.persist_transcript"):
+		stored = store_transcript_json(project_id=project.project_id, job_id=job_id, transcript=transcript)
 	_progress(0.50, f"transcript=stored ref={stored.rel_path}")
 
 	meta = {

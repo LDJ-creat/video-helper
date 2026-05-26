@@ -115,7 +115,7 @@ API keys are intentionally excluded.
 	base_url = _env_str("LLM_API_BASE")
 	model = _env_str("LLM_MODEL")
 	# Default to a higher timeout to tolerate slow first-byte latency.
-	timeout_s = max(1, int(_env_int("LLM_TIMEOUT_S", 180)))
+	timeout_s = max(1, int(_env_int("LLM_TIMEOUT_S", 360)))
 	allow_rules_fallback = _env_bool("ANALYZE_ALLOW_RULES_FALLBACK", False)
 	debug = _env_bool("LLM_DEBUG", False)
 

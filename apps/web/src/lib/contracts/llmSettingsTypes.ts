@@ -15,6 +15,7 @@ export type Provider = {
     secretUpdatedAtMs?: number;
     models: Model[];
     isCustom?: boolean;
+    baseUrl?: string | null;
 };
 
 // Catalog 响应
@@ -23,13 +24,20 @@ export type CatalogResponse = {
     updatedAtMs: number;
 };
 
-// Active 设置响应（可能为空）
+// Active 设置响应（configured=false 表示尚未选择模型）
 export type ActiveSettingsResponse = {
-    providerId: string;
-    modelId: string;
+    configured: boolean;
+    providerId: string | null;
+    modelId: string | null;
     hasKey: boolean;
-    updatedAtMs: number;
-} | null;
+    updatedAtMs: number | null;
+};
+
+export type RemoteModelsResponse = {
+    ok: boolean;
+    models: { modelId: string; displayName: string }[];
+    error?: { code: string; message: string } | null;
+};
 
 // 更新 Active 设置请求
 export type UpdateActiveRequest = {
@@ -61,9 +69,19 @@ export type AddCustomModelRequest = {
 };
 
 export type AddCustomProviderRequest = {
-    providerId: string;
+    providerId?: string;
     displayName: string;
     baseUrl: string;
-    modelId: string;
-    modelDisplayName: string;
+    modelId?: string;
+    modelDisplayName?: string;
+};
+
+export type UpdateCustomProviderRequest = {
+    displayName?: string;
+    baseUrl?: string;
+};
+
+export type UpdateProviderProfileRequest = {
+    displayName?: string;
+    baseUrl?: string;
 };

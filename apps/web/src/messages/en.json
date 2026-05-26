@@ -33,6 +33,8 @@
         "testing": "Testing...",
         "testSuccess": "Connection successful! Latency: {latency}ms",
         "testFailed": "Connection test failed: {error}",
+        "expandProvider": "Expand",
+        "collapseProvider": "Collapse",
         "availableProviders": "Available Model Providers",
         "needsApiKey": "Requires API Key",
         "apiKeyConfigured": "API Key configured",
@@ -47,10 +49,10 @@
         "addCustomModelTitle": "Add Custom Model ID",
         "modelIdPlaceholder": "Model ID (e.g. gpt-4o-2025-01)",
         "displayNamePlaceholder": "Display Name (Optional, default is Model ID)",
-        "providerIdPlaceholderCommon": "e.g. my-provider (lowercase, numbers, and hyphens)",
+        "providerDisplayNamePlaceholder": "e.g. My OpenAI Proxy",
         "displayName": "Display Name",
         "firstModelId": "First Model ID",
-        "modelDisplayName": "Model Display Name",
+        "firstModelIdOptionalPlaceholder": "Optional — add later in the card or fetch from upstream",
         "apiKeyPlaceholder": "Optional, can be configured later in the card",
         "save": "Save",
         "saving": "Saving...",
@@ -77,21 +79,43 @@
         "addCustomProvider": "＋ Add Custom Provider",
         "addCustomProviderTitle": "Add Custom Provider",
         "customProviderAdded": "Custom provider added: {name}",
+        "customProviderUpdated": "Custom provider updated: {name}",
+        "providerProfileUpdated": "Provider profile updated: {name}",
+        "editProviderTitle": "Edit Provider",
+        "editCustomProviderTitle": "Edit Custom Provider",
+        "editProvider": "Edit provider",
         "customBadge": "Custom",
         "loading": "Loading settings...",
         "loadFailed": "Failed to load settings",
         "noProviderConfigured": "No provider configured yet. Please select one below.",
         "infoNote": "**Note:** API Keys are used for configuration only and are never displayed back. Changes take effect immediately. Custom providers and models support any service compatible with the OpenAI API format.",
+        "configureApiKeyFirst": "Save your API key first, then you can load and pick a model from the provider.",
+        "loadingRemoteModels": "Fetching model list from provider…",
+        "refreshRemoteModels": "Refresh model list",
+        "remoteModelsManualHint": "Could not fetch the model list automatically. Add a custom model ID below.",
+        "noModelsYet": "No models yet — refresh the list or add a custom model ID",
         "unknownError": "Unknown error"
     },
     "Projects": {
         "title": "My Projects",
         "subtitle": "Manage and view all your analysis projects",
         "searchPlaceholder": "Search Project ID or Chapter...",
+        "searchClear": "Clear search",
         "searchResults": "Search Results",
+        "addCategoryTab": "New category",
+        "emptyInCategoryTitle": "No projects in this category",
+        "emptyInCategoryDesc": "Create your first video analysis here — notes and mind maps stay organized under this category.",
+        "emptyInCategoryHint": "Using the currently selected category",
+        "emptyAllTitle": "No projects yet",
+        "emptyAllDesc": "Start by pasting a link or uploading a video to generate mind maps and highlights.",
         "noProjects": "No Projects",
         "createFirst": "Create your first analysis task",
         "deleteConfirm": "Are you sure you want to delete project \"{title}\"? This action cannot be undone.",
+        "deleteDialogTitle": "Delete project",
+        "deleteDialogDesc": "This cannot be undone. All analysis results, notes, and mind maps for this project will be permanently removed.",
+        "deleteDialogConfirm": "Delete",
+        "deleteDialogCancel": "Cancel",
+        "deleting": "Deleting…",
         "deleteFailed": "Delete failed",
         "loading": "Loading...",
         "loadMore": "Load more projects",
@@ -103,11 +127,47 @@
             "bilibili": "Bilibili",
             "link": "Link",
             "upload": "Upload"
+        },
+        "tabs": {
+            "all": "All"
+        },
+        "defaultCategory": "Default",
+        "moveToCategory": "Move to…",
+        "changeCategory": "Category",
+        "manageCategories": "Manage categories",
+        "batch": {
+            "select": "Select multiple",
+            "cancel": "Cancel",
+            "selected": "{count} selected",
+            "moveTo": "Move to…",
+            "moving": "Moving…"
+        },
+        "categories": {
+            "title": "Manage categories",
+            "addNew": "New category",
+            "add": "Add",
+            "newPlaceholder": "Category name",
+            "nameConflict": "Category name already exists",
+            "createFailed": "Failed to create",
+            "rename": "Rename",
+            "delete": "Delete",
+            "deleteConfirm": "Delete category \"{name}\"?",
+            "deleteInUse": "This category still has projects. Move them first.",
+            "deleteFailed": "Delete failed",
+            "save": "Save",
+            "close": "Close",
+            "subtitle": "Create, rename, or remove categories to organize your notes",
+            "projectCount": "{count} projects"
         }
     },
     "Ingest": {
         "title": "Create Video Analysis",
         "subtitle": "Create new analysis task by pasting link or uploading file",
+        "categoryLabel": "Category",
+        "createCategory": "+ New",
+        "createCategoryShort": "New",
+        "newCategoryPlaceholder": "Category name",
+        "addCategory": "Add",
         "tabUrl": "Paste Link",
         "tabUpload": "Upload File",
         "urlForm": {
@@ -149,7 +209,17 @@
     "Search": {
         "title": "Search",
         "placeholder": "Search Query",
-        "startPrompt": "Enter keywords to start searching"
+        "startPrompt": "Enter keywords to start searching",
+        "clear": "Clear search",
+        "resultProject": "Project",
+        "untitled": "Untitled project",
+        "viewResults": "View results",
+        "noResults": "No results found",
+        "tryOther": "Try a different keyword",
+        "failed": "Search failed",
+        "unknownError": "Unknown error",
+        "loadingMore": "Loading…",
+        "loadMore": "Load more"
     },
     "Results": {
         "pageTitle": "Video Analysis Results",
@@ -165,7 +235,22 @@
         },
         "progress": {
             "preparing": "Preparing...",
-            "processing": "Processing: {stage}...",
+            "processing": "Working on {stage}…",
+            "loadingJob": "Loading job status…",
+            "stepCounter": "Step {current} of {total}",
+            "stepperLabel": "Analysis progress steps",
+            "connectionSse": "Live updates",
+            "connectionPolling": "Polling",
+            "succeededTitle": "Analysis complete",
+            "succeededHint": "Opening results…",
+            "viewLogs": "View run logs",
+            "stages": {
+                "ingest": "Import",
+                "transcribe": "Transcribe",
+                "analyze": "Analyze",
+                "extractKeyframes": "Keyframes",
+                "assembleResult": "Finalize"
+            },
             "alreadyAnalyzedStatus": "Existing result found",
             "alreadyAnalyzedTitle": "This video has already been analyzed",
             "alreadyAnalyzedBody": "You can view the existing result, or reanalyze to generate a new result.",
@@ -178,7 +263,49 @@
             "resuming": "Resuming...",
             "cancel": "Cancel Analysis",
             "canceling": "Canceling...",
-            "backToProjects": "Back to Projects"
+            "backToProjects": "Back to Projects",
+            "error": {
+                "genericSummary": "The analysis job could not be completed",
+                "technicalDetails": "Technical details",
+                "httpStatus": "HTTP status",
+                "ytdlpOutput": "yt-dlp output (truncated)",
+                "timeoutDownload": {
+                    "summary": "Video download timed out",
+                    "suggestion": "Check your network and URL. For some platforms, upload yt-dlp cookies in Settings and retry."
+                },
+                "timeout": {
+                    "summary": "The current step timed out",
+                    "suggestion": "Try again later, or use a different source or shorter video."
+                },
+                "contentBlocked": {
+                    "summary": "The platform blocked access",
+                    "suggestion": "Configure yt-dlp cookies in Settings, or try another accessible URL."
+                },
+                "stageFailed": {
+                    "summary": "The analysis pipeline failed",
+                    "suggestion": "See technical details below, fix the issue, then retry."
+                },
+                "invalidUrl": {
+                    "summary": "Invalid or unreachable video URL",
+                    "suggestion": "Verify the URL and that the video plays in your browser."
+                },
+                "ffmpegMissing": {
+                    "summary": "FFmpeg is not available",
+                    "suggestion": "Install FFmpeg, add it to PATH, and restart the backend."
+                },
+                "ytdlpMissing": {
+                    "summary": "yt-dlp is not available",
+                    "suggestion": "Install yt-dlp, add it to PATH, and restart the backend."
+                },
+                "resourceExhausted": {
+                    "summary": "System resources are exhausted",
+                    "suggestion": "Free up resources or try again later."
+                },
+                "canceled": {
+                    "summary": "Analysis was canceled",
+                    "suggestion": "You can resume from the last checkpoint."
+                }
+            }
         },
         "notFound": "Analysis result not found"
     },
@@ -249,6 +376,10 @@
         "loading": "Loading...",
         "editorTitle": "Note Editor",
         "words": "words",
+        "exportMarkdown": "Export Markdown",
+        "exportEmpty": "No notes to export",
+        "exportDocumentTitle": "Video Notes: {title}",
+        "exportExportedAt": "Exported at",
         "saving": "Saving...",
         "saved": "✔ Saved",
         "saveFailed": "Save Failed"

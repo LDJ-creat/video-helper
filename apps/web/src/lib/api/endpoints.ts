@@ -2,8 +2,12 @@ export const API_V1 = "/api/v1";
 
 export const endpoints = {
     health: () => `${API_V1}/health`,
+    categories: () => `${API_V1}/categories`,
+    category: (categoryId: string) => `${API_V1}/categories/${categoryId}`,
     projects: () => `${API_V1}/projects`,
     project: (projectId: string) => `${API_V1}/projects/${projectId}`,
+    patchProject: (projectId: string) => `${API_V1}/projects/${projectId}`,
+    batchProjectCategory: () => `${API_V1}/projects/category-batch`,
     deleteProject: (projectId: string) => `${API_V1}/projects/${projectId}`,
     jobs: () => `${API_V1}/jobs`,
     job: (jobId: string) => `${API_V1}/jobs/${jobId}`,
@@ -30,7 +34,13 @@ export const endpoints = {
     llmCatalog: () => `${API_V1}/settings/llm/catalog`,
     llmActive: () => `${API_V1}/settings/llm/active`,
     llmProviderSecret: (providerId: string) => `${API_V1}/settings/llm/providers/${providerId}/secret`,
+    llmProviderProfile: (providerId: string) =>
+        `${API_V1}/settings/llm/providers/${encodeURIComponent(providerId)}/profile`,
+    llmRemoteModels: (providerId: string) =>
+        `${API_V1}/settings/llm/providers/${encodeURIComponent(providerId)}/remote-models`,
     llmTest: () => `${API_V1}/settings/llm/active/test`,
+    llmProviderTest: (providerId: string) =>
+        `${API_V1}/settings/llm/providers/${encodeURIComponent(providerId)}/test`,
     // Custom model endpoints
     llmProviderModels: (providerId: string) => `${API_V1}/settings/llm/providers/${providerId}/models`,
     llmProviderModel: (providerId: string, modelId: string) =>

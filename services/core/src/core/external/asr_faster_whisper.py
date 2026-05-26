@@ -783,7 +783,7 @@ def transcribe_with_faster_whisper(
 	*,
 	audio_path: Path,
 	model_size: str = "base",
-	device: str = "cpu",
+	device: str = "auto",
 	device_index: int | list[int] = 0,
 	compute_type: str | None = None,
 	vad_filter: bool = True,

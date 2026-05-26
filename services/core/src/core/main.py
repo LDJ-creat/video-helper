@@ -10,6 +10,7 @@ from fastapi import FastAPI
 
 from core.app.api.health import router as health_router
 from core.app.api.jobs import router as jobs_router
+from core.app.api.categories import router as categories_router
 from core.app.api.projects import router as projects_router
 from core.app.api.assets import router as assets_router
 from core.app.api.results import router as results_router
@@ -73,6 +74,7 @@ def create_app() -> FastAPI:
     wire_cors(app)
     app.include_router(health_router, prefix="/api/v1")
     app.include_router(jobs_router, prefix="/api/v1")
+    app.include_router(categories_router, prefix="/api/v1")
     app.include_router(projects_router, prefix="/api/v1")
     app.include_router(assets_router, prefix="/api/v1")
     app.include_router(results_router, prefix="/api/v1")

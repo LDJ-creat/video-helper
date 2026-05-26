@@ -33,6 +33,8 @@
         "testing": "测试中...",
         "testSuccess": "连接测试成功！延迟: {latency}ms",
         "testFailed": "连接测试失败: {error}",
+        "expandProvider": "展开配置",
+        "collapseProvider": "收起配置",
         "availableProviders": "可用的模型提供方",
         "needsApiKey": "需要配置 API Key",
         "apiKeyConfigured": "API Key 已配置",
@@ -47,10 +49,10 @@
         "addCustomModelTitle": "添加自定义 Model ID",
         "modelIdPlaceholder": "Model ID（如 gpt-4o-2025-01）",
         "displayNamePlaceholder": "显示名称（可选，默认同 Model ID）",
-        "providerIdPlaceholderCommon": "如 my-provider（小写字母+数字+短横）",
+        "providerDisplayNamePlaceholder": "如 My OpenAI Proxy",
         "displayName": "显示名称",
         "firstModelId": "首个 Model ID",
-        "modelDisplayName": "模型显示名称",
+        "firstModelIdOptionalPlaceholder": "可选，稍后可在卡片中添加或从上游拉取",
         "apiKeyPlaceholder": "可选，稍后也可在卡片中配置",
         "save": "保存",
         "saving": "保存中...",
@@ -77,21 +79,43 @@
         "addCustomProvider": "＋ 添加自定义提供商",
         "addCustomProviderTitle": "添加自定义提供商",
         "customProviderAdded": "已添加自定义提供商: {name}",
+        "customProviderUpdated": "已更新自定义提供商: {name}",
+        "providerProfileUpdated": "已更新提供商信息: {name}",
+        "editProviderTitle": "编辑提供商",
+        "editCustomProviderTitle": "编辑自定义提供商",
+        "editProvider": "编辑提供商",
         "customBadge": "自定义",
         "loading": "加载中...",
         "loadFailed": "加载设置失败",
         "noProviderConfigured": "暂未配置模型提供方，请从下方列表中选择",
         "infoNote": "**注意：** API Key 仅用于配置，永不回显。修改后将立即生效。自定义提供商和模型支持任意兼容 OpenAI API 格式的服务。",
+        "configureApiKeyFirst": "请先保存 API Key，然后才能加载或选择模型。",
+        "loadingRemoteModels": "正在从服务商获取模型列表…",
+        "refreshRemoteModels": "刷新模型列表",
+        "remoteModelsManualHint": "无法自动获取模型列表。请使用下方「添加自定义 Model ID」手动填写。",
+        "noModelsYet": "暂无可用模型，请刷新列表或添加自定义 Model ID",
         "unknownError": "未知错误"
     },
     "Projects": {
         "title": "我的项目",
         "subtitle": "管理和查看您创建的所有分析项目",
         "searchPlaceholder": "搜索项目 ID 或章节...",
+        "searchClear": "清除搜索",
         "searchResults": "搜索结果",
+        "addCategoryTab": "新建类别",
+        "emptyInCategoryTitle": "该类别下还没有项目",
+        "emptyInCategoryDesc": "在此类别中创建你的第一个视频分析，笔记和导图会自动归类到这里。",
+        "emptyInCategoryHint": "将使用当前选中的类别",
+        "emptyAllTitle": "还没有任何项目",
+        "emptyAllDesc": "从粘贴链接或上传视频开始，生成思维导图与重点摘要。",
         "noProjects": "暂无项目",
         "createFirst": "创建第一个分析任务",
         "deleteConfirm": "确定要删除项目 \"{title}\" 吗？此操作不可撤销。",
+        "deleteDialogTitle": "删除项目",
+        "deleteDialogDesc": "此操作不可撤销，将永久删除该项目的分析结果、笔记与导图。",
+        "deleteDialogConfirm": "删除",
+        "deleteDialogCancel": "取消",
+        "deleting": "删除中…",
         "deleteFailed": "删除失败",
         "loading": "加载中...",
         "loadMore": "加载更多项目",
@@ -103,11 +127,47 @@
             "bilibili": "Bilibili",
             "link": "Link",
             "upload": "Upload"
+        },
+        "tabs": {
+            "all": "全部"
+        },
+        "defaultCategory": "默认",
+        "moveToCategory": "移动到…",
+        "changeCategory": "改类",
+        "manageCategories": "管理类别",
+        "batch": {
+            "select": "批量选择",
+            "cancel": "取消",
+            "selected": "已选 {count} 项",
+            "moveTo": "移动到…",
+            "moving": "移动中…"
+        },
+        "categories": {
+            "title": "管理类别",
+            "addNew": "新增类别",
+            "add": "添加",
+            "newPlaceholder": "输入类别名称",
+            "nameConflict": "类别名称已存在",
+            "createFailed": "创建失败",
+            "rename": "重命名",
+            "delete": "删除",
+            "deleteConfirm": "确定删除类别「{name}」？",
+            "deleteInUse": "该类别下仍有项目，请先移动到其他类别",
+            "deleteFailed": "删除失败",
+            "save": "保存",
+            "close": "关闭",
+            "subtitle": "创建、重命名或删除类别，整理你的视频笔记",
+            "projectCount": "{count} 个项目"
         }
     },
     "Ingest": {
         "title": "创建视频分析",
         "subtitle": "通过粘贴链接或上传文件来创建新的分析任务",
+        "categoryLabel": "项目类别",
+        "createCategory": "+ 新建",
+        "createCategoryShort": "新建",
+        "newCategoryPlaceholder": "类别名称",
+        "addCategory": "添加",
         "tabUrl": "粘贴链接",
         "tabUpload": "上传文件",
         "urlForm": {
@@ -149,7 +209,17 @@
     "Search": {
         "title": "搜索",
         "placeholder": "搜索关键词",
-        "startPrompt": "输入关键词开始搜索"
+        "startPrompt": "输入关键词开始搜索",
+        "clear": "清除搜索",
+        "resultProject": "项目",
+        "untitled": "无标题项目",
+        "viewResults": "查看分析结果",
+        "noResults": "未找到相关结果",
+        "tryOther": "试试其他关键词",
+        "failed": "搜索失败",
+        "unknownError": "未知错误",
+        "loadingMore": "加载中…",
+        "loadMore": "加载更多"
     },
     "Results": {
         "pageTitle": "视频分析结果",
@@ -165,7 +235,22 @@
         },
         "progress": {
             "preparing": "准备中...",
-            "processing": "正在进行: {stage}...",
+            "processing": "正在{stage}…",
+            "loadingJob": "加载任务状态…",
+            "stepCounter": "步骤 {current} / {total}",
+            "stepperLabel": "分析进度步骤",
+            "connectionSse": "实时更新",
+            "connectionPolling": "轮询中",
+            "succeededTitle": "分析完成",
+            "succeededHint": "正在打开结果…",
+            "viewLogs": "查看运行日志",
+            "stages": {
+                "ingest": "导入视频",
+                "transcribe": "转写",
+                "analyze": "智能分析",
+                "extractKeyframes": "提取关键帧",
+                "assembleResult": "生成结果"
+            },
             "alreadyAnalyzedStatus": "已存在分析结果",
             "alreadyAnalyzedTitle": "该视频已分析过",
             "alreadyAnalyzedBody": "你可以直接查看已有分析结果，或选择重新分析以生成新的结果。",
@@ -178,7 +263,49 @@
             "resuming": "正在继续...",
             "cancel": "中断分析",
             "canceling": "正在中断...",
-            "backToProjects": "返回项目列表"
+            "backToProjects": "返回项目列表",
+            "error": {
+                "genericSummary": "分析任务未能完成",
+                "technicalDetails": "技术详情",
+                "httpStatus": "HTTP 状态码",
+                "ytdlpOutput": "yt-dlp 输出（截断）",
+                "timeoutDownload": {
+                    "summary": "下载视频超时",
+                    "suggestion": "请检查网络连接与视频链接是否有效。若为 B 站等平台，可在设置页上传 Cookies 后重试。"
+                },
+                "timeout": {
+                    "summary": "当前步骤执行超时",
+                    "suggestion": "请稍后重试；若反复失败，可尝试更换视频源或缩短视频时长。"
+                },
+                "contentBlocked": {
+                    "summary": "视频平台拒绝了访问",
+                    "suggestion": "请在设置页配置 yt-dlp Cookies，或尝试其他可访问的视频链接。"
+                },
+                "stageFailed": {
+                    "summary": "分析流水线执行失败",
+                    "suggestion": "请查看下方技术详情，修正配置后点击重试。"
+                },
+                "invalidUrl": {
+                    "summary": "视频链接无效或无法访问",
+                    "suggestion": "请确认 URL 格式正确，且视频在浏览器中可正常播放。"
+                },
+                "ffmpegMissing": {
+                    "summary": "缺少 FFmpeg",
+                    "suggestion": "请安装 FFmpeg 并确保已加入系统 PATH，然后重启后端服务。"
+                },
+                "ytdlpMissing": {
+                    "summary": "缺少 yt-dlp",
+                    "suggestion": "请安装 yt-dlp 并确保已加入系统 PATH，然后重启后端服务。"
+                },
+                "resourceExhausted": {
+                    "summary": "系统资源不足",
+                    "suggestion": "请关闭其他占用资源的程序，或稍后再试。"
+                },
+                "canceled": {
+                    "summary": "分析已中断",
+                    "suggestion": "你可以点击继续分析，从上次进度恢复。"
+                }
+            }
         },
         "notFound": "未找到分析结果"
     },
@@ -249,6 +376,10 @@
         "loading": "加载中...",
         "editorTitle": "笔记编辑器",
         "words": "词",
+        "exportMarkdown": "导出 Markdown",
+        "exportEmpty": "暂无笔记内容可导出",
+        "exportDocumentTitle": "视频笔记：{title}",
+        "exportExportedAt": "导出时间",
         "saving": "保存中...",
         "saved": "✔ 已保存",
         "saveFailed": "保存失败"

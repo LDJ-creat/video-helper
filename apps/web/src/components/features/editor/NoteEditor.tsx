@@ -19,6 +19,9 @@ import { useTranslations } from "next-intl";
 import { ContentBlock, Highlight, Keyframe } from "@/lib/contracts/resultTypes";
 import { useSaveContentBlocks, useUploadAsset } from "@/lib/api/resultQueries";
 import { TextSelection } from "@tiptap/pm/state";
+import { Download } from "lucide-react";
+import { buildNoteFilename, downloadMarkdown } from "@/lib/notes/downloadMarkdown";
+import { isNoteEmpty, tiptapToMarkdown } from "@/lib/notes/tiptapToMarkdown";
 
 const AUTOSAVE_DELAY_MS = 2000;
 
@@ -56,6 +59,7 @@ const BlockAttributes = Extension.create({
 
 export interface NoteEditorProps {
     projectId: string;
+    projectTitle?: string;
     resultId?: string;
     contentBlocks: ContentBlock[];
     onSaveSuccess?: () => void;
@@ -385,6 +389,7 @@ function tiptapToBlocks(json: JSONContent): ContentBlock[] {
 
 export const NoteEditor = forwardRef<NoteEditorRef, NoteEditorProps>(({
     projectId,
+    projectTitle,
     contentBlocks,
     onSaveSuccess,
     onSaveError,
@@ -581,6 +586,25 @@ export const NoteEditor = forwardRef<NoteEditorRef, NoteEditorProps>(({
         }, AUTOSAVE_DELAY_MS);
     }, []);
 
+    const handleExportMarkdown = useCallback(() => {
+        if (!editor) return;
+
+        const doc = editor.getJSON();
+        if (isNoteEmpty(doc)) {
+            window.alert(t("exportEmpty"));
+            return;
+        }
+
+        const markdown = tiptapToMarkdown(doc, {
+            labels: {
+                documentTitle: t("exportDocumentTitle", { title: projectTitle || projectId }),
+                exportedAt: t("exportExportedAt"),
+                keyframeAlt: t("keyframe"),
+            },
+        });
+        downloadMarkdown(markdown, buildNoteFilename(projectTitle, projectId));
+    }, [editor, projectId, projectTitle, t]);
+
     useEffect(() => {
         if (editor && onBlockNavigation) {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any, react-hooks/immutability
@@ -732,9 +756,18 @@ export const NoteEditor = forwardRef<NoteEditorRef, NoteEditorProps>(({
         <div className="flex flex-col bg-white relative rounded-xl">
             <div className="flex items-center justify-between border-b border-stone-100 px-4 py-3 xl:px-6 xl:py-5 bg-white sticky top-0 z-10 rounded-t-xl">
                 <div className="text-base xl:text-lg font-medium text-stone-600">
-                    {t("editorTitle")} ({editor.storage.characterCount?.words?.() || 0} {t("words")})
+                    {t("editorTitle")}
                 </div>
                 <div className="flex items-center gap-2 text-base xl:text-lg">
+                    <button
+                        type="button"
+                        onClick={handleExportMarkdown}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-stone-200 px-2.5 py-1 text-stone-600 transition-colors hover:border-stone-300 hover:bg-stone-50 hover:text-stone-900"
+                        title={t("exportMarkdown")}
+                    >
+                        <Download className="h-4 w-4" />
+                        <span className="hidden sm:inline">{t("exportMarkdown")}</span>
+                    </button>
                     {saveStatus === "saving" && <span className="text-stone-400">{t("saving")}</span>}
                     {saveStatus === "saved" && <span className="text-green-600 flex items-center gap-1">{t("saved")}</span>}
                     {saveStatus === "error" && <span className="text-rose-600">{t("saveFailed")}</span>}

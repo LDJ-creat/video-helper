@@ -27,8 +27,17 @@ export function useCreateJobFromUpload() {
     const router = useRouter();
 
     return useMutation({
-		mutationFn: ({ file, title, outputLanguage }: { file: File; title?: string; outputLanguage?: string }) =>
-			createJobFromUpload(file, title, outputLanguage),
+		mutationFn: ({
+			file,
+			title,
+			outputLanguage,
+			categoryId,
+		}: {
+			file: File;
+			title?: string;
+			outputLanguage?: string;
+			categoryId?: string;
+		}) => createJobFromUpload(file, title, outputLanguage, categoryId),
         onSuccess: (data) => {
             // Redirect to results page with jobId to track progress
             router.push(`/projects/${data.projectId}/results?jobId=${data.jobId}`);

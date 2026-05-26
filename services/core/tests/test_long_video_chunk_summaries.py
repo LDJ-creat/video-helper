@@ -182,3 +182,54 @@ def test_normalize_chunk_summary_is_robust(monkeypatch: pytest.MonkeyPatch) -> N
     for km in out["keyMoments"]:
         assert 1000 <= int(km["timeMs"]) < 2000
         assert isinstance(km["label"], str) and km["label"].strip()
+
+
+def test_ensure_chunk_summaries_auto_repairs_and_logs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    monkeypatch.delenv("CHUNK_SUMMARY_PROVIDER", raising=False)
+
+    class _RepairingChunkProvider:
+        def __init__(self):
+            self.calls: list[str] = []
+
+        def generate_json(self, task_name: str, input_dict: dict, *, max_tokens: int | None = None) -> dict:  # noqa: ARG002
+            self.calls.append(task_name)
+            if task_name == "chunk_summary":
+                return ["not", "a", "dict"]
+            if task_name == "chunk_summary_repair":
+                return {
+                    "chunkId": "c_0_10000",
+                    "startMs": 0,
+                    "endMs": 10000,
+                    "summary": "Repaired summary",
+                    "points": [{"text": "Repaired point", "importance": 2}],
+                    "terms": [],
+                    "keyMoments": [{"timeMs": 1000, "label": "slide"}],
+                }
+            raise AssertionError(f"unexpected task: {task_name}")
+
+    provider = _RepairingChunkProvider()
+    from core.app.pipeline import chunk_summaries as chunk_mod
+
+    monkeypatch.setattr(chunk_mod, "llm_provider_for_jobs", lambda **kwargs: provider)
+    monkeypatch.setattr(chunk_mod._THREAD_LOCAL, "provider", None, raising=False)
+
+    transcript = {"segments": [{"startMs": 0, "endMs": 10_000, "text": "segment"}]}
+    out = ensure_chunk_summaries(
+        project_id="p1",
+        job_id="j1",
+        transcript=transcript,
+        transcript_meta={"durationMs": 10_000},
+        output_language="zh",
+        duration_ms=10_000,
+    )
+
+    assert provider.calls == ["chunk_summary", "chunk_summary_repair"]
+    assert len(out) == 1
+    assert out[0]["chunkId"] == "c_0_10000"
+    trace_dir = tmp_path / "logs" / "llm_json_repair" / "chunk_summary"
+    traces = list(trace_dir.glob("*.json"))
+    assert traces
+    trace_text = traces[0].read_text("utf-8")
+    assert "sourceOutput" in trace_text
+    assert "repairResponse" in trace_text or "repairedOutput" in trace_text

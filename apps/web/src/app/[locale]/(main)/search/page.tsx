@@ -8,6 +8,7 @@ import { useTranslations } from "next-intl";
 
 export default function SearchPage() {
     const t = useTranslations("Search");
+    const tProj = useTranslations("Projects");
     const [query, setQuery] = useState("");
 
     const {
@@ -37,6 +38,20 @@ export default function SearchPage() {
                     hasNextPage={hasNextPage ?? false}
                     isFetchingNextPage={isFetchingNextPage}
                     fetchNextPage={fetchNextPage}
+                    cardLabels={{
+                        untitled: tProj("untitled"),
+                        updated: tProj("updated"),
+                        viewResults: tProj("viewResults"),
+                        moveTo: tProj("moveToCategory"),
+                        deleteTitle: "",
+                    }}
+                    defaultCategoryLabel={tProj("defaultCategory")}
+                    sourceTypeLabels={{
+                        youtube: tProj("sourceTypes.youtube"),
+                        bilibili: tProj("sourceTypes.bilibili"),
+                        url: tProj("sourceTypes.link"),
+                        upload: tProj("sourceTypes.upload"),
+                    }}
                 />
             )}
 

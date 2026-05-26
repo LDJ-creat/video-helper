@@ -152,9 +152,29 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -f apps/desktop/resources/icon.ico
-          convert apps/desktop/resources/icon.ico -resize 512x512 apps/desktop/resources/icon.png
-          identify apps/desktop/resources/icon.png
+          icon_png="apps/desktop/resources/icons/1024x1024.png"
+          icon_ico="apps/desktop/resources/icons/icon.ico"
+
+          if [ -f "$icon_png" ]; then
+            echo "[linux-icon] using existing $icon_png"
+            identify "$icon_png"
+          elif [ -f "$icon_ico" ]; then
+            echo "[linux-icon] generating $icon_png from $icon_ico"
+            convert "$icon_ico" -resize 512x512 "$icon_png"
+            identify "$icon_png"
+          else
+            echo "::error::Missing Linux icon assets at $icon_png or $icon_ico" >&2
+            exit 1
+          fi
+
+          dims="$(identify -format '%w %h' "$icon_png")"
+          width="${dims%% *}"
+          height="${dims##* }"
+          echo "[linux-icon] dimensions=${width}x${height}"
+          if [ "$width" -lt 256 ] || [ "$height" -lt 256 ]; then
+            echo "::error::Linux icon must be at least 256x256, got ${width}x${height}" >&2
+            exit 1
+          fi
 
       - name: Download ffmpeg (macOS, relocatable)
         if: runner.os == 'macOS'
@@ -305,7 +325,7 @@ jobs:
       - name: Build Desktop installer (electron-builder) [Linux]
         if: runner.os == 'Linux'
         shell: bash
-        run: pnpm -C apps/desktop exec -- electron-builder --publish=never --config.linux.icon=resources/icon.png
+        run: pnpm -C apps/desktop exec -- electron-builder --publish=never
 
       - name: Build Desktop unpacked (electron-builder --dir)
         if: runner.os != 'Linux'
@@ -315,7 +335,7 @@ jobs:
       - name: Build Desktop unpacked (electron-builder --dir) [Linux]
         if: runner.os == 'Linux'
         shell: bash
-        run: pnpm -C apps/desktop exec -- electron-builder --dir --publish=never --config.linux.icon=resources/icon.png
+        run: pnpm -C apps/desktop exec -- electron-builder --dir --publish=never
 
       - name: Prepare local smoke fixture (mp4)
         env:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from core.db.models.llm_settings import LLMActive, LLMCustomModel, LLMCustomProvider, LLMProfileSecret
+from core.db.models.llm_settings import LLMActive, LLMCustomModel, LLMCustomProvider, LLMProfileSecret, LLMProviderOverride
 
 
 # ─── Provider secrets ────────────────────────────────────────────────────────
@@ -195,3 +195,67 @@ def delete_custom_provider(session: Session, *, provider_id: str) -> bool:
 	# Also remove all custom models belonging to this provider
 	session.query(LLMCustomModel).filter(LLMCustomModel.provider_id == pid).delete()
 	return True
+
+
+def update_custom_provider(
+	session: Session,
+	*,
+	provider_id: str,
+	display_name: str | None = None,
+	base_url: str | None = None,
+	now_ms: int,
+) -> bool:
+	pid = (provider_id or "").strip().lower()
+	row = session.get(LLMCustomProvider, pid)
+	if row is None:
+		return False
+	if display_name is not None:
+		row.display_name = str(display_name).strip()
+	if base_url is not None:
+		row.base_url = str(base_url).strip()
+	row.created_at_ms = int(now_ms)
+	session.add(row)
+	return True
+
+
+# ─── Built-in provider overrides ──────────────────────────────────────────────
+
+
+def get_provider_override(session: Session, *, provider_id: str) -> dict | None:
+	pid = (provider_id or "").strip().lower()
+	row = session.get(LLMProviderOverride, pid)
+	if row is None:
+		return None
+	return {
+		"providerId": row.provider_id,
+		"displayName": row.display_name,
+		"baseUrl": row.base_url,
+		"updatedAtMs": row.updated_at_ms,
+	}
+
+
+def upsert_provider_override(
+	session: Session,
+	*,
+	provider_id: str,
+	display_name: str | None,
+	base_url: str | None,
+	now_ms: int,
+) -> None:
+	pid = (provider_id or "").strip().lower()
+	obj = session.get(LLMProviderOverride, pid)
+	if obj is None:
+		obj = LLMProviderOverride(
+			provider_id=pid,
+			display_name=display_name,
+			base_url=base_url,
+			updated_at_ms=int(now_ms),
+		)
+		session.add(obj)
+		return
+	if display_name is not None:
+		obj.display_name = str(display_name).strip() or None
+	if base_url is not None:
+		obj.base_url = str(base_url).strip() or None
+	obj.updated_at_ms = int(now_ms)
+	session.add(obj)

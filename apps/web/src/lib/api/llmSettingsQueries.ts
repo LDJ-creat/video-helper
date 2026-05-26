@@ -7,15 +7,21 @@ import {
     updateProviderSecret,
     deleteProviderSecret,
     testActiveLlmSettings,
+    testProviderLlmSettings,
+    fetchRemoteLlmModels,
     addCustomModel,
     deleteCustomModel,
     addCustomProvider,
     deleteCustomProvider,
+    updateCustomProvider,
+    updateProviderProfile,
 } from "./llmSettingsApi";
 import type {
     UpdateActiveRequest,
     AddCustomModelRequest,
     AddCustomProviderRequest,
+    UpdateCustomProviderRequest,
+    UpdateProviderProfileRequest,
 } from "../contracts/llmSettingsTypes";
 
 // Query hook for LLM catalog
@@ -31,6 +37,14 @@ export function useActiveLlmSettings() {
     return useQuery({
         queryKey: queryKeys.llmActive,
         queryFn: fetchActiveLlmSettings,
+    });
+}
+
+export function useRemoteLlmModels(providerId: string, enabled: boolean) {
+    return useQuery({
+        queryKey: queryKeys.llmRemoteModels(providerId),
+        queryFn: () => fetchRemoteLlmModels(providerId),
+        enabled: Boolean(providerId) && enabled,
     });
 }
 
@@ -54,8 +68,9 @@ export function useUpdateProviderSecret() {
     return useMutation({
         mutationFn: ({ providerId, apiKey }: { providerId: string; apiKey: string }) =>
             updateProviderSecret(providerId, apiKey),
-        onSuccess: () => {
+        onSuccess: (_data, { providerId }) => {
             queryClient.invalidateQueries({ queryKey: queryKeys.llmCatalog });
+            queryClient.invalidateQueries({ queryKey: queryKeys.llmRemoteModels(providerId) });
         },
     });
 }
@@ -66,8 +81,9 @@ export function useDeleteProviderSecret() {
 
     return useMutation({
         mutationFn: (providerId: string) => deleteProviderSecret(providerId),
-        onSuccess: () => {
+        onSuccess: (_data, providerId) => {
             queryClient.invalidateQueries({ queryKey: queryKeys.llmCatalog });
+            queryClient.invalidateQueries({ queryKey: queryKeys.llmRemoteModels(providerId) });
         },
     });
 }
@@ -79,6 +95,13 @@ export function useTestActiveLlmSettings() {
     });
 }
 
+export function useTestProviderLlmSettings() {
+    return useMutation({
+        mutationFn: ({ providerId, modelId }: { providerId: string; modelId: string }) =>
+            testProviderLlmSettings(providerId, modelId),
+    });
+}
+
 // ─── Custom models ────────────────────────────────────────────────────────────
 
 export function useAddCustomModel() {
@@ -86,8 +109,9 @@ export function useAddCustomModel() {
     return useMutation({
         mutationFn: ({ providerId, request }: { providerId: string; request: AddCustomModelRequest }) =>
             addCustomModel(providerId, request),
-        onSuccess: () => {
+        onSuccess: (_data, { providerId }) => {
             queryClient.invalidateQueries({ queryKey: queryKeys.llmCatalog });
+            queryClient.invalidateQueries({ queryKey: queryKeys.llmRemoteModels(providerId) });
         },
     });
 }
@@ -97,8 +121,9 @@ export function useDeleteCustomModel() {
     return useMutation({
         mutationFn: ({ providerId, modelId }: { providerId: string; modelId: string }) =>
             deleteCustomModel(providerId, modelId),
-        onSuccess: () => {
+        onSuccess: (_data, { providerId }) => {
             queryClient.invalidateQueries({ queryKey: queryKeys.llmCatalog });
+            queryClient.invalidateQueries({ queryKey: queryKeys.llmRemoteModels(providerId) });
         },
     });
 }
@@ -121,6 +146,41 @@ export function useDeleteCustomProvider() {
         mutationFn: (providerId: string) => deleteCustomProvider(providerId),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: queryKeys.llmCatalog });
+            queryClient.invalidateQueries({ queryKey: queryKeys.llmActive });
+        },
+    });
+}
+
+export function useUpdateCustomProvider() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({
+            providerId,
+            request,
+        }: {
+            providerId: string;
+            request: UpdateCustomProviderRequest;
+        }) => updateCustomProvider(providerId, request),
+        onSuccess: (_data, { providerId }) => {
+            queryClient.invalidateQueries({ queryKey: queryKeys.llmCatalog });
+            queryClient.invalidateQueries({ queryKey: queryKeys.llmRemoteModels(providerId) });
+        },
+    });
+}
+
+export function useUpdateProviderProfile() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({
+            providerId,
+            request,
+        }: {
+            providerId: string;
+            request: UpdateProviderProfileRequest;
+        }) => updateProviderProfile(providerId, request),
+        onSuccess: (_data, { providerId }) => {
+            queryClient.invalidateQueries({ queryKey: queryKeys.llmCatalog });
+            queryClient.invalidateQueries({ queryKey: queryKeys.llmRemoteModels(providerId) });
             queryClient.invalidateQueries({ queryKey: queryKeys.llmActive });
         },
     });

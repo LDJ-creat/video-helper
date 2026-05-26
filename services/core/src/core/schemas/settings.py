@@ -29,6 +29,7 @@ class LLMCatalogProviderDTO(BaseModel):
 	secretUpdatedAtMs: int | None = None
 	models: list[LLMCatalogModelDTO]
 	isCustom: bool = False
+	baseUrl: str | None = None
 
 
 class LLMCatalogDTO(BaseModel):
@@ -36,15 +37,32 @@ class LLMCatalogDTO(BaseModel):
 	updatedAtMs: int
 
 
+class LLMRemoteModelDTO(BaseModel):
+	modelId: str
+	displayName: str
+
+
+class LLMRemoteModelsErrorDTO(BaseModel):
+	code: str
+	message: str
+
+
+class LLMRemoteModelsDTO(BaseModel):
+	ok: bool
+	models: list[LLMRemoteModelDTO]
+	error: LLMRemoteModelsErrorDTO | None = None
+
+
 class PutLLMProviderSecretRequestDTO(BaseModel):
 	apiKey: str
 
 
 class LLMActiveDTO(BaseModel):
-	providerId: str
-	modelId: str
-	hasKey: bool
-	updatedAtMs: int
+	configured: bool = True
+	providerId: str | None = None
+	modelId: str | None = None
+	hasKey: bool = False
+	updatedAtMs: int | None = None
 
 
 class PutLLMActiveRequestDTO(BaseModel):
@@ -55,6 +73,10 @@ class PutLLMActiveRequestDTO(BaseModel):
 class LLMActiveTestDTO(BaseModel):
 	ok: bool
 	latencyMs: int
+
+
+class ProviderLLMTestRequestDTO(BaseModel):
+	modelId: str
 
 
 # ─── Custom model DTOs ────────────────────────────────────────────────────────
@@ -69,11 +91,21 @@ class AddCustomModelRequestDTO(BaseModel):
 
 
 class AddCustomProviderRequestDTO(BaseModel):
-	providerId: str
+	providerId: str | None = None
 	displayName: str
 	baseUrl: str
-	modelId: str
-	modelDisplayName: str
+	modelId: str | None = None
+	modelDisplayName: str | None = None
+
+
+class UpdateCustomProviderRequestDTO(BaseModel):
+	displayName: str | None = None
+	baseUrl: str | None = None
+
+
+class UpdateProviderProfileRequestDTO(BaseModel):
+	displayName: str | None = None
+	baseUrl: str | None = None
 
 
 # ─── yt-dlp Cookies DTOs ────────────────────────────────────────────────────────
