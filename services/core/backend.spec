@@ -10,9 +10,12 @@ Output: dist/backend/  (directory mode for faster startup)
 import os
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_data_files
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 block_cipher = None
+
+# main.py loads the app via uvicorn import string; force-collect the whole package.
+_core_hiddenimports = collect_submodules("core")
 
 # The actual entry point
 entry_script = 'main.py'
@@ -63,6 +66,7 @@ a = Analysis(
         # Multipart
         'multipart',
         'python_multipart',
+        *_core_hiddenimports,
     ],
     hookspath=[],
     hooksconfig={},

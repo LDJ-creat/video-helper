@@ -30,13 +30,24 @@ def _load_env_file(path: str) -> None:
         return
 
 
-PROJECT_ROOT = os.path.dirname(__file__)
-SRC_DIR = os.path.join(PROJECT_ROOT, "src")
-if SRC_DIR not in sys.path:
-    sys.path.insert(0, SRC_DIR)
+def _is_frozen() -> bool:
+    return bool(getattr(sys, "frozen", False))
 
-# Auto-load local env defaults for development.
-_load_env_file(os.path.join(PROJECT_ROOT, ".env"))
+
+if _is_frozen():
+    # PyInstaller one-folder layout: application packages live under _MEIPASS.
+    _runtime_root = getattr(sys, "_MEIPASS", os.path.dirname(__file__))
+    if _runtime_root not in sys.path:
+        sys.path.insert(0, _runtime_root)
+    PROJECT_ROOT = _runtime_root
+    SRC_DIR = _runtime_root
+else:
+    PROJECT_ROOT = os.path.dirname(__file__)
+    SRC_DIR = os.path.join(PROJECT_ROOT, "src")
+    if SRC_DIR not in sys.path:
+        sys.path.insert(0, SRC_DIR)
+    # Auto-load local env defaults for development.
+    _load_env_file(os.path.join(PROJECT_ROOT, ".env"))
 
 
 def _should_enable_reload() -> bool:
@@ -48,6 +59,13 @@ def _should_enable_reload() -> bool:
     raw_reload = os.environ.get("CORE_RELOAD")
     if raw_reload is not None:
         return raw_reload.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+    # Packaged desktop builds run from a PyInstaller-frozen executable. Uvicorn's
+    # reload mode spawns a watcher/reloader subprocess, which is only appropriate
+    # for editable source trees and can prevent the packaged backend from binding
+    # its port reliably.
+    if _is_frozen():
+        return False
 
     # The packaged Docker runtime sets DATA_DIR=/app/data.
     # Treat that as a production-like environment and avoid auto-reload there.
@@ -61,6 +79,18 @@ def main() -> None:
     reload_enabled = _should_enable_reload()
     reload_dirs = [PROJECT_ROOT] if reload_enabled else None
     reload_excludes = [".venv", "build", "data", "__pycache__"] if reload_enabled else None
+
+    if _is_frozen():
+        # Avoid uvicorn import-by-string in frozen builds (needs app_dir layout).
+        from core.main import app
+
+        uvicorn.run(
+            app,
+            host="0.0.0.0",
+            port=port,
+            reload=False,
+        )
+        return
 
     uvicorn.run(
         "core.main:app",

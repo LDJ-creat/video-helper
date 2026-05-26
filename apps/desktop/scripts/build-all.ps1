@@ -66,29 +66,6 @@ function Stop-DesktopAppIfRunning() {
         }
     }
 
-    # Extra guard: kill any process running from our build output dirs.
-    $pathLike = @(
-        "*\\apps\\desktop\\release\\win-unpacked\\*",
-        "*\\apps\\desktop\\release-temp*\\win-unpacked\\*"
-    )
-
-    $pathProcs = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
-    Where-Object {
-        $exe = $_.ExecutablePath
-        $cmd = $_.CommandLine
-        ($exe -and ($pathLike | Where-Object { $exe -like $_ })) -or
-        ($cmd -and ($pathLike | Where-Object { $cmd -like $_ }))
-    }
-
-    foreach ($proc in $pathProcs) {
-        try {
-            Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue
-        }
-        catch {
-            # ignore
-        }
-    }
-
     Start-Sleep -Milliseconds 800
 }
 
@@ -150,48 +127,9 @@ function Clear-StaleWinUnpacked() {
 }
 
 function Stop-NextStandaloneIfRunning() {
-    Write-Host "Stopping processes that may lock Next standalone output..." -ForegroundColor Yellow
-
-    # Kill common dev/build processes (best-effort).
-    $imageNames = @(
-        "node.exe",
-        "pnpm.exe",
-        "npm.exe",
-        "yarn.exe"
-    )
-
-    # Only kill node/pnpm processes that clearly reference our web standalone output.
-    $lockPathLike = @(
-        "*\\apps\\web\\.next\\standalone\\*",
-        "*\\apps\\web\\.next\\*"
-    )
-
-    $procs = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
-    Where-Object {
-        $cmd = $_.CommandLine
-        $exe = $_.ExecutablePath
-        ($cmd -and ($lockPathLike | Where-Object { $cmd -like $_ })) -or
-        ($exe -and ($lockPathLike | Where-Object { $exe -like $_ }))
-    }
-
-    foreach ($p in $procs) {
-        try {
-            Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
-        }
-        catch {
-            # ignore
-        }
-    }
-
-    # Additionally, if a node process is holding the lock but command line is hidden,
-    # we still try a gentle kill-by-name only when a lock was detected above.
-    if ($procs -and $procs.Count -gt 0) {
-        foreach ($img in $imageNames) {
-            try { & taskkill /IM $img /F /T 2>$null | Out-Null } catch { }
-        }
-    }
-
-    Start-Sleep -Milliseconds 800
+    # Avoid enumerating all Win32_Process via CIM (can hang for minutes on busy machines).
+    # Clear-StaleNextStandalone retries removal and calls Stop-DesktopAppIfRunning if needed.
+    Write-Host "Skipping broad node/pnpm scan (use Clear-StaleNextStandalone retries if locked)..." -ForegroundColor Yellow
 }
 
 function Clear-StaleNextStandalone() {

@@ -304,8 +304,12 @@ function startBackend(): Promise<void> {
 
         childEnv.PORT = String(BACKEND_PORT);
         childEnv.DATA_DIR = dataDir;
+        // The packaged backend is a frozen executable, not an editable source tree.
+        // Force uvicorn reload off so startup doesn't depend on reloader subprocesses.
+        childEnv.CORE_RELOAD = '0';
         // Prefer packaged native deps over system/conda PATH.
         childEnv.PATH = `${internalDir}${path.delimiter}${process.env.PATH ?? ''}`;
+        safeLog('main', `Starting packaged backend: exe=${exePath} cwd=${backendDir}`);
         backendProcess = spawn(exePath, [], {
             cwd: backendDir,
             env: childEnv,
@@ -315,10 +319,20 @@ function startBackend(): Promise<void> {
         backendProcess.stdout?.on('data', (d) => safeLog('backend', d));
         backendProcess.stderr?.on('data', (d) => safeLog('backend', d, true));
         backendProcess.on('error', reject);
+        let backendReady = false;
+        backendProcess.on('exit', (code, signal) => {
+            safeLog('backend', `process exited code=${code ?? 'null'} signal=${signal ?? 'null'}`, code !== 0);
+            if (!backendReady) {
+                reject(new Error(`Backend process exited before health check passed (code=${code ?? 'null'}, signal=${signal ?? 'null'})`));
+            }
+        });
 
         // Give PyInstaller backend a generous head-start before polling.
         // On slow machines / with Windows Defender scanning, unpacking can take 10+ s.
-        waitForService(BACKEND_PORT, 60, '/api/v1/health', 5000).then(resolve).catch(reject);
+        waitForService(BACKEND_PORT, 60, '/api/v1/health', 5000).then(() => {
+            backendReady = true;
+            resolve();
+        }).catch(reject);
     });
 }
 
