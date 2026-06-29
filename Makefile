@@ -41,6 +41,13 @@ SMOKE_WRAPPER_ARGS_SH += --url "$(SMOKE_URL)"
 SMOKE_WRAPPER_ARGS_WIN += -Url "$(SMOKE_URL)"
 endif
 
+BENCHMARK_API_BASE ?= http://127.0.0.1:8000
+BENCHMARK_PROFILE ?= short-local
+BENCHMARK_DATA_DIR ?=
+JOB_ID ?=
+PROJECT_ID ?=
+BENCHMARK_SKIP_START_BACKEND ?= 0
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Help
@@ -63,6 +70,10 @@ help:
 	@echo   make core-build        Package backend via PyInstaller (build_backend.py)
 	@echo   make core-test         Run all backend tests (pytest services/core/tests)
 	@echo   make core-smoke        Closed-loop smoke (starts backend by default)
+	@echo   make core-benchmark    Run evaluation benchmark (PROFILE=short-local)
+	@echo   make core-benchmark-report  Report for existing JOB_ID
+	@echo   make core-benchmark-rubric  Interactive human rubric scoring
+	@echo   make core-metrics      Aggregate succeeded job metrics from DATA_DIR
 	@echo.
 	@echo Docker:
 	@echo   make docker-up         Pull latest images and start (docker-compose.yml)
@@ -160,6 +171,48 @@ ifeq ($(OS),Windows_NT)
 	$(PWSH) -NoProfile -ExecutionPolicy Bypass -File scripts\smoke-closed-loop.ps1 $(SMOKE_WRAPPER_ARGS_WIN)
 else
 	bash scripts/smoke-closed-loop.sh $(SMOKE_WRAPPER_ARGS_SH)
+endif
+
+.PHONY: core-benchmark
+core-benchmark:
+
+ifeq ($(OS),Windows_NT)
+	$(PWSH) -NoProfile -ExecutionPolicy Bypass -File scripts\benchmark-closed-loop.ps1 -ApiBaseUrl "$(BENCHMARK_API_BASE)" -Profile "$(BENCHMARK_PROFILE)" $(if $(filter 1,$(BENCHMARK_SKIP_START_BACKEND)),-SkipStartBackend,)
+else
+	bash scripts/benchmark-closed-loop.sh --api-base-url "$(BENCHMARK_API_BASE)" --profile "$(BENCHMARK_PROFILE)" $(if $(filter 1,$(BENCHMARK_SKIP_START_BACKEND)),--skip-start-backend,)
+endif
+
+.PHONY: core-benchmark-report
+core-benchmark-report:
+ifeq ($(strip $(JOB_ID)),)
+	$(error JOB_ID is required for core-benchmark-report)
+endif
+ifeq ($(OS),Windows_NT)
+	cd services\core && uv run python scripts\run_benchmark.py --mode report --job-id "$(JOB_ID)" --project-id "$(PROJECT_ID)" --api-base "$(BENCHMARK_API_BASE)" $(if $(BENCHMARK_DATA_DIR),--data-dir "$(BENCHMARK_DATA_DIR)",) $(if $(MERGE_RUBRIC),--merge-rubric,) $(if $(RUBRIC_SCORES),--rubric-scores "$(RUBRIC_SCORES)",)
+else
+	cd services/core && uv run python scripts/run_benchmark.py --mode report --job-id "$(JOB_ID)" --project-id "$(PROJECT_ID)" --api-base "$(BENCHMARK_API_BASE)" $(if $(BENCHMARK_DATA_DIR),--data-dir "$(BENCHMARK_DATA_DIR)",) $(if $(MERGE_RUBRIC),--merge-rubric,) $(if $(RUBRIC_SCORES),--rubric-scores "$(RUBRIC_SCORES)",)
+endif
+
+.PHONY: core-benchmark-rubric
+core-benchmark-rubric:
+ifeq ($(strip $(JOB_ID)),)
+	$(error JOB_ID is required for core-benchmark-rubric)
+endif
+ifeq ($(strip $(PROJECT_ID)),)
+	$(error PROJECT_ID is required for core-benchmark-rubric)
+endif
+ifeq ($(OS),Windows_NT)
+	cd services\core && uv run python scripts\score_human_rubric.py --profile "$(BENCHMARK_PROFILE)" --job-id "$(JOB_ID)" --project-id "$(PROJECT_ID)" --api-base "$(BENCHMARK_API_BASE)"
+else
+	cd services/core && uv run python scripts/score_human_rubric.py --profile "$(BENCHMARK_PROFILE)" --job-id "$(JOB_ID)" --project-id "$(PROJECT_ID)" --api-base "$(BENCHMARK_API_BASE)"
+endif
+
+.PHONY: core-metrics
+core-metrics:
+ifeq ($(OS),Windows_NT)
+	cd services\core && uv run python scripts\collect_all_job_metrics.py $(if $(BENCHMARK_DATA_DIR),--data-dir "$(BENCHMARK_DATA_DIR)",)
+else
+	cd services/core && uv run python scripts/collect_all_job_metrics.py $(if $(BENCHMARK_DATA_DIR),--data-dir "$(BENCHMARK_DATA_DIR)",)
 endif
 
 

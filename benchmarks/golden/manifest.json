@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "2026-06-22",
+  "samples": [
+    {
+      "id": "short-local",
+      "profile": "short-local",
+      "fixture": "smoke/fixtures/smoke-fixture.mp4",
+      "expectedChapters": null,
+      "rubric": "benchmarks/golden/short-local/rubric.md"
+    },
+    {
+      "id": "medium-url",
+      "profile": "medium-url",
+      "sourceUrl": "https://www.bilibili.com/video/BV1jgifB7EAp/",
+      "expectedChapters": "benchmarks/golden/medium-url/expected_chapters.json",
+      "rubric": null
+    }
+  ]
+}

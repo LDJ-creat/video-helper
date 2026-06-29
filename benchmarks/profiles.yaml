@@ -1,0 +1,39 @@
+# Benchmark profiles for Video Helper evaluation
+
+profiles:
+  short-local:
+    description: "Local upload fixture (20-60s), daily regression"
+    sourceType: upload
+    file: smoke/fixtures/smoke-fixture.mp4
+    timeoutSec: 600
+    thresholds:
+      speedFactorMax: 3.0
+      structureScoreMin: 0.85
+      jobSuccess: true
+
+  medium-url:
+    description: "Bilibili URL (~15min), weekly manual run"
+    sourceType: bilibili
+    sourceUrl: "https://www.bilibili.com/video/BV1jgifB7EAp/"
+    timeoutSec: 1800
+    thresholds:
+      speedFactorMax: 2.0
+      structureScoreMin: 0.85
+      jobSuccess: true
+
+  # Optional: enable keyframe verify metrics on a dedicated profile, e.g.
+  # short-local-verify:
+  #   description: "short-local with KEYFRAME_VERIFY_MODE=multimodal"
+  #   sourceType: upload
+  #   file: smoke/fixtures/smoke-fixture.mp4
+  #   timeoutSec: 600
+  #   keyframeVerify:
+  #     mode: multimodal
+  #     maxPerJob: 5
+  #   thresholds:
+  #     speedFactorMax: 3.0
+  #     structureScoreMin: 0.85
+  #     jobSuccess: true
+  #     keyframeVerify:
+  #       confidenceP50Min: 0.5
+  #       keepRateMin: 0.6

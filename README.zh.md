@@ -247,7 +247,7 @@ video-helper/
 
 ## <a id="contribution"></a>🤝 贡献
 
-欢迎提交 Issue 和 Pull Request！在提交代码前，请确保通过了项目的 Smoke Tests 并符合代码规范。
+欢迎提交 Issue 和 Pull Request！在提交代码前，请确保通过了项目的 Smoke Tests 并符合代码规范。性能与质量回归见 [`docs/evaluation.md`](docs/evaluation.md) 与 [`benchmarks/README.md`](benchmarks/README.md)。
 
 ## ❓ 常见问题 (FAQ)
 
