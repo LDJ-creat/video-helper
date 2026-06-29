@@ -1002,6 +1002,8 @@ class PipelineJobProcessor:
                     try:
                         new_times, verified_count, dropped_count = verify_and_maybe_adjust_plan_keyframes(
                             session=session,
+                            project_id=job.project_id,
+                            job_id=job.job_id,
                             content_blocks=content_blocks,
                             output_language=getattr(job, "output_language", None),
                             mode=verify_mode,

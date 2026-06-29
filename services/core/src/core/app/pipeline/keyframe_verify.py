@@ -80,6 +80,32 @@ def get_verify_budget() -> VerifyBudget:
     )
 
 
+def _verify_results_path(*, project_id: str, job_id: str) -> Path:
+    data_dir = get_data_dir().resolve()
+    base = (data_dir / project_id / "artifacts" / job_id / "keyframe_verify").resolve()
+    if not base.is_relative_to(data_dir):
+        raise ValueError("keyframe_verify dir escapes DATA_DIR")
+    base.mkdir(parents=True, exist_ok=True)
+    return (base / "results.jsonl").resolve()
+
+
+def append_keyframe_verify_result(
+    *,
+    project_id: str,
+    job_id: str,
+    record: dict,
+) -> None:
+    """Best-effort append of a single verify outcome for benchmark observability."""
+
+    try:
+        path = _verify_results_path(project_id=project_id, job_id=job_id)
+        payload = {"tsMs": _now_ms(), "projectId": project_id, "jobId": job_id, **record}
+        with path.open("a", encoding="utf-8") as f:
+            f.write(_json_dumps_compact(payload) + "\n")
+    except Exception:
+        return
+
+
 def _run_tesseract_ocr(*, image_abs: Path, timeout_s: int = 15) -> str | None:
     exe = shutil.which("tesseract")
     if not exe:
@@ -256,6 +282,8 @@ def build_verify_request_multimodal(
 def verify_and_maybe_adjust_plan_keyframes(
 	*,
 	session: Session,
+	project_id: str,
+	job_id: str,
 	content_blocks: list[dict],
 	output_language: str | None,
 	mode: str,
@@ -342,6 +370,11 @@ def verify_and_maybe_adjust_plan_keyframes(
 				continue
 
 			keep: bool | None = None
+			llm_confidence: float | None = None
+			llm_reason: str | None = None
+			block_id = b.get("blockId") if isinstance(b.get("blockId"), str) else None
+			highlight_id = h.get("highlightId") if isinstance(h.get("highlightId"), str) else None
+			input_confidence = conf
 			try:
 				if mode == "ocr":
 					ocr_text = _run_tesseract_ocr(image_abs=image_abs)
@@ -367,12 +400,34 @@ def verify_and_maybe_adjust_plan_keyframes(
 					)
 					res = _call_llm_with_backoff(provider=provider, messages=messages, max_tokens=512)
 
-				keep = bool(res.get("keep")) if isinstance(res, dict) and "keep" in res else None
+				if isinstance(res, dict):
+					if "keep" in res:
+						keep = bool(res.get("keep"))
+					llm_confidence = _coerce_confidence(res.get("confidence"))
+					reason_raw = res.get("reason")
+					if isinstance(reason_raw, str):
+						llm_reason = reason_raw
 			finally:
 				verify_used_job += 1
 				verified_count += 1
 
 			if keep is True:
+				append_keyframe_verify_result(
+					project_id=project_id,
+					job_id=job_id,
+					record={
+						"highlightId": highlight_id,
+						"blockId": block_id,
+						"assetId": asset_id,
+						"timeMs": int(tm),
+						"mode": mode,
+						"keep": True,
+						"confidence": llm_confidence,
+						"reason": llm_reason,
+						"action": "kept",
+						"inputConfidence": input_confidence,
+					},
+				)
 				continue
 
 			# Not kept: attempt one retry by selecting a nearby time within the local search window.
@@ -392,12 +447,45 @@ def verify_and_maybe_adjust_plan_keyframes(
 					new_times.append(int(new_tm))
 					retried_count += 1
 					budget.retry_max -= 1
+					append_keyframe_verify_result(
+						project_id=project_id,
+						job_id=job_id,
+						record={
+							"highlightId": highlight_id,
+							"blockId": block_id,
+							"assetId": asset_id,
+							"timeMs": int(tm),
+							"mode": mode,
+							"keep": keep,
+							"confidence": llm_confidence,
+							"reason": llm_reason,
+							"action": "retried",
+							"inputConfidence": input_confidence,
+							"retryTimeMs": int(new_tm),
+						},
+					)
 					continue
 
 			# No retry possible: drop keyframes.
 			h["keyframes"] = []
 			h["keyframe"] = None
 			dropped_count += 1
+			append_keyframe_verify_result(
+				project_id=project_id,
+				job_id=job_id,
+				record={
+					"highlightId": highlight_id,
+					"blockId": block_id,
+					"assetId": asset_id,
+					"timeMs": int(tm),
+					"mode": mode,
+					"keep": keep,
+					"confidence": llm_confidence,
+					"reason": llm_reason,
+					"action": "dropped",
+					"inputConfidence": input_confidence,
+				},
+			)
 
 	total_dur = time.perf_counter() - t_start
 	logger.info(
