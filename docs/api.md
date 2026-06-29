@@ -199,6 +199,9 @@ data: {"eventId":"13","tsMs":1738030000456,"jobId":"...","projectId":"...","stag
 	"stage": "transcribe",
 	"progress": 0.42,
 	"error": null,
+	"createdAtMs": 1738030000000,
+	"startedAtMs": 1738030000100,
+	"finishedAtMs": null,
 	"updatedAtMs": 1738030000456
 }
 ```
