@@ -253,6 +253,7 @@ def _remote_models_error_dto(code: str) -> LLMRemoteModelsErrorDTO:
 		"invalid_credentials": "The stored API key could not be decrypted or was rejected.",
 		"invalid_base_url": "Provider base URL is missing or invalid.",
 		"missing_api_key": "No API key available for this provider.",
+		"invalid_api_key": "API key contains characters that cannot be sent in HTTP headers. Check for extra spaces or non-ASCII text.",
 		"provider_unavailable": "Could not reach the provider to list models.",
 		"list_models_failed": "The provider rejected the models list request.",
 		"invalid_response": "Unexpected response when listing models.",
@@ -538,9 +539,10 @@ def _llm_connectivity_test_response(
 			model=runtime_model,
 		)
 	except LLMActiveTestError as e:
-		status = 400 if e.reason in {"invalid_credentials", "model_not_found"} else 503
+		status = 400 if e.reason in {"invalid_credentials", "model_not_found", "invalid_api_key"} else 503
 		msg = {
 			"invalid_credentials": "Invalid credentials",
+			"invalid_api_key": "API key contains invalid characters",
 			"model_not_found": "Model not found",
 			"provider_unavailable": "Provider unavailable",
 		}.get(e.reason, "Provider unavailable")

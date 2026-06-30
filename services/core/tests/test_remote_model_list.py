@@ -68,3 +68,25 @@ def test_missing_key_returns_error() -> None:
 	items, err = fetch_remote_models_for_provider(provider=p, base_url="https://api.openai.com/v1", api_key="  ")
 	assert err == "missing_api_key"
 	assert items == []
+
+
+def test_non_ascii_api_key_returns_error_without_http_call() -> None:
+	p = LLMCatalogProvider(
+		provider_id="openai",
+		display_name="OpenAI",
+		base_url="https://api.openai.com/v1",
+		listing_kind="openai_compat",
+	)
+
+	def _should_not_run(_req: httpx.Request) -> httpx.Response:
+		raise AssertionError("httpx should not be called for invalid api key")
+
+	transport = httpx.MockTransport(_should_not_run)
+	items, err = fetch_remote_models_for_provider(
+		provider=p,
+		base_url="https://api.openai.com/v1",
+		api_key="sk-小米mimo",
+		transport=transport,
+	)
+	assert err == "invalid_api_key"
+	assert items == []

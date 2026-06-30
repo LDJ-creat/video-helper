@@ -9,7 +9,12 @@ from urllib.parse import urlparse
 
 import httpx
 
+from core.llm.http_headers import http_header_value_error
+from core.llm.openai_compat_url import resolve_openai_compat_chat_endpoint
+
 logger = logging.getLogger(__name__)
+
+
 @dataclass(frozen=True)
 class LLMActiveTestError(RuntimeError):
 	reason: str
@@ -31,8 +36,6 @@ def _is_anthropic_base_url(base_url: str) -> bool:
 
 
 def _resolve_openai_compat_endpoint(base_url: str) -> str:
-	from core.llm.openai_compat_url import resolve_openai_compat_chat_endpoint
-
 	return resolve_openai_compat_chat_endpoint(base_url)
 
 
@@ -103,6 +106,9 @@ def run_llm_connectivity_test(
 
 	start = time.perf_counter()
 
+	if http_header_value_error(api_key or ""):
+		raise LLMActiveTestError("invalid_api_key")
+
 	if use_anthropic:
 		version = (os.environ.get("ANTHROPIC_VERSION") or "2023-06-01").strip() or "2023-06-01"
 		payload: dict[str, Any] = {
@@ -138,7 +144,10 @@ def run_llm_connectivity_test(
 	)
 
 	# trust_env=False: skip Windows WPAD / system proxy detection which can add ~2s latency
-	client = httpx.Client(timeout=timeout, transport=transport, headers=headers, trust_env=False)
+	try:
+		client = httpx.Client(timeout=timeout, transport=transport, headers=headers, trust_env=False)
+	except UnicodeEncodeError as exc:
+		raise LLMActiveTestError("invalid_api_key") from exc
 	_t_client = time.perf_counter()
 	logger.info(
 		"LLM connectivity test client-created host=%s client_init_ms=%.1f total_so_far=%.1f",
