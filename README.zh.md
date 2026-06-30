@@ -34,7 +34,7 @@ https://github.com/user-attachments/assets/708b6ee1-0e4f-4cf7-b153-b0c713d6331f
 
 ## <a id="features"></a>✨ 核心功能
 
-- **智能流水线分析**: 自动化处理视频下载、音频转录、内容提取与结构化分析。系统支持由 LLM 智能决策并利用 FFmpeg 截取关联关键帧，与重点摘要同步展示，使用户能够更直观地理解知识点。
+- **智能流水线分析**: 自动化处理视频下载、音频转录、内容提取与结构化分析。转写支持**云端 ASR**（阿里云百炼 / OpenAI / 火山引擎，Settings 配置）并在失败时自动降级本地 faster-whisper；系统支持由 LLM 智能决策并利用 FFmpeg 截取关联关键帧，与重点摘要同步展示，使用户能够更直观地理解知识点。
 - **动态思维导图**: 生成可视化的知识结构图，支持缩放、拖拽与增删改。
 - **双向联动交互**:
     - **导图 -> 内容**: 点击导图节点，自动定位到对应的重点内容模块。
@@ -67,7 +67,7 @@ https://github.com/user-attachments/assets/708b6ee1-0e4f-4cf7-b153-b0c713d6331f
     - **语言**: Python 3.12+
     - **数据库**: SQLite + SQLAlchemy (ORM) + Alembic (迁移)
     - **包管理**: [uv](https://github.com/astral-sh/uv)
-    - **AI 流水线**: 集成 whisper (转录)、LLM (分析/总结)
+    - **AI 流水线**: 集成 LLM (分析/总结)；转写可选云端 ASR 或本地 faster-whisper
 
 ### 架构图
 
@@ -172,6 +172,8 @@ uv run python main.py
 
 常用命令：`uv run pytest -q`（运行测试）
 
+> **云端 ASR（可选）**：在 Web 端 **设置 → 语音转写 (ASR)** 配置提供方与 API Key，或在 `services/core/.env` 中设置 `DASHSCOPE_API_KEY` / `OPENAI_API_KEY` / `VOLCENGINE_ASR_API_KEY` 等（详见 `.env.example` 与 [`docs/api.md`](docs/api.md)）。本地降级使用的 faster-whisper 模型大小与设备由 `TRANSCRIBE_MODEL_SIZE`、`TRANSCRIBE_DEVICE` 控制，无需在前端单独配置。
+
 #### 3. 启动前端
 
 ```bash
@@ -259,6 +261,9 @@ A: 本项目支持集成各种 LLM API（如 OpenAI, Claude, DeepSeek）。此�
 
 **Q: 处理长视频的效果如何，会不会很慢？**
 A: 对于长视频，我们采用 MapReduce 策略：先将视频内容进行拆分，然后并发地调用 LLM 进行分析，最后通过主 LLM 对信息进行对齐、聚合并产出最终结果，以最大程度提高分析效率。处理一个小时的视频，耗时大约在 15 到 20 分钟。
+
+**Q: 是否必须使用云端 ASR？**
+A: 不是。默认可在本地使用 faster-whisper 转写。若在设置中启用云端 ASR 并配置 API Key，系统会优先调用云端服务以提升速度与准确率；云端不可用时会自动降级到本地转写（可在设置中关闭 fallback）。启用云端时音频会上传至第三方，请注意隐私与费用。
 
 
 ---

@@ -34,7 +34,7 @@ https://github.com/user-attachments/assets/1d3824b2-feec-40da-9dee-0b6c689e2a8a
 
 ## <a id="features"></a>✨ Key Features
 
-- **Smart Pipeline Analysis**: Automated handling of video downloading, audio transcription, content extraction, and structured analysis. It supports LLM-guided keyframe extraction via FFmpeg to provide visual context alongside key summaries.
+- **Smart Pipeline Analysis**: Automated handling of video downloading, audio transcription, content extraction, and structured analysis. Transcription supports **cloud ASR** (DashScope / OpenAI / Volcengine, configurable in Settings) with automatic fallback to local faster-whisper on failure; LLM-guided keyframe extraction via FFmpeg provides visual context alongside key summaries.
 - **Dynamic Mind Map**: Generates visual knowledge structure maps supporting zooming, dragging, and adding/deleting/editing nodes.
 - **Bi-directional Interaction**:
     - **Mind Map -> Content**: Click a map node to automatically locate the corresponding key content module.
@@ -67,7 +67,7 @@ This project uses Monorepo architecture to manage frontend and backend, ensuring
     - **Language**: Python 3.12+
     - **Database**: SQLite + SQLAlchemy (ORM) + Alembic (Migrations)
     - **Package Management**: [uv](https://github.com/astral-sh/uv)
-    - **AI Pipeline**: Integrates whisper (transcription), LLM (analysis/summarization)
+    - **AI Pipeline**: LLM (analysis/summarization); transcription via optional cloud ASR or local faster-whisper
 
 ### Architecture diagrams
 
@@ -170,6 +170,8 @@ uv run python main.py
 
 Common command: `uv run pytest -q` (run tests)
 
+> **Cloud ASR (optional)**: Configure provider and API key under **Settings → Speech-to-Text (ASR)** in the Web UI, or set `DASHSCOPE_API_KEY` / `OPENAI_API_KEY` / `VOLCENGINE_ASR_API_KEY` in `services/core/.env` (see `.env.example` and [`docs/api.md`](docs/api.md)). Local fallback uses faster-whisper; model size and device are controlled by `TRANSCRIBE_MODEL_SIZE` and `TRANSCRIBE_DEVICE` — no separate frontend settings required.
+
 #### 3. Start the frontend
 
 ```bash
@@ -255,6 +257,9 @@ A: You can integrate your own API keys (OpenAI, Claude, etc.). If using as an AI
 
 **Q: How does it handle long videos? Is it slow?**
 A: For long videos, we use a MapReduce strategy: the video content is split and analyzed concurrently by multiple LLM calls, then aligned and aggregated by a master LLM. A 1-hour video typically takes 15-20 minutes to process.
+
+**Q: Do I have to use cloud ASR?**
+A: No. Local faster-whisper transcription works out of the box. If you enable cloud ASR in Settings and provide an API key, the pipeline prefers cloud services for speed and accuracy; when cloud is unavailable it can fall back to local transcription (fallback can be disabled in Settings). Enabling cloud ASR uploads audio to third-party services — consider privacy and billing.
 
 
 ---
