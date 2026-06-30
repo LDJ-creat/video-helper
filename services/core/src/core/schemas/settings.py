@@ -122,3 +122,63 @@ class YtdlpCookiesStatusDTO(BaseModel):
 
 class AsrPrefetchRequestDTO(BaseModel):
 	modelSize: str | None = None
+
+
+# ─── ASR Settings DTOs ───────────────────────────────────────────────────────
+
+
+class AsrCatalogModelDTO(BaseModel):
+	modelId: str
+	displayName: str
+	description: str | None = None
+
+
+class AsrCatalogProviderDTO(BaseModel):
+	providerId: str
+	displayName: str
+	hasKey: bool
+	secretUpdatedAtMs: int | None = None
+	models: list[AsrCatalogModelDTO]
+	notes: str | None = None
+
+
+class AsrCatalogDTO(BaseModel):
+	providers: list[AsrCatalogProviderDTO]
+	updatedAtMs: int
+
+
+class PutAsrProviderSecretRequestDTO(BaseModel):
+	apiKey: str
+
+
+class AsrActiveDTO(BaseModel):
+	configured: bool = True
+	cloudEnabled: bool = True
+	providerId: str | None = None
+	modelId: str | None = None
+	languageHints: list[str] = []
+	localModelSize: str = "base"
+	localDevice: str = "auto"
+	fallbackToLocal: bool = True
+	hasKey: bool = False
+	updatedAtMs: int | None = None
+
+
+class PutAsrActiveRequestDTO(BaseModel):
+	cloudEnabled: bool = True
+	providerId: str
+	modelId: str
+	languageHints: list[str] | None = None
+	fallbackToLocal: bool = True
+
+
+class AsrActiveTestDTO(BaseModel):
+	ok: bool
+	latencyMs: int
+	mode: str | None = None
+	message: str | None = None
+
+
+class ProviderAsrTestRequestDTO(BaseModel):
+	modelId: str
+	languageHints: list[str] | None = None

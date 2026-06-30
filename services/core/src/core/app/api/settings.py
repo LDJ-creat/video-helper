@@ -47,6 +47,14 @@ from core.schemas.settings import (
 	LLMActiveTestDTO,
 	ProviderLLMTestRequestDTO,
 	AsrPrefetchRequestDTO,
+	AsrCatalogDTO,
+	AsrCatalogModelDTO,
+	AsrCatalogProviderDTO,
+	AsrActiveDTO,
+	PutAsrActiveRequestDTO,
+	PutAsrProviderSecretRequestDTO,
+	AsrActiveTestDTO,
+	ProviderAsrTestRequestDTO,
 	OkDTO,
 	PutLLMActiveRequestDTO,
 	PutLLMProviderSecretRequestDTO,
@@ -61,6 +69,17 @@ from core.settings import get_effective_analyze_settings
 from core.db.session import get_data_dir
 
 from core.external.asr_faster_whisper import AsrError, prefetch_faster_whisper_model
+from core.asr.catalog import find_asr_model, find_asr_provider, list_asr_catalog_providers
+from core.asr.runtime import AsrRuntimeSettings, _local_transcribe_settings, asr_runtime_for_jobs, validate_asr_runtime
+from core.asr.active_test import AsrActiveTestError, run_asr_connectivity_test
+from core.db.repositories.asr_settings import (
+	delete_asr_provider_secret,
+	get_asr_active,
+	get_asr_provider_secret_ciphertext,
+	get_asr_provider_secret_meta,
+	set_asr_active,
+	upsert_asr_provider_secret_ciphertext,
+)
 
 
 router = APIRouter(tags=["settings"])
@@ -1020,6 +1039,239 @@ def get_ytdlp_cookies_status(request: Request):
 			updatedAtMs=int(stat.st_mtime * 1000),
 		)
 	return YtdlpCookiesStatusDTO(hasFile=False)
+
+
+# ─── ASR Settings ───────────────────────────────────────────────────────────
+
+
+@router.get("/settings/asr/catalog", response_model=AsrCatalogDTO)
+def get_asr_catalog_api(request: Request, session: Session = Depends(get_db_session)):
+	providers_out: list[AsrCatalogProviderDTO] = []
+	for provider in list_asr_catalog_providers():
+		meta = get_asr_provider_secret_meta(session, provider_id=provider.provider_id)
+		has_key = bool(meta.get("hasKey")) if isinstance(meta, dict) else False
+		providers_out.append(
+			AsrCatalogProviderDTO(
+				providerId=provider.provider_id,
+				displayName=provider.display_name,
+				hasKey=has_key,
+				secretUpdatedAtMs=int(meta.get("secretUpdatedAtMs")) if isinstance(meta, dict) and meta.get("secretUpdatedAtMs") else None,
+				models=[
+					AsrCatalogModelDTO(
+						modelId=m.model_id,
+						displayName=m.display_name,
+						description=m.description,
+					)
+					for m in provider.models
+				],
+				notes=provider.notes,
+			)
+		)
+	return AsrCatalogDTO(providers=providers_out, updatedAtMs=_now_ms())
+
+
+@router.get("/settings/asr/active", response_model=AsrActiveDTO)
+def get_asr_active_api(request: Request, session: Session = Depends(get_db_session)):
+	active = get_asr_active(session)
+	if active is None:
+		return AsrActiveDTO(configured=False, cloudEnabled=True, providerId=None, modelId=None, hasKey=False)
+
+	provider_id = str(active.get("providerId") or "").strip()
+	model_id = str(active.get("modelId") or "").strip()
+	meta = get_asr_provider_secret_meta(session, provider_id=provider_id)
+	has_key = bool(meta.get("hasKey")) if isinstance(meta, dict) else False
+	language_hints = active.get("languageHints")
+	if not isinstance(language_hints, list):
+		language_hints = []
+	local_model_size, local_device = _local_transcribe_settings()
+
+	return AsrActiveDTO(
+		configured=True,
+		cloudEnabled=bool(active.get("cloudEnabled", True)),
+		providerId=provider_id or None,
+		modelId=model_id or None,
+		languageHints=[str(x) for x in language_hints],
+		localModelSize=local_model_size,
+		localDevice=local_device,
+		fallbackToLocal=bool(active.get("fallbackToLocal", True)),
+		hasKey=has_key,
+		updatedAtMs=int(active.get("updatedAtMs") or 0),
+	)
+
+
+@router.put("/settings/asr/active", response_model=OkDTO)
+def put_asr_active_api(
+	body: PutAsrActiveRequestDTO,
+	request: Request,
+	session: Session = Depends(get_db_session),
+):
+	provider_id = (body.providerId or "").strip().lower()
+	model_id = (body.modelId or "").strip()
+	if find_asr_provider(provider_id) is None:
+		return JSONResponse(
+			status_code=400,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message="Unknown ASR provider",
+				details={"reason": "unknown_provider", "providerId": provider_id},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+	if find_asr_model(provider_id, model_id) is None:
+		return JSONResponse(
+			status_code=400,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message="Unknown ASR model",
+				details={"reason": "unknown_model", "providerId": provider_id, "modelId": model_id},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
+	language_hints = body.languageHints
+	if language_hints is None:
+		language_hints = ["zh", "en"]
+	language_hints = [str(x).strip() for x in language_hints if str(x).strip()]
+
+	local_model_size, local_device = _local_transcribe_settings()
+	set_asr_active(
+		session,
+		cloud_enabled=bool(body.cloudEnabled),
+		provider_id=provider_id,
+		model_id=model_id,
+		language_hints=language_hints,
+		local_model_size=local_model_size,
+		local_device=local_device,
+		fallback_to_local=bool(body.fallbackToLocal),
+		now_ms=_now_ms(),
+	)
+	session.commit()
+	return OkDTO(ok=True)
+
+
+@router.put("/settings/asr/providers/{provider_id}/secret", response_model=OkDTO)
+def put_asr_provider_secret_api(
+	provider_id: str,
+	body: PutAsrProviderSecretRequestDTO,
+	request: Request,
+	session: Session = Depends(get_db_session),
+):
+	if find_asr_provider(provider_id) is None:
+		return JSONResponse(
+			status_code=400,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message="Unknown ASR provider",
+				details={"reason": "unknown_provider", "providerId": provider_id},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+	api_key = (body.apiKey or "").strip()
+	if not api_key:
+		return JSONResponse(
+			status_code=400,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message="Invalid request",
+				details={"reason": "invalid_api_key"},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+	pid = provider_id.strip().lower()
+	ciphertext = encrypt_api_key(api_key)
+	upsert_asr_provider_secret_ciphertext(session, provider_id=pid, ciphertext_b64=ciphertext, now_ms=_now_ms())
+	session.commit()
+	return OkDTO(ok=True)
+
+
+@router.delete("/settings/asr/providers/{provider_id}/secret", response_model=OkDTO)
+def delete_asr_provider_secret_api(
+	provider_id: str,
+	request: Request,
+	session: Session = Depends(get_db_session),
+):
+	if find_asr_provider(provider_id) is None:
+		return JSONResponse(
+			status_code=400,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message="Unknown ASR provider",
+				details={"reason": "unknown_provider", "providerId": provider_id},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+	_ = delete_asr_provider_secret(session, provider_id=provider_id.strip().lower())
+	session.commit()
+	return OkDTO(ok=True)
+
+
+def _asr_runtime_from_request(
+	session: Session,
+	*,
+	provider_id: str | None = None,
+	model_id: str | None = None,
+	language_hints: list[str] | None = None,
+) -> AsrRuntimeSettings:
+	runtime = asr_runtime_for_jobs(session)
+	if provider_id:
+		api_key = None
+		ciphertext = get_asr_provider_secret_ciphertext(session, provider_id=provider_id.strip().lower())
+		if ciphertext:
+			try:
+				api_key = decrypt_api_key(ciphertext)
+			except Exception:
+				api_key = None
+		return AsrRuntimeSettings(
+			cloud_enabled=True,
+			provider_id=provider_id.strip().lower(),
+			model_id=(model_id or runtime.model_id).strip(),
+			language_hints=language_hints or runtime.language_hints,
+			local_model_size=runtime.local_model_size,
+			local_device=runtime.local_device,
+			fallback_to_local=runtime.fallback_to_local,
+			api_key=api_key,
+			configured=True,
+		)
+	return runtime
+
+
+@router.post("/settings/asr/active/test", response_model=AsrActiveTestDTO)
+def post_asr_active_test_api(request: Request, session: Session = Depends(get_db_session)):
+	runtime = asr_runtime_for_jobs(session)
+	err = validate_asr_runtime(runtime)
+	if err:
+		return AsrActiveTestDTO(ok=False, latencyMs=0, mode=None, message=err)
+	try:
+		ok, latency_ms, mode, message = run_asr_connectivity_test(runtime)
+		return AsrActiveTestDTO(ok=ok, latencyMs=latency_ms, mode=mode, message=message)
+	except AsrActiveTestError as exc:
+		return AsrActiveTestDTO(ok=False, latencyMs=0, mode="cloud", message=f"{exc.code}: {exc.message}")
+
+
+@router.post("/settings/asr/providers/{provider_id}/test", response_model=AsrActiveTestDTO)
+def post_asr_provider_test_api(
+	provider_id: str,
+	body: ProviderAsrTestRequestDTO,
+	request: Request,
+	session: Session = Depends(get_db_session),
+):
+	pid = provider_id.strip().lower()
+	if find_asr_provider(pid) is None:
+		return AsrActiveTestDTO(ok=False, latencyMs=0, message="unknown_provider")
+	model_id = (body.modelId or "").strip()
+	if find_asr_model(pid, model_id) is None:
+		return AsrActiveTestDTO(ok=False, latencyMs=0, message="unknown_model")
+	runtime = _asr_runtime_from_request(
+		session,
+		provider_id=pid,
+		model_id=model_id,
+		language_hints=body.languageHints,
+	)
+	try:
+		ok, latency_ms, mode, message = run_asr_connectivity_test(runtime)
+		return AsrActiveTestDTO(ok=ok, latencyMs=latency_ms, mode=mode, message=message)
+	except AsrActiveTestError as exc:
+		return AsrActiveTestDTO(ok=False, latencyMs=0, mode="cloud", message=f"{exc.code}: {exc.message}")
 
 
 # ─── ASR Model Prefetch ─────────────────────────────────────────────────────

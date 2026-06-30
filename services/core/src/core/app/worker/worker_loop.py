@@ -566,6 +566,7 @@ class PipelineJobProcessor:
                             default_duration_ms=duration_ms,
                             progress_cb=_progress_cb,
                             log_cb=_log_cb,
+                            session=session,
                         )
 
                     # If user canceled while transcribe was running, stop before persisting/continuing.
