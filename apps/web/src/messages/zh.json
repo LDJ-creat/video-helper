@@ -94,7 +94,20 @@
         "refreshRemoteModels": "刷新模型列表",
         "remoteModelsManualHint": "无法自动获取模型列表。请使用下方「添加自定义 Model ID」手动填写。",
         "noModelsYet": "暂无可用模型，请刷新列表或添加自定义 Model ID",
-        "unknownError": "未知错误"
+        "unknownError": "未知错误",
+        "asr": {
+            "title": "语音转写 (ASR)",
+            "desc": "配置云端语音识别提供方。启用后优先使用云端 ASR，失败时可自动降级到本地 faster-whisper。",
+            "privacyNote": "启用云端 ASR 时，音频会上传至第三方服务进行转写，请注意数据隐私与费用。",
+            "cloudEnabled": "启用云端 ASR（已配置 API Key 时生效）",
+            "languageHints": "语言提示（逗号分隔，如 zh,en）",
+            "apiKey": "API Key",
+            "fallbackToLocal": "云端不可用时自动降级到 faster-whisper",
+            "saveActive": "保存 ASR 配置",
+            "saved": "ASR 配置已保存",
+            "testSuccess": "ASR 测试成功，延迟 {latency}ms",
+            "testFailedDetail": "ASR 测试失败：{detail}"
+        }
     },
     "Projects": {
         "title": "我的项目",
@@ -244,6 +257,7 @@
             "succeededTitle": "分析完成",
             "succeededHint": "正在打开结果…",
             "viewLogs": "查看运行日志",
+            "asrFallbackNotice": "云端转写不可用，已自动使用本地 faster-whisper 完成转写。",
             "stages": {
                 "ingest": "导入视频",
                 "transcribe": "转写",

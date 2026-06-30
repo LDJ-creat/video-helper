@@ -50,6 +50,7 @@ export function AnalysisProgressPanel({
     const isDuplicateBlocked = isDuplicateAnalyzedBlocked(job);
     const progressPercent = Math.round((job?.progress ?? 0) * 100);
     const userLog = pickUserFacingLog(logs?.items);
+    const asrFallbackLog = logs?.items?.find((item) => item.message.includes("asr_fallback"));
 
     const stageLabel = !job?.stage
         ? t("preparing")
@@ -125,6 +126,11 @@ export function AnalysisProgressPanel({
                     {userLog ? (
                         <p className={`w-full text-stone-600 bg-stone-50 rounded-xl border border-stone-200 ${isLarge ? "text-base px-5 py-3" : "text-sm px-4 py-2"}`}>
                             {userLog}
+                        </p>
+                    ) : null}
+                    {asrFallbackLog ? (
+                        <p className={`w-full text-amber-800 bg-amber-50 rounded-xl border border-amber-200 ${isLarge ? "text-sm px-5 py-3" : "text-xs px-4 py-2"}`}>
+                            {t("asrFallbackNotice")}
                         </p>
                     ) : null}
                     {canCancel ? (

@@ -15,7 +15,10 @@ export const queryKeys = {
   // LLM Settings query keys
   llmCatalog: ["llm", "catalog"] as const,
   llmActive: ["llm", "active"] as const,
-  llmRemoteModels: (providerId: string) => ["llm", "remote-models", providerId] as const,
+    llmRemoteModels: (providerId: string) => ["llm", "remote-models", providerId] as const,
+    // ASR Settings query keys
+    asrCatalog: ["asr", "catalog"] as const,
+    asrActive: ["asr", "active"] as const,
   // AI Feature keys
   chatSessions: (projectId: string) => ["chat", "sessions", projectId] as const,
   chatMessages: (sessionId: string) => ["chat", "messages", sessionId] as const,

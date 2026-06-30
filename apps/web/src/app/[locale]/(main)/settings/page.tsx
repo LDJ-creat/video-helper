@@ -2,6 +2,7 @@
 
 import { useTranslations } from "next-intl";
 import { SettingsForm } from "@/components/features/settings/SettingsForm";
+import { AsrSettingsSection } from "@/components/features/settings/AsrSettingsSection";
 
 export default function SettingsPage() {
     const t = useTranslations("Settings");
@@ -16,6 +17,11 @@ export default function SettingsPage() {
                     {t("modelConfigDesc")}
                 </p>
                 <SettingsForm />
+            </div>
+
+            <div className="mb-8 xl:mb-12">
+                <h2 className="text-lg md:text-xl xl:text-2xl font-semibold mb-3 xl:mb-4">{t("asr.title")}</h2>
+                <AsrSettingsSection />
             </div>
         </main>
     );
