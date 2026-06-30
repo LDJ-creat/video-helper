@@ -31,13 +31,9 @@ def _is_anthropic_base_url(base_url: str) -> bool:
 
 
 def _resolve_openai_compat_endpoint(base_url: str) -> str:
-	url = (base_url or "").strip().rstrip("/")
-	lower = url.lower()
-	if lower.endswith("/v1"):
-		return url + "/chat/completions"
-	if lower.endswith("/chat/completions") or lower.endswith("/v1/chat/completions") or lower.endswith("/responses") or lower.endswith("/v1/responses"):
-		return url
-	return url + "/v1/chat/completions"
+	from core.llm.openai_compat_url import resolve_openai_compat_chat_endpoint
+
+	return resolve_openai_compat_chat_endpoint(base_url)
 
 
 def _resolve_anthropic_endpoint(base_url: str) -> str:

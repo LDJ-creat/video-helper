@@ -249,13 +249,9 @@ class LLMAnalyzeProvider:
 		)
 
 	def _endpoint_url(self) -> str:
-		# If user points directly to a path, respect it.
-		lower = self._api_base.lower()
-		if lower.endswith("/v1"):
-			return self._api_base + "/chat/completions"
-		if lower.endswith("/chat/completions") or lower.endswith("/v1/chat/completions") or lower.endswith("/responses") or lower.endswith("/v1/responses"):
-			return self._api_base
-		return self._api_base + "/v1/chat/completions"
+		from core.llm.openai_compat_url import resolve_openai_compat_chat_endpoint
+
+		return resolve_openai_compat_chat_endpoint(self._api_base)
 
 	def generate_json(self, task_name: str, input_dict: dict, *, max_tokens: int | None = None) -> dict:
 		t_start = time.perf_counter()

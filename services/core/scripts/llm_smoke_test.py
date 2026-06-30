@@ -54,13 +54,9 @@ def main() -> int:
         print("missing LLM_API_BASE or LLM_API_KEY")
         return 2
 
-    lower = api_base.lower()
-    if lower.endswith("/v1"):
-        endpoint = api_base + "/chat/completions"
-    elif lower.endswith("/chat/completions") or lower.endswith("/v1/chat/completions"):
-        endpoint = api_base
-    else:
-        endpoint = api_base + "/v1/chat/completions"
+    from core.llm.openai_compat_url import resolve_openai_compat_chat_endpoint
+
+    endpoint = resolve_openai_compat_chat_endpoint(api_base)
 
     payload = {
         "model": model,
