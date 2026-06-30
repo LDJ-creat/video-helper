@@ -515,13 +515,13 @@ function ProviderLlmCard({
         >
             {isCurrentActive && <div className="h-0.5 bg-gradient-to-r from-blue-500 to-blue-400" />}
 
-            <button
-                type="button"
-                onClick={onToggleCard}
-                aria-expanded={isCardOpen}
-                className="w-full p-5 xl:p-6 flex items-center justify-between gap-3 text-left hover:bg-stone-50/80 transition-colors"
-            >
-                <div className="flex items-center gap-3 xl:gap-4 min-w-0">
+            <div className="w-full p-5 xl:p-6 flex items-center justify-between gap-3">
+                <button
+                    type="button"
+                    onClick={onToggleCard}
+                    aria-expanded={isCardOpen}
+                    className="flex-1 flex items-center gap-3 xl:gap-4 min-w-0 text-left rounded-lg -m-2 p-2 hover:bg-stone-50/80 transition-colors"
+                >
                     <ProviderIcon name={provider.displayName} configured={provider.hasKey} />
                     <div className="min-w-0">
                         <div className="flex items-center gap-2 xl:gap-2.5 mb-1 flex-wrap">
@@ -560,13 +560,12 @@ function ProviderLlmCard({
                             </p>
                         )}
                     </div>
-                </div>
+                </button>
                 <div className="flex items-center gap-2 shrink-0">
                     <StatusBadge configured={provider.hasKey} />
                     <button
                         type="button"
-                        onClick={(e) => {
-                            e.stopPropagation();
+                        onClick={() => {
                             if (!isCardOpen) onToggleCard();
                             setIsEditingProvider(true);
                         }}
@@ -584,10 +583,7 @@ function ProviderLlmCard({
                     {provider.isCustom && (
                         <button
                             type="button"
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                handleDeleteCustomProvider(provider.providerId, provider.displayName);
-                            }}
+                            onClick={() => handleDeleteCustomProvider(provider.providerId, provider.displayName)}
                             disabled={deleteCustomProvider.isPending}
                             title={t("deleteProvider")}
                             className="p-1.5 xl:p-2 text-stone-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
@@ -602,17 +598,24 @@ function ProviderLlmCard({
                             </svg>
                         </button>
                     )}
-                    <svg
-                        className={`w-5 h-5 text-stone-400 transition-transform duration-200 ${isCardOpen ? "rotate-180" : ""}`}
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                        strokeWidth={2}
+                    <button
+                        type="button"
+                        onClick={onToggleCard}
+                        aria-expanded={isCardOpen}
+                        className="p-1.5 xl:p-2 text-stone-400 hover:text-stone-600 rounded-lg transition-colors"
                     >
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                    </svg>
+                        <svg
+                            className={`w-5 h-5 transition-transform duration-200 ${isCardOpen ? "rotate-180" : ""}`}
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2}
+                        >
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                        </svg>
+                    </button>
                 </div>
-            </button>
+            </div>
 
             {isCardOpen && (
             <div className="px-5 xl:px-6 pb-5 xl:pb-6 pt-0 border-t border-stone-100">
