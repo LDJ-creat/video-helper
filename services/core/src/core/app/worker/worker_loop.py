@@ -22,7 +22,13 @@ from core.app.pipeline.analyze_provider import AnalyzeError
 from core.app.pipeline.keyframes import extract_keyframes_at_times, map_keyframes_error
 from core.app.pipeline.chunk_summaries import ensure_chunk_summaries, estimate_duration_ms, should_use_long_video_path
 from core.app.pipeline.llm_plan import generate_plan, validate_plan
-from core.app.pipeline.keyframe_verify import get_verify_budget, get_verify_mode, verify_and_maybe_adjust_plan_keyframes
+from core.app.pipeline.keyframe_verify import (
+    drop_retried_highlights_missing_asset,
+    get_verify_budget,
+    get_verify_mode,
+    verify_keyframes_after_retry,
+    verify_keyframes_initial,
+)
 from core.app.pipeline.transcribe_real import map_transcribe_error, run_real_transcribe
 from core.contracts.error_codes import ErrorCode
 from core.db.session import get_sessionmaker
@@ -997,11 +1003,12 @@ class PipelineJobProcessor:
 
                     budget = get_verify_budget()
                     start_ts = time.perf_counter()
-                    new_times = []
-                    verified_count = 0
-                    dropped_count = 0
+                    retry_times: list[int] = []
+                    scheduled_highlight_ids: list[str] = []
+                    initial_stats = None
+                    retry_stats = None
                     try:
-                        new_times, verified_count, dropped_count = verify_and_maybe_adjust_plan_keyframes(
+                        retry_times, scheduled_highlight_ids, initial_stats = verify_keyframes_initial(
                             session=session,
                             project_id=job.project_id,
                             job_id=job.job_id,
@@ -1010,6 +1017,68 @@ class PipelineJobProcessor:
                             mode=verify_mode,
                             budget=budget,
                         )
+
+                        if retry_times:
+                            more = extract_keyframes_at_times(
+                                session=session,
+                                project=project,
+                                job_id=job.job_id,
+                                times_ms=retry_times,
+                                allow_skip_if_placeholder=True,
+                                transcript_meta=job.transcript_meta,
+                            )
+
+                            keyframes_artifacts.asset_refs.extend(list(more.asset_refs or []))
+                            keyframes_artifacts.keyframes_by_time.update(dict(more.keyframes_by_time or {}))
+
+                            for b in content_blocks:
+                                if not isinstance(b, dict):
+                                    continue
+                                hls = b.get("highlights")
+                                if not isinstance(hls, list):
+                                    continue
+                                for h in hls:
+                                    if not isinstance(h, dict):
+                                        continue
+                                    kfs = h.get("keyframes")
+                                    if not isinstance(kfs, list):
+                                        continue
+                                    for kf in kfs:
+                                        if not isinstance(kf, dict):
+                                            continue
+                                        tm = kf.get("timeMs")
+                                        if not isinstance(tm, int):
+                                            continue
+                                        info = keyframes_artifacts.keyframes_by_time.get(int(tm))
+                                        if not isinstance(info, dict):
+                                            continue
+                                        asset_id = info.get("assetId")
+                                        if isinstance(asset_id, str) and asset_id:
+                                            kf["assetId"] = asset_id
+                                            kf["contentUrl"] = f"/api/v1/assets/{asset_id}/content"
+                                    if isinstance(h.get("keyframes"), list) and h.get("keyframes"):
+                                        first = h.get("keyframes")[0]
+                                        if isinstance(first, dict):
+                                            h["keyframe"] = dict(first)
+
+                            eligible_ids = drop_retried_highlights_missing_asset(
+                                content_blocks=content_blocks,
+                                scheduled_highlight_ids=scheduled_highlight_ids,
+                                project_id=job.project_id,
+                                job_id=job.job_id,
+                                mode=verify_mode,
+                            )
+                            retry_stats = verify_keyframes_after_retry(
+                                session=session,
+                                project_id=job.project_id,
+                                job_id=job.job_id,
+                                content_blocks=content_blocks,
+                                output_language=getattr(job, "output_language", None),
+                                mode=verify_mode,
+                                retried_highlight_ids=eligible_ids,
+                                budget=budget,
+                                verify_used_job=initial_stats.verify_used_job if initial_stats else 0,
+                            )
                     finally:
                         append_pipeline_timing(
                             project_id=job.project_id,
@@ -1019,50 +1088,12 @@ class PipelineJobProcessor:
                             status="ok",
                         )
 
-                    if new_times:
-                        more = extract_keyframes_at_times(
-                            session=session,
-                            project=project,
-                            job_id=job.job_id,
-                            times_ms=new_times,
-                            allow_skip_if_placeholder=True,
-                            transcript_meta=job.transcript_meta,
-                        )
-
-                        # Merge artifacts
-                        keyframes_artifacts.asset_refs.extend(list(more.asset_refs or []))
-                        keyframes_artifacts.keyframes_by_time.update(dict(more.keyframes_by_time or {}))
-
-                        # Backfill newly extracted asset refs.
-                        for b in content_blocks:
-                            if not isinstance(b, dict):
-                                continue
-                            hls = b.get("highlights")
-                            if not isinstance(hls, list):
-                                continue
-                            for h in hls:
-                                if not isinstance(h, dict):
-                                    continue
-                                kfs = h.get("keyframes")
-                                if not isinstance(kfs, list):
-                                    continue
-                                for kf in kfs:
-                                    if not isinstance(kf, dict):
-                                        continue
-                                    tm = kf.get("timeMs")
-                                    if not isinstance(tm, int):
-                                        continue
-                                    info = keyframes_artifacts.keyframes_by_time.get(int(tm))
-                                    if not isinstance(info, dict):
-                                        continue
-                                    asset_id = info.get("assetId")
-                                    if isinstance(asset_id, str) and asset_id:
-                                        kf["assetId"] = asset_id
-                                        kf["contentUrl"] = f"/api/v1/assets/{asset_id}/content"
-                                if isinstance(h.get("keyframes"), list) and h.get("keyframes"):
-                                    first = h.get("keyframes")[0]
-                                    if isinstance(first, dict):
-                                        h["keyframe"] = dict(first)
+                    verified_count = initial_stats.verified_count if initial_stats else 0
+                    dropped_count = (initial_stats.dropped_count if initial_stats else 0) + (
+                        retry_stats.retried_dropped_count if retry_stats else 0
+                    )
+                    retried_kept = retry_stats.retried_kept_count if retry_stats else 0
+                    retried_dropped = retry_stats.retried_dropped_count if retry_stats else 0
 
                     job.progress = max(job.progress or 0.0, 0.98)
                     job.updated_at_ms = _now_ms()
@@ -1074,7 +1105,10 @@ class PipelineJobProcessor:
                         project_id=job.project_id,
                         stage=job.stage,
                         level="info",
-                        message=f"keyframe_verify finished verified={verified_count} dropped={dropped_count} retried={len(new_times)}",
+                        message=(
+                            f"keyframe_verify finished verified={verified_count} dropped={dropped_count} "
+                            f"retry_scheduled={len(retry_times)} retried_kept={retried_kept} retried_dropped={retried_dropped}"
+                        ),
                     )
                     GLOBAL_JOB_EVENT_BUS.emit_state(job_id=job.job_id, project_id=job.project_id, stage=job.stage, message="keyframe_verify=done")
                     GLOBAL_JOB_EVENT_BUS.emit_progress(job_id=job.job_id, project_id=job.project_id, stage=job.stage, progress=job.progress, message="progress=0.98")
