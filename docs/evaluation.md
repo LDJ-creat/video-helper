@@ -76,8 +76,22 @@ export KEYFRAME_VERIFY_MODE=multimodal
 # 或在 benchmarks/profiles.yaml 为 profile 配置 keyframeVerify.mode
 ```
 
-Job 完成后 artifact：`DATA_DIR/{projectId}/artifacts/{jobId}/keyframe_verify/results.jsonl`。  
-报告字段：`keepRate`、`confidenceP50`、`confidenceP90` 等。建议阈值：`confidenceP50 >= 0.5`、`keepRate >= 0.6`（可在 profile `thresholds.keyframeVerify` 配置）。
+Job 完成后 artifact：`DATA_DIR/{projectId}/artifacts/{jobId}/keyframe_verify/results.jsonl`（含 `phase`、`action`：`kept` / `retry_scheduled` / `retried_kept` / `retried_dropped` / `dropped`）。  
+报告字段：`keepRate`（首次通过）、`overallKeepRate`（含重抽后保留）、`retryScheduledRate`、`secondVerifyPassRate`、`dropAfterRetryRate`、`confidenceP50`、`confidenceP90` 等。建议阈值：`confidenceP50 >= 0.5`、`keepRateMin` / `overallKeepRateMin >= 0.6`、`secondVerifyPassRateMin >= 0.5`（可在 profile `thresholds.keyframeVerify` 配置）。
+
+环境变量（`services/core/.env`）：
+
+```bash
+KEYFRAME_VERIFY_MODE=off          # off | ocr | multimodal
+KEYFRAME_VERIFY_CONFIDENCE_THRESHOLD=0.4
+KEYFRAME_VERIFY_MAX_PER_JOB=5     # 单 Job LLM 调用上限（initial + retry 共享）
+KEYFRAME_VERIFY_MAX_PER_HIGHLIGHT=1
+KEYFRAME_RETRY_MAX_PER_HIGHLIGHT=1  # KEYFRAME_RETRY_MAX 仍可作为别名
+KEYFRAME_LOCAL_SEARCH_WINDOW_MS=10000
+KEYFRAME_VERIFY_CONCURRENCY=2
+KEYFRAME_VERIFY_MAX_ATTEMPTS=2
+KEYFRAME_VERIFY_IMAGE_MAX_BYTES=400000
+```
 
 ## LLM judge（摘要忠实度）
 

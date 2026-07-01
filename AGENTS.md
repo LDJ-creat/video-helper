@@ -130,7 +130,7 @@ ORM 入口：`services/core/src/core/db/models/`（`Project`、`Job`、`Result`�
 | `ingest` | `download`, `upload`, … | yt-dlp 下载或接收上传、元数据 |
 | `transcribe` | `speech_to_text` | 云端 ASR 或 faster-whisper 转写，写入 transcript |
 | `analyze` | `chunk_summaries`, `plan`, … | LLM 生成 plan（摘要 + 导图结构） |
-| `extract_keyframes` | `keyframes`, `keyframe_verify` | FFmpeg 按 plan 时间点抽帧，可选 LLM 校验 |
+| `extract_keyframes` | `keyframes`, `keyframe_verify` | FFmpeg 按 plan 时间点抽帧；可选两阶段 LLM verify（低置信度复核 + 重抽后再验证，支持 LLM retry hint） |
 | `assemble_result` | — | 写入 `results` 表，更新 `latest_result_id` |
 
 前端阶段映射：`apps/web/src/lib/constants/stageMapping.ts`。
