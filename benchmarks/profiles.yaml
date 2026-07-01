@@ -37,3 +37,4 @@ profiles:
   #     keyframeVerify:
   #       confidenceP50Min: 0.5
   #       keepRateMin: 0.6
+  #       secondVerifyPassRateMin: 0.5

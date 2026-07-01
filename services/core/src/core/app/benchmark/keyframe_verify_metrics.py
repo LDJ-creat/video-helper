@@ -49,21 +49,33 @@ def collect_keyframe_verify_metrics(
 	When verify was off or no artifact exists, returns enabled=false without failing.
 	"""
 
+	_disabled = {
+		"enabled": False,
+		"reason": "verify_mode_off_or_no_artifact",
+		"confidenceP50": None,
+		"confidenceP90": None,
+		"keepRate": None,
+		"overallKeepRate": None,
+		"dropRate": None,
+		"retryRate": None,
+		"retryScheduledRate": None,
+		"secondVerifyPassRate": None,
+		"dropAfterRetryRate": None,
+		"skippedPrepareRate": None,
+	}
+
 	path = data_dir.resolve() / project_id / "artifacts" / job_id / "keyframe_verify" / "results.jsonl"
 	rows = _read_verify_results(path)
 	if not rows:
-		return {
-			"enabled": False,
-			"reason": "verify_mode_off_or_no_artifact",
-			"confidenceP50": None,
-			"confidenceP90": None,
-			"keepRate": None,
-		}
+		return dict(_disabled)
 
 	confidences: list[float] = []
 	kept = 0
 	dropped = 0
-	retried = 0
+	skipped_prepare = 0
+	retry_scheduled = 0
+	retried_kept = 0
+	retried_dropped = 0
 	mode: str | None = None
 
 	for row in rows:
@@ -77,13 +89,27 @@ def collect_keyframe_verify_metrics(
 			kept += 1
 		elif action == "dropped":
 			dropped += 1
-		elif action == "retried":
-			retried += 1
+		elif action == "skipped_prepare":
+			skipped_prepare += 1
+			dropped += 1
+		elif action in {"retry_scheduled", "retried"}:
+			retry_scheduled += 1
+		elif action == "retried_kept":
+			retried_kept += 1
+		elif action == "retried_dropped":
+			retried_dropped += 1
+			dropped += 1
 
 	count = len(rows)
 	keep_rate = round(kept / count, 4) if count > 0 else None
+	overall_keep_rate = round((kept + retried_kept) / count, 4) if count > 0 else None
 	drop_rate = round(dropped / count, 4) if count > 0 else None
-	retry_rate = round(retried / count, 4) if count > 0 else None
+	skipped_prepare_rate = round(skipped_prepare / count, 4) if count > 0 else None
+	retry_scheduled_rate = round(retry_scheduled / count, 4) if count > 0 else None
+	retry_rate = retry_scheduled_rate
+	second_denom = retried_kept + retried_dropped
+	second_verify_pass_rate = round(retried_kept / second_denom, 4) if second_denom > 0 else None
+	drop_after_retry_rate = round(retried_dropped / count, 4) if count > 0 else None
 
 	return {
 		"enabled": True,
@@ -91,8 +117,13 @@ def collect_keyframe_verify_metrics(
 		"mode": mode,
 		"count": count,
 		"keepRate": keep_rate,
+		"overallKeepRate": overall_keep_rate,
 		"dropRate": drop_rate,
 		"retryRate": retry_rate,
+		"retryScheduledRate": retry_scheduled_rate,
+		"secondVerifyPassRate": second_verify_pass_rate,
+		"dropAfterRetryRate": drop_after_retry_rate,
+		"skippedPrepareRate": skipped_prepare_rate,
 		"confidenceP50": _percentile(confidences, 0.5),
 		"confidenceP90": _percentile(confidences, 0.9),
 	}

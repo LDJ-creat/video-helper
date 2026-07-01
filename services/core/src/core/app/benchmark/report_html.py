@@ -246,8 +246,13 @@ def _render_keyframe_verify(kv: Mapping[str, Any]) -> str:
 	metrics = [
 		("模式", kv.get("mode")),
 		("样本数", kv.get("count")),
-		("保留率", _fmt_pct(kv.get("keepRate")) if kv.get("keepRate") is not None else "—"),
+		("首次保留率", _fmt_pct(kv.get("keepRate")) if kv.get("keepRate") is not None else "—"),
+		("总体保留率", _fmt_pct(kv.get("overallKeepRate")) if kv.get("overallKeepRate") is not None else "—"),
 		("丢弃率", _fmt_pct(kv.get("dropRate")) if kv.get("dropRate") is not None else "—"),
+		("重抽调度率", _fmt_pct(kv.get("retryScheduledRate")) if kv.get("retryScheduledRate") is not None else "—"),
+		("二次验证通过率", _fmt_pct(kv.get("secondVerifyPassRate")) if kv.get("secondVerifyPassRate") is not None else "—"),
+		("重抽后丢弃率", _fmt_pct(kv.get("dropAfterRetryRate")) if kv.get("dropAfterRetryRate") is not None else "—"),
+		("Prepare 跳过率", _fmt_pct(kv.get("skippedPrepareRate")) if kv.get("skippedPrepareRate") is not None else "—"),
 		("P50 置信度", kv.get("confidenceP50")),
 		("P90 置信度", kv.get("confidenceP90")),
 	]

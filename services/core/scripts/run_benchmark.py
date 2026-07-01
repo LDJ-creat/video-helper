@@ -169,8 +169,24 @@ def _generate_report_for_job(
 					keyframe_verify["passed"] = True
 			keep_min = kv_thresholds.get("keepRateMin")
 			if isinstance(keep_min, (int, float)):
-				keep = keyframe_verify.get("keepRate")
+				keep = keyframe_verify.get("overallKeepRate")
+				if keep is None:
+					keep = keyframe_verify.get("keepRate")
 				if isinstance(keep, (int, float)) and keep < float(keep_min):
+					keyframe_verify["passed"] = False
+				elif "passed" not in keyframe_verify:
+					keyframe_verify["passed"] = True
+			overall_min = kv_thresholds.get("overallKeepRateMin")
+			if isinstance(overall_min, (int, float)):
+				overall = keyframe_verify.get("overallKeepRate")
+				if isinstance(overall, (int, float)) and overall < float(overall_min):
+					keyframe_verify["passed"] = False
+				elif "passed" not in keyframe_verify:
+					keyframe_verify["passed"] = True
+			second_min = kv_thresholds.get("secondVerifyPassRateMin")
+			if isinstance(second_min, (int, float)):
+				second = keyframe_verify.get("secondVerifyPassRate")
+				if isinstance(second, (int, float)) and second < float(second_min):
 					keyframe_verify["passed"] = False
 				elif "passed" not in keyframe_verify:
 					keyframe_verify["passed"] = True

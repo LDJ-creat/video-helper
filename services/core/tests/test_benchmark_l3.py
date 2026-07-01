@@ -39,18 +39,24 @@ def test_keyframe_verify_metrics_aggregates(tmp_path: Path) -> None:
 	_write_verify_jsonl(
 		path,
 		[
-			{"mode": "multimodal", "confidence": 0.4, "action": "kept"},
-			{"mode": "multimodal", "confidence": 0.8, "action": "kept"},
-			{"mode": "multimodal", "confidence": 0.2, "action": "dropped"},
-			{"mode": "multimodal", "confidence": 0.6, "action": "retried"},
+			{"mode": "multimodal", "confidence": 0.4, "action": "kept", "phase": "initial"},
+			{"mode": "multimodal", "confidence": 0.8, "action": "kept", "phase": "initial"},
+			{"mode": "multimodal", "confidence": 0.2, "action": "dropped", "phase": "initial"},
+			{"mode": "multimodal", "confidence": 0.6, "action": "retry_scheduled", "phase": "initial"},
+			{"mode": "multimodal", "confidence": 0.7, "action": "retried_kept", "phase": "retry"},
+			{"mode": "multimodal", "confidence": 0.1, "action": "retried_dropped", "phase": "retry"},
 		],
 	)
 	metrics = collect_keyframe_verify_metrics(data_dir=tmp_path, project_id="p1", job_id="j1")
 	assert metrics["enabled"] is True
-	assert metrics["count"] == 4
-	assert metrics["keepRate"] == 0.5
-	assert metrics["dropRate"] == 0.25
-	assert metrics["retryRate"] == 0.25
+	assert metrics["count"] == 6
+	assert metrics["keepRate"] == round(2 / 6, 4)
+	assert metrics["overallKeepRate"] == round(3 / 6, 4)
+	assert metrics["dropRate"] == round(2 / 6, 4)
+	assert metrics["retryScheduledRate"] == round(1 / 6, 4)
+	assert metrics["retryRate"] == metrics["retryScheduledRate"]
+	assert metrics["secondVerifyPassRate"] == 0.5
+	assert metrics["dropAfterRetryRate"] == round(1 / 6, 4)
 	assert metrics["confidenceP50"] == 0.5
 
 

@@ -149,7 +149,12 @@ def _render_markdown_summary(report: Mapping[str, Any]) -> str:
 			"## Keyframe verify",
 			"",
 			f"- enabled: {kv.get('enabled')}",
-			f"- keepRate: {kv.get('keepRate')}",
+			f"- keepRate (initial): {kv.get('keepRate')}",
+			f"- overallKeepRate: {kv.get('overallKeepRate')}",
+			f"- retryScheduledRate: {kv.get('retryScheduledRate')}",
+			f"- secondVerifyPassRate: {kv.get('secondVerifyPassRate')}",
+			f"- dropAfterRetryRate: {kv.get('dropAfterRetryRate')}",
+			f"- skippedPrepareRate: {kv.get('skippedPrepareRate')}",
 			f"- confidenceP50: {kv.get('confidenceP50')}",
 			"",
 		]
