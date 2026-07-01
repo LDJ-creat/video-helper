@@ -67,6 +67,7 @@ help:
 	@echo   make desktop-build-all Full desktop release build ^(Windows: build-all.ps1; macOS/Linux: build-all.sh^)
 	@echo.
 	@echo Backend (services/core):
+	@echo   make core-dev          Start backend dev server (uv run python main.py)
 	@echo   make core-build        Package backend via PyInstaller (build_backend.py)
 	@echo   make core-test         Run all backend tests (pytest services/core/tests)
 	@echo   make core-smoke        Closed-loop smoke (starts backend by default)
@@ -85,6 +86,20 @@ help:
 	@echo   SMOKE_TIMEOUT_SEC=$(SMOKE_TIMEOUT_SEC)
 	@echo   SMOKE_URL=$(SMOKE_URL)
 	@echo   SMOKE_PROFILE=$(SMOKE_PROFILE) (legacy alias: SMOKE_SOURCE_TYPE)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Backend (services/core)
+# ─────────────────────────────────────────────────────────────────────────────
+
+.PHONY: core-dev
+core-dev:
+
+ifeq ($(OS),Windows_NT)
+	$(PWSH) -NoProfile -ExecutionPolicy Bypass -File scripts\core-dev.ps1
+else
+	./scripts/core-dev.sh
+endif
 
 
 # ─────────────────────────────────────────────────────────────────────────────
