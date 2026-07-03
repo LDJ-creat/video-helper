@@ -28,7 +28,6 @@ def transcribe_dashscope_paraformer(
 	audio_path: Path,
 	api_key: str,
 	model: str,
-	language_hints: list[str],
 	audio_duration_s: float | None,
 	progress_cb: Callable[[str], None] | None = None,
 ) -> tuple[AsrResult, AsrCloudTimingsMs]:
@@ -57,7 +56,6 @@ def transcribe_dashscope_paraformer(
 			"input": {"file_urls": [oss_url]},
 			"parameters": {
 				"channel_id": [0],
-				"language_hints": language_hints,
 				"timestamp_alignment_enabled": True,
 			},
 		}

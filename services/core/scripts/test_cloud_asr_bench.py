@@ -99,7 +99,6 @@ def main() -> int:
 	src_group.add_argument("--audio", type=Path)
 	parser.add_argument("--api-key", default=os.environ.get("DASHSCOPE_API_KEY", "").strip())
 	parser.add_argument("--model", default=MODEL_NAME)
-	parser.add_argument("--language-hints", default="zh,en")
 	parser.add_argument("--output-dir", type=Path, default=None)
 	args = parser.parse_args()
 
@@ -128,12 +127,10 @@ def main() -> int:
 		if duration_s is None:
 			duration_s = probe_duration_s(audio_path, ffprobe)
 
-		lang_hints = [p.strip() for p in args.language_hints.split(",") if p.strip()]
 		result, cloud = transcribe_dashscope_paraformer(
 			audio_path=audio_path,
 			api_key=api_key,
 			model=args.model,
-			language_hints=lang_hints or ["zh", "en"],
 			audio_duration_s=duration_s,
 			progress_cb=lambda msg: print(msg),
 		)

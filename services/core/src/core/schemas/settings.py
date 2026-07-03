@@ -131,6 +131,28 @@ class AsrCatalogModelDTO(BaseModel):
 	modelId: str
 	displayName: str
 	description: str | None = None
+	isCustom: bool = False
+
+
+class AsrRemoteModelDTO(BaseModel):
+	modelId: str
+	displayName: str
+
+
+class AsrRemoteModelsErrorDTO(BaseModel):
+	code: str
+	message: str
+
+
+class AsrRemoteModelsDTO(BaseModel):
+	ok: bool
+	models: list[AsrRemoteModelDTO]
+	error: AsrRemoteModelsErrorDTO | None = None
+
+
+class AddCustomAsrModelRequestDTO(BaseModel):
+	modelId: str
+	displayName: str | None = None
 
 
 class AsrCatalogProviderDTO(BaseModel):
@@ -156,7 +178,6 @@ class AsrActiveDTO(BaseModel):
 	cloudEnabled: bool = True
 	providerId: str | None = None
 	modelId: str | None = None
-	languageHints: list[str] = []
 	localModelSize: str = "base"
 	localDevice: str = "auto"
 	fallbackToLocal: bool = True
@@ -168,7 +189,6 @@ class PutAsrActiveRequestDTO(BaseModel):
 	cloudEnabled: bool = True
 	providerId: str
 	modelId: str
-	languageHints: list[str] | None = None
 	fallbackToLocal: bool = True
 
 
@@ -181,4 +201,3 @@ class AsrActiveTestDTO(BaseModel):
 
 class ProviderAsrTestRequestDTO(BaseModel):
 	modelId: str
-	languageHints: list[str] | None = None

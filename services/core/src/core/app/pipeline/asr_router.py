@@ -12,15 +12,6 @@ from core.external.asr_providers.openai_whisper import transcribe_openai_whisper
 from core.external.asr_providers.volcengine import transcribe_volcengine_bigmodel
 
 
-def _openai_language(language_hints: list[str]) -> str | None:
-	if not language_hints:
-		return None
-	first = language_hints[0].strip().lower()
-	if first in {"zh", "en", "ja", "ko", "de", "fr", "ru"}:
-		return first
-	return None
-
-
 @dataclass
 class AsrRouterResult:
 	result: AsrResult
@@ -58,7 +49,6 @@ def _cloud_transcribe(
 			audio_path=audio_path,
 			api_key=settings.api_key,
 			model=settings.model_id,
-			language_hints=settings.language_hints,
 			audio_duration_s=audio_duration_s,
 			progress_cb=progress_cb,
 		)
@@ -67,7 +57,7 @@ def _cloud_transcribe(
 			audio_path=audio_path,
 			api_key=settings.api_key,
 			model=settings.model_id,
-			language=_openai_language(settings.language_hints),
+			language=None,
 			audio_duration_s=audio_duration_s,
 			progress_cb=progress_cb,
 		)
@@ -76,7 +66,6 @@ def _cloud_transcribe(
 			audio_path=audio_path,
 			api_key=settings.api_key,
 			resource_id=settings.model_id,
-			language_hints=settings.language_hints,
 			audio_duration_s=audio_duration_s,
 			progress_cb=progress_cb,
 		)

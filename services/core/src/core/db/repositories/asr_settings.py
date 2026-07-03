@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from core.db.models.asr_settings import AsrActive, AsrProfileSecret
+from core.db.models.asr_settings import AsrActive, AsrCustomModel, AsrProfileSecret
 
 
 def get_asr_provider_secret_meta(session: Session, *, provider_id: str) -> dict | None:
@@ -55,7 +55,6 @@ def get_asr_active(session: Session) -> dict | None:
 		"cloudEnabled": bool(obj.cloud_enabled),
 		"providerId": str(obj.provider_id),
 		"modelId": str(obj.model_id),
-		"languageHints": list(obj.language_hints or []),
 		"localModelSize": str(obj.local_model_size),
 		"localDevice": str(obj.local_device),
 		"fallbackToLocal": bool(obj.fallback_to_local),
@@ -69,7 +68,6 @@ def set_asr_active(
 	cloud_enabled: bool,
 	provider_id: str,
 	model_id: str,
-	language_hints: list[str] | None,
 	local_model_size: str,
 	local_device: str,
 	fallback_to_local: bool,
@@ -82,7 +80,6 @@ def set_asr_active(
 			cloud_enabled=bool(cloud_enabled),
 			provider_id=str(provider_id),
 			model_id=str(model_id),
-			language_hints=language_hints,
 			local_model_size=str(local_model_size),
 			local_device=str(local_device),
 			fallback_to_local=bool(fallback_to_local),
@@ -93,9 +90,60 @@ def set_asr_active(
 	obj.cloud_enabled = bool(cloud_enabled)
 	obj.provider_id = str(provider_id)
 	obj.model_id = str(model_id)
-	obj.language_hints = language_hints
 	obj.local_model_size = str(local_model_size)
 	obj.local_device = str(local_device)
 	obj.fallback_to_local = bool(fallback_to_local)
 	obj.updated_at_ms = int(now_ms)
 	session.add(obj)
+
+
+def list_custom_asr_models(session: Session, *, provider_id: str) -> list[dict]:
+	pid = (provider_id or "").strip().lower()
+	rows = session.query(AsrCustomModel).filter(AsrCustomModel.provider_id == pid).all()
+	return [
+		{"modelId": r.model_id, "displayName": r.display_name, "createdAtMs": r.created_at_ms}
+		for r in rows
+	]
+
+
+def add_custom_asr_model(
+	session: Session,
+	*,
+	provider_id: str,
+	model_id: str,
+	display_name: str,
+	now_ms: int,
+) -> None:
+	pid = (provider_id or "").strip().lower()
+	mid = (model_id or "").strip()
+	existing = (
+		session.query(AsrCustomModel)
+		.filter(AsrCustomModel.provider_id == pid, AsrCustomModel.model_id == mid)
+		.first()
+	)
+	if existing is not None:
+		existing.display_name = str(display_name)
+		existing.created_at_ms = int(now_ms)
+		session.add(existing)
+		return
+	obj = AsrCustomModel(
+		provider_id=pid,
+		model_id=mid,
+		display_name=str(display_name),
+		created_at_ms=int(now_ms),
+	)
+	session.add(obj)
+
+
+def delete_custom_asr_model(session: Session, *, provider_id: str, model_id: str) -> bool:
+	pid = (provider_id or "").strip().lower()
+	mid = (model_id or "").strip()
+	row = (
+		session.query(AsrCustomModel)
+		.filter(AsrCustomModel.provider_id == pid, AsrCustomModel.model_id == mid)
+		.first()
+	)
+	if row is None:
+		return False
+	session.delete(row)
+	return True

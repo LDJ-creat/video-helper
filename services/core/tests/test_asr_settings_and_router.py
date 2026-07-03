@@ -70,7 +70,6 @@ def test_router_uses_local_when_cloud_disabled(tmp_path: Path):
 		cloud_enabled=False,
 		provider_id="dashscope",
 		model_id="paraformer-v2",
-		language_hints=["zh"],
 		local_model_size="base",
 		local_device="cpu",
 		fallback_to_local=True,
@@ -92,7 +91,6 @@ def test_router_falls_back_on_cloud_error(tmp_path: Path):
 		cloud_enabled=True,
 		provider_id="dashscope",
 		model_id="paraformer-v2",
-		language_hints=["zh"],
 		local_model_size="base",
 		local_device="cpu",
 		fallback_to_local=True,
@@ -131,7 +129,6 @@ def test_asr_connectivity_test_dashscope_uses_get_policy(monkeypatch: pytest.Mon
 		cloud_enabled=True,
 		provider_id="dashscope",
 		model_id="paraformer-v2",
-		language_hints=["zh"],
 		local_model_size="base",
 		local_device="cpu",
 		fallback_to_local=True,
@@ -198,7 +195,6 @@ def test_asr_active_put_get(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 				"cloudEnabled": True,
 				"providerId": "dashscope",
 				"modelId": "paraformer-v2",
-				"languageHints": ["zh", "en"],
 				"fallbackToLocal": True,
 			},
 		)
@@ -210,3 +206,86 @@ def test_asr_active_put_get(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 		assert body["providerId"] == "dashscope"
 		assert body["modelId"] == "paraformer-v2"
 		assert body["cloudEnabled"] is True
+
+
+def test_asr_remote_models_requires_key(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+	monkeypatch.setenv("DATA_DIR", str(tmp_path))
+	from fastapi.testclient import TestClient
+	from core.main import create_app
+
+	with TestClient(create_app()) as client:
+		resp = client.get("/api/v1/settings/asr/providers/dashscope/remote-models")
+		assert resp.status_code == 200
+		body = resp.json()
+		assert body["ok"] is False
+		assert body["error"]["code"] == "missing_credentials"
+
+
+def test_asr_custom_model_crud(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+	monkeypatch.setenv("DATA_DIR", str(tmp_path))
+	from fastapi.testclient import TestClient
+	from core.main import create_app
+
+	with TestClient(create_app()) as client:
+		add = client.post(
+			"/api/v1/settings/asr/providers/volcengine/models",
+			json={"modelId": "volc.custom.auc", "displayName": "Custom Resource"},
+		)
+		assert add.status_code == 200
+		catalog = client.get("/api/v1/settings/asr/catalog")
+		assert catalog.status_code == 200
+		provider = next(p for p in catalog.json()["providers"] if p["providerId"] == "volcengine")
+		assert any(m["modelId"] == "volc.custom.auc" and m["isCustom"] for m in provider["models"])
+		put = client.put(
+			"/api/v1/settings/asr/active",
+			json={
+				"cloudEnabled": True,
+				"providerId": "volcengine",
+				"modelId": "volc.custom.auc",
+				"fallbackToLocal": True,
+			},
+		)
+		assert put.status_code == 200
+		deleted = client.delete("/api/v1/settings/asr/providers/volcengine/models/volc.custom.auc")
+		assert deleted.status_code == 200
+
+
+def test_volcengine_submit_probe_auth_failure(monkeypatch: pytest.MonkeyPatch):
+	from core.external.asr_providers.volcengine import volcengine_submit_probe
+	from core.external.asr_providers.volcengine_auth import VolcengineCredentials
+
+	class FakeResp:
+		status_code = 403
+		text = "forbidden"
+
+		@staticmethod
+		def headers_get(name, default=""):
+			return default
+
+	headers = property(lambda self: {"get": FakeResp.headers_get})
+
+	def fake_post(*args, **kwargs):
+		resp = FakeResp()
+		resp.headers = {"X-Api-Status-Code": "45000001", "X-Api-Message": "auth failed"}
+		return resp
+
+	class FakeClient:
+		def __init__(self, *args, **kwargs):
+			pass
+
+		def __enter__(self):
+			return self
+
+		def __exit__(self, *args):
+			return False
+
+		post = fake_post
+
+	monkeypatch.setattr("core.external.asr_providers.volcengine.httpx.Client", FakeClient)
+	ok, reason = volcengine_submit_probe(
+		creds=VolcengineCredentials(mode="api_key", api_key="test-key"),
+		resource_id="volc.seedasr.auc",
+		audio_url="https://example.com/a.mp3",
+	)
+	assert ok is False
+	assert reason in {"auth", "forbidden"}
