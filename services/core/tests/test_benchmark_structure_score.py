@@ -92,7 +92,10 @@ def test_structure_score_high_for_valid_result() -> None:
 	out = score_result_structure(_valid_result(), duration_ms=120_000)
 	assert out["passed"] is True
 	assert out["score"] >= 0.85
-	assert out["checks"]["keyframe_coverage"]["value"] == pytest.approx(4 / 5)
+	kf = out["checks"]["keyframe_coverage"]
+	assert kf["value"] == pytest.approx(1.0)
+	assert kf["intentHighlights"] == 4
+	assert kf["coveredHighlights"] == 4
 
 
 def test_structure_score_fails_on_invalid_result() -> None:
@@ -138,12 +141,54 @@ def test_structure_score_fails_keyframe_when_stage_ran() -> None:
 	for block in result["contentBlocks"]:
 		for h in block["highlights"]:
 			h.pop("keyframe", None)
+			h["keyframes"] = []
+			h["keyframeConfidence"] = 0.3
 	stages = {"keyframes.extract": {"durationMs": 5000, "status": "ok"}}
 	out = score_result_structure(result, duration_ms=120_000, pipeline_stages=stages)
 	kf = out["checks"]["keyframe_coverage"]
 	assert kf.get("skipped") is not True
 	assert kf.get("ok") is False
+	assert kf["value"] == pytest.approx(0.0)
 	assert out["passed"] is False
+
+
+def test_structure_score_counts_keyframes_array_from_api() -> None:
+	result = _valid_result()
+	for block in result["contentBlocks"]:
+		for h in block["highlights"]:
+			kf = h.pop("keyframe", None)
+			if kf is not None:
+				h["keyframes"] = [
+					{
+						"assetId": "a1",
+						"contentUrl": "/api/v1/assets/a1/content",
+						"timeMs": int(kf["timeMs"]),
+					}
+				]
+			else:
+				h["keyframes"] = []
+	out = score_result_structure(result, duration_ms=120_000, pipeline_stages={"keyframes.extract": {"durationMs": 900, "status": "ok"}})
+	kf = out["checks"]["keyframe_coverage"]
+	assert kf["value"] == pytest.approx(1.0)
+	assert kf["coveredHighlights"] == 4
+	assert out["passed"] is True
+
+
+def test_structure_score_skips_keyframe_when_no_intent() -> None:
+	result = _valid_result()
+	for block in result["contentBlocks"]:
+		for h in block["highlights"]:
+			h.pop("keyframe", None)
+			h["keyframes"] = []
+	out = score_result_structure(
+		result,
+		duration_ms=120_000,
+		pipeline_stages={"keyframes.extract": {"durationMs": 900, "status": "ok"}},
+	)
+	kf = out["checks"]["keyframe_coverage"]
+	assert kf.get("skipped") is True
+	assert kf.get("reason") == "no_keyframe_intent"
+	assert out["passed"] is True
 
 
 def test_structure_score_skips_keyframe_when_extract_noop() -> None:
@@ -151,6 +196,8 @@ def test_structure_score_skips_keyframe_when_extract_noop() -> None:
 	for block in result["contentBlocks"]:
 		for h in block["highlights"]:
 			h.pop("keyframe", None)
+			h["keyframes"] = []
+			h["keyframeConfidence"] = 0.3
 	stages = {"keyframes.extract": {"durationMs": 29, "status": "ok"}}
 	out = score_result_structure(result, duration_ms=120_000, pipeline_stages=stages)
 	kf = out["checks"]["keyframe_coverage"]

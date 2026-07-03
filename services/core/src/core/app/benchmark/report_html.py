@@ -177,6 +177,7 @@ _RUBRIC_LABELS: dict[str, str] = {
 _SKIP_REASON_LABELS: dict[str, str] = {
 	"keyframes_stage_not_executed": "流水线未执行关键帧抽取",
 	"keyframes_extract_no_output": "抽取已触发但无产出（Result 中无 keyframe）",
+	"no_keyframe_intent": "无 highlight 声明关键帧意图（跳过覆盖率门禁）",
 }
 
 _PASS_REASON_LABELS: dict[str, str] = {

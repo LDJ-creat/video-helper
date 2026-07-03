@@ -77,10 +77,21 @@ def collect_keyframe_verify_metrics(
 	retried_kept = 0
 	retried_dropped = 0
 	mode: str | None = None
+	requested_mode: str | None = None
+	effective_modes: dict[str, int] = {}
+	fallback_reasons: dict[str, int] = {}
 
 	for row in rows:
 		if mode is None and isinstance(row.get("mode"), str):
 			mode = row.get("mode")
+		if requested_mode is None and isinstance(row.get("requestedMode"), str):
+			requested_mode = row.get("requestedMode")
+		effective = row.get("effectiveMode") if isinstance(row.get("effectiveMode"), str) else row.get("mode")
+		if isinstance(effective, str) and effective:
+			effective_modes[effective] = effective_modes.get(effective, 0) + 1
+		fallback = row.get("fallbackReason")
+		if isinstance(fallback, str) and fallback:
+			fallback_reasons[fallback] = fallback_reasons.get(fallback, 0) + 1
 		conf = row.get("confidence")
 		if isinstance(conf, (int, float)):
 			confidences.append(max(0.0, min(1.0, float(conf))))
@@ -115,6 +126,9 @@ def collect_keyframe_verify_metrics(
 		"enabled": True,
 		"reason": None,
 		"mode": mode,
+		"requestedMode": requested_mode,
+		"effectiveModeCounts": effective_modes or None,
+		"fallbackReasonCounts": fallback_reasons or None,
 		"count": count,
 		"keepRate": keep_rate,
 		"overallKeepRate": overall_keep_rate,

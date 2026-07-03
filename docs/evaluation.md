@@ -82,7 +82,7 @@ LLM_USAGE_ESTIMATE_FALLBACK=1 # API 无 usage 时用字符粗估（默认开）
 
 ## Keyframe verify 指标
 
-默认 `KEYFRAME_VERIFY_MODE=off`，benchmark **仍可完整运行**。此时报告为：
+默认 `KEYFRAME_VERIFY_MODE=multimodal`（传图校验；上游拒绝图片时自动降级 OCR）。benchmark **在 verify 未产生 artifact 时仍可完整运行**。此时报告为：
 
 ```json
 "keyframeVerify": {
@@ -98,8 +98,19 @@ LLM_USAGE_ESTIMATE_FALLBACK=1 # API 无 usage 时用字符粗估（默认开）
 开启方式（专项 profile 或手动）：
 
 ```bash
-export KEYFRAME_VERIFY_MODE=multimodal
+export KEYFRAME_VERIFY_MODE=multimodal   # 默认已是 multimodal
+# 纯文本模型可显式设为 ocr，跳过首次 multimodal 探测
+export KEYFRAME_VERIFY_MODE=ocr
 # 或在 benchmarks/profiles.yaml 为 profile 配置 keyframeVerify.mode
+```
+
+动态预算（按时长放大 initial verify 上限，默认 base=5、abs max=25）：
+
+```bash
+KEYFRAME_VERIFY_MAX_PER_JOB=5
+KEYFRAME_VERIFY_MAX_PER_JOB_ABS=25
+KEYFRAME_VERIFY_DURATION_BONUS_PER_5MIN=1
+KEYFRAME_VERIFY_DURATION_BONUS_MAX=15
 ```
 
 Job 完成后 artifact：`DATA_DIR/{projectId}/artifacts/{jobId}/keyframe_verify/results.jsonl`（含 `phase`、`action`：`kept` / `retry_scheduled` / `retried_kept` / `retried_dropped` / `dropped`）。  
@@ -108,9 +119,9 @@ Job 完成后 artifact：`DATA_DIR/{projectId}/artifacts/{jobId}/keyframe_verify
 环境变量（`services/core/.env`）：
 
 ```bash
-KEYFRAME_VERIFY_MODE=off          # off | ocr | multimodal
+KEYFRAME_VERIFY_MODE=multimodal     # off | ocr | multimodal（默认 multimodal；multimodal 失败降级 ocr）
 KEYFRAME_VERIFY_CONFIDENCE_THRESHOLD=0.4
-KEYFRAME_VERIFY_MAX_PER_JOB=5     # 单 Job LLM 调用上限（initial + retry 共享）
+KEYFRAME_VERIFY_MAX_PER_JOB=5     # initial 阶段 LLM 调用上限（retry 阶段不受此 cap 限制）
 KEYFRAME_VERIFY_MAX_PER_HIGHLIGHT=1
 KEYFRAME_RETRY_MAX_PER_HIGHLIGHT=1  # KEYFRAME_RETRY_MAX 仍可作为别名
 KEYFRAME_LOCAL_SEARCH_WINDOW_MS=10000

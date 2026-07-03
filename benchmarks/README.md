@@ -35,7 +35,7 @@ make core-metrics DATA_DIR=./data
 | L1 | speedFactor | 见 `profiles.yaml` 各 profile |
 | L1 | llm.tokens.total | 仅展示，暂不做门禁 |
 | L2 | structure.score | ≥ 0.85 |
-| L2 | keyframe_coverage | ≥ 0.5 |
+| L2 | keyframe_coverage | ≥ 0.5（仅统计有 keyframe 意图的 highlight；无意图时跳过） |
 | L2 | timestamp_in_range | 100% |
 | L3 | chapter_boundary_f1 | ≥ 0.7（有标注时） |
 | L3 | keyframeVerify.confidenceP50 | ≥ 0.5（verify 开启且有 artifact 时） |
@@ -43,12 +43,14 @@ make core-metrics DATA_DIR=./data
 | L3 | semanticScore.highlightFaithfulness.supportedRate | ≥ 0.8（`--with-llm-judge`） |
 | L3 | humanRubric.meanScore | ≥ 3.5（`--merge-rubric` 时） |
 
-`keyframeVerify.enabled=false`（默认 verify 关闭）**不 fail** benchmark。
+`keyframeVerify.enabled=false`（verify 未产生 artifact，例如 `KEYFRAME_VERIFY_MODE=off`）**不 fail** benchmark。
 
-## Keyframe verify（可选）
+## Keyframe verify
 
-在 profile 中配置 `keyframeVerify.mode` 后，closed-loop 脚本会在启动 backend 前注入 `KEYFRAME_VERIFY_MODE`。  
-Artifact：`DATA_DIR/.../keyframe_verify/results.jsonl`。
+默认 **`KEYFRAME_VERIFY_MODE=multimodal`**（传图校验；上游拒图时自动降级 OCR）。纯文本模型可设 `ocr`，完全关闭设 `off`。
+
+在 profile 中配置 `keyframeVerify.mode` / `maxPerJob` 后，closed-loop 脚本会在启动 backend 前注入环境变量。  
+Artifact：`DATA_DIR/.../keyframe_verify/results.jsonl`（含 `requestedMode`、`effectiveMode`、`fallbackReason`）。
 
 ## LLM judge
 

@@ -47,13 +47,44 @@ def _keyframes_extract_noop(pipeline_stages: Mapping[str, Any] | None, *, covera
 	return isinstance(duration, (int, float)) and 0 <= int(duration) < _KEYFRAME_EXTRACT_NOOP_MAX_MS
 
 
+def _highlight_has_keyframe(highlight: Mapping[str, Any]) -> bool:
+	"""True when Result carries a usable keyframe (singular or keyframes[])."""
+	keyframe = highlight.get("keyframe")
+	if isinstance(keyframe, dict):
+		if keyframe.get("assetId") or keyframe.get("timeMs") is not None:
+			return True
+	keyframes = highlight.get("keyframes")
+	if isinstance(keyframes, list):
+		for item in keyframes:
+			if not isinstance(item, dict):
+				continue
+			if item.get("assetId") or item.get("timeMs") is not None:
+				return True
+	return False
+
+
+def _highlight_keyframe_intent(highlight: Mapping[str, Any]) -> bool:
+	"""True when the plan/pipeline assigned keyframe intent to this highlight."""
+	if isinstance(highlight.get("keyframe"), dict):
+		return True
+	keyframes = highlight.get("keyframes")
+	if isinstance(keyframes, list) and len(keyframes) > 0:
+		return True
+	if highlight.get("keyframeConfidence") is not None:
+		return True
+	return False
+
+
 def _keyframe_coverage_skip_reason(
 	*,
 	pipeline_stages: Mapping[str, Any] | None,
 	coverage: float,
+	intent_count: int,
 ) -> str | None:
 	if not _keyframes_stage_ran(pipeline_stages):
 		return "keyframes_stage_not_executed"
+	if intent_count <= 0:
+		return "no_keyframe_intent"
 	if _keyframes_extract_noop(pipeline_stages, coverage=coverage):
 		return "keyframes_extract_no_output"
 	return None
@@ -94,7 +125,8 @@ def _compute_checks(
 	nodes = mindmap.get("nodes") if isinstance(mindmap.get("nodes"), list) else []
 
 	highlight_count = 0
-	keyframe_count = 0
+	keyframe_intent_count = 0
+	keyframe_covered_count = 0
 	timestamp_total = 0
 	timestamp_ok = 0
 	prev_start: int | None = None
@@ -124,8 +156,10 @@ def _compute_checks(
 			if not isinstance(highlight, dict):
 				continue
 			highlight_count += 1
-			if isinstance(highlight.get("keyframe"), dict):
-				keyframe_count += 1
+			if _highlight_keyframe_intent(highlight):
+				keyframe_intent_count += 1
+				if _highlight_has_keyframe(highlight):
+					keyframe_covered_count += 1
 			for field in ("startMs", "endMs"):
 				val = _as_int_ms(highlight.get(field))
 				if val is None:
@@ -147,7 +181,10 @@ def _compute_checks(
 		if isinstance(data.get("targetBlockId"), str) and data.get("targetBlockId"):
 			linked_nodes += 1
 
-	keyframe_coverage = (keyframe_count / highlight_count) if highlight_count > 0 else 0.0
+	if keyframe_intent_count > 0:
+		keyframe_coverage = keyframe_covered_count / keyframe_intent_count
+	else:
+		keyframe_coverage = 1.0
 	timestamp_in_range = (timestamp_ok / timestamp_total) if timestamp_total > 0 else 1.0
 	mindmap_link_rate = (linked_nodes / non_root_nodes) if non_root_nodes > 0 else 1.0
 
@@ -162,7 +199,11 @@ def _compute_checks(
 	}
 
 	checks: dict[str, dict[str, Any]] = {}
-	skip_reason = _keyframe_coverage_skip_reason(pipeline_stages=pipeline_stages, coverage=raw["keyframe_coverage"])
+	skip_reason = _keyframe_coverage_skip_reason(
+		pipeline_stages=pipeline_stages,
+		coverage=raw["keyframe_coverage"],
+		intent_count=keyframe_intent_count,
+	)
 	for name, minimum, _weight in _SOFT_CHECKS:
 		value = raw[name]
 		if name == "keyframe_coverage" and skip_reason:
@@ -172,13 +213,19 @@ def _compute_checks(
 				"ok": None,
 				"skipped": True,
 				"reason": skip_reason,
+				"intentHighlights": keyframe_intent_count,
+				"coveredHighlights": keyframe_covered_count,
 			}
 			continue
 		if name in {"blocks_count", "highlights_count", "mindmap_nodes"}:
 			ok = value >= minimum
 		else:
 			ok = value >= minimum
-		checks[name] = {"value": value, "min": minimum, "ok": ok}
+		entry: dict[str, Any] = {"value": value, "min": minimum, "ok": ok}
+		if name == "keyframe_coverage":
+			entry["intentHighlights"] = keyframe_intent_count
+			entry["coveredHighlights"] = keyframe_covered_count
+		checks[name] = entry
 	return checks
 
 
