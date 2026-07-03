@@ -100,7 +100,6 @@
             "desc": "Configure cloud ASR providers. When enabled, cloud transcription is preferred; failures can fall back to local faster-whisper.",
             "privacyNote": "Cloud ASR uploads audio to third-party services. Consider privacy and per-minute billing.",
             "cloudEnabled": "Enable cloud ASR (when API key is configured)",
-            "languageHints": "Language hints (comma-separated, e.g. zh,en)",
             "apiKey": "API Key",
             "fallbackToLocal": "Fall back to faster-whisper when cloud ASR is unavailable",
             "saveActive": "Save ASR settings",

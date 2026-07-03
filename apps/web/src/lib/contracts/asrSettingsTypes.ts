@@ -2,6 +2,23 @@ export type AsrCatalogModel = {
     modelId: string;
     displayName: string;
     description?: string | null;
+    isCustom?: boolean;
+};
+
+export type AsrRemoteModel = {
+    modelId: string;
+    displayName: string;
+};
+
+export type AsrRemoteModelsResponse = {
+    ok: boolean;
+    models: AsrRemoteModel[];
+    error?: { code: string; message: string } | null;
+};
+
+export type AddCustomAsrModelRequest = {
+    modelId: string;
+    displayName?: string;
 };
 
 export type AsrCatalogProvider = {
@@ -23,7 +40,6 @@ export type AsrActiveSettingsResponse = {
     cloudEnabled: boolean;
     providerId: string | null;
     modelId: string | null;
-    languageHints: string[];
     localModelSize: string;
     localDevice: string;
     fallbackToLocal: boolean;
@@ -35,7 +51,6 @@ export type UpdateAsrActiveRequest = {
     cloudEnabled: boolean;
     providerId: string;
     modelId: string;
-    languageHints?: string[];
     fallbackToLocal?: boolean;
 };
 

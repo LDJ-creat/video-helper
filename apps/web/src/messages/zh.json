@@ -100,7 +100,6 @@
             "desc": "配置云端语音识别提供方。启用后优先使用云端 ASR，失败时可自动降级到本地 faster-whisper。",
             "privacyNote": "启用云端 ASR 时，音频会上传至第三方服务进行转写，请注意数据隐私与费用。",
             "cloudEnabled": "启用云端 ASR（已配置 API Key 时生效）",
-            "languageHints": "语言提示（逗号分隔，如 zh,en）",
             "apiKey": "API Key",
             "fallbackToLocal": "云端不可用时自动降级到 faster-whisper",
             "saveActive": "保存 ASR 配置",

@@ -4,12 +4,15 @@ import {
     deleteAsrProviderSecret,
     fetchActiveAsrSettings,
     fetchAsrCatalog,
+    fetchAsrRemoteModels,
+    addCustomAsrModel,
+    deleteCustomAsrModel,
     testActiveAsrSettings,
     testAsrProviderSettings,
     updateActiveAsrSettings,
     updateAsrProviderSecret,
 } from "./asrSettingsApi";
-import type { UpdateAsrActiveRequest } from "../contracts/asrSettingsTypes";
+import type { AddCustomAsrModelRequest, UpdateAsrActiveRequest } from "../contracts/asrSettingsTypes";
 
 export function useAsrCatalog() {
     return useQuery({
@@ -22,6 +25,38 @@ export function useActiveAsrSettings() {
     return useQuery({
         queryKey: queryKeys.asrActive,
         queryFn: fetchActiveAsrSettings,
+    });
+}
+
+export function useRemoteAsrModels(providerId: string, enabled: boolean) {
+    return useQuery({
+        queryKey: queryKeys.asrRemoteModels(providerId),
+        queryFn: () => fetchAsrRemoteModels(providerId),
+        enabled: Boolean(providerId) && enabled,
+    });
+}
+
+export function useAddCustomAsrModel() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ providerId, request }: { providerId: string; request: AddCustomAsrModelRequest }) =>
+            addCustomAsrModel(providerId, request),
+        onSuccess: (_data, { providerId }) => {
+            queryClient.invalidateQueries({ queryKey: queryKeys.asrCatalog });
+            queryClient.invalidateQueries({ queryKey: queryKeys.asrRemoteModels(providerId) });
+        },
+    });
+}
+
+export function useDeleteCustomAsrModel() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ providerId, modelId }: { providerId: string; modelId: string }) =>
+            deleteCustomAsrModel(providerId, modelId),
+        onSuccess: (_data, { providerId }) => {
+            queryClient.invalidateQueries({ queryKey: queryKeys.asrCatalog });
+            queryClient.invalidateQueries({ queryKey: queryKeys.asrRemoteModels(providerId) });
+        },
     });
 }
 
@@ -41,9 +76,10 @@ export function useUpdateAsrProviderSecret() {
     return useMutation({
         mutationFn: ({ providerId, apiKey }: { providerId: string; apiKey: string }) =>
             updateAsrProviderSecret(providerId, apiKey),
-        onSuccess: () => {
+        onSuccess: (_data, { providerId }) => {
             queryClient.invalidateQueries({ queryKey: queryKeys.asrCatalog });
             queryClient.invalidateQueries({ queryKey: queryKeys.asrActive });
+            queryClient.invalidateQueries({ queryKey: queryKeys.asrRemoteModels(providerId) });
         },
     });
 }
@@ -52,9 +88,10 @@ export function useDeleteAsrProviderSecret() {
     const queryClient = useQueryClient();
     return useMutation({
         mutationFn: (providerId: string) => deleteAsrProviderSecret(providerId),
-        onSuccess: () => {
+        onSuccess: (_data, providerId) => {
             queryClient.invalidateQueries({ queryKey: queryKeys.asrCatalog });
             queryClient.invalidateQueries({ queryKey: queryKeys.asrActive });
+            queryClient.invalidateQueries({ queryKey: queryKeys.asrRemoteModels(providerId) });
         },
     });
 }
@@ -70,11 +107,9 @@ export function useTestAsrProviderSettings() {
         mutationFn: ({
             providerId,
             modelId,
-            languageHints,
         }: {
             providerId: string;
             modelId: string;
-            languageHints?: string[];
-        }) => testAsrProviderSettings(providerId, modelId, languageHints),
+        }) => testAsrProviderSettings(providerId, modelId),
     });
 }

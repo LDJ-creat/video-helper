@@ -19,6 +19,7 @@ export const queryKeys = {
     // ASR Settings query keys
     asrCatalog: ["asr", "catalog"] as const,
     asrActive: ["asr", "active"] as const,
+    asrRemoteModels: (providerId: string) => ["asr", "remote-models", providerId] as const,
   // AI Feature keys
   chatSessions: (projectId: string) => ["chat", "sessions", projectId] as const,
   chatMessages: (sessionId: string) => ["chat", "messages", sessionId] as const,

@@ -54,6 +54,11 @@ export const endpoints = {
     asrProviderSecret: (providerId: string) => `${API_V1}/settings/asr/providers/${providerId}/secret`,
     asrTest: () => `${API_V1}/settings/asr/active/test`,
     asrProviderTest: (providerId: string) => `${API_V1}/settings/asr/providers/${providerId}/test`,
+    asrRemoteModels: (providerId: string) =>
+        `${API_V1}/settings/asr/providers/${encodeURIComponent(providerId)}/remote-models`,
+    asrProviderModels: (providerId: string) => `${API_V1}/settings/asr/providers/${providerId}/models`,
+    asrProviderModel: (providerId: string, modelId: string) =>
+        `${API_V1}/settings/asr/providers/${providerId}/models/${encodeURIComponent(modelId)}`,
     asrPrefetch: () => `${API_V1}/settings/asr/prefetch`,
     // AI Features
     chat: () => `${API_V1}/chat/completions`,

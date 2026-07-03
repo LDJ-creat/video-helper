@@ -3,8 +3,10 @@ import { endpoints } from "./endpoints";
 import type {
     AsrActiveSettingsResponse,
     AsrCatalogResponse,
+    AsrRemoteModelsResponse,
     AsrSecretRequest,
     AsrTestResponse,
+    AddCustomAsrModelRequest,
     OkResponse,
     UpdateAsrActiveRequest,
 } from "../contracts/asrSettingsTypes";
@@ -47,11 +49,29 @@ export async function testActiveAsrSettings(): Promise<AsrTestResponse> {
     });
 }
 
-export async function testAsrProviderSettings(providerId: string, modelId: string, languageHints?: string[]): Promise<AsrTestResponse> {
+export async function testAsrProviderSettings(providerId: string, modelId: string): Promise<AsrTestResponse> {
     return apiFetch<AsrTestResponse>(`${config.apiBaseUrl}${endpoints.asrProviderTest(providerId)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ modelId, languageHints }),
+        body: JSON.stringify({ modelId }),
+    });
+}
+
+export async function fetchAsrRemoteModels(providerId: string): Promise<AsrRemoteModelsResponse> {
+    return apiFetch<AsrRemoteModelsResponse>(`${config.apiBaseUrl}${endpoints.asrRemoteModels(providerId)}`);
+}
+
+export async function addCustomAsrModel(providerId: string, request: AddCustomAsrModelRequest): Promise<OkResponse> {
+    return apiFetch<OkResponse>(`${config.apiBaseUrl}${endpoints.asrProviderModels(providerId)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(request),
+    });
+}
+
+export async function deleteCustomAsrModel(providerId: string, modelId: string): Promise<OkResponse> {
+    return apiFetch<OkResponse>(`${config.apiBaseUrl}${endpoints.asrProviderModel(providerId, modelId)}`, {
+        method: "DELETE",
     });
 }
 
