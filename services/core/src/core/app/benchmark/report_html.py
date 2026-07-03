@@ -41,6 +41,114 @@ def _fmt_pct(value: Any) -> str:
 	return f"{float(value) * 100:.1f}%"
 
 
+def _fmt_token_count(value: Any) -> str:
+	if not isinstance(value, (int, float)) or value < 0:
+		return "—"
+	n = int(value)
+	if n >= 1_000_000:
+		return f"{n / 1_000_000:.2f}M"
+	if n >= 10_000:
+		return f"{n / 1_000:.1f}k"
+	return f"{n:,}"
+
+
+_STAGE_DISPLAY: dict[str, str] = {
+	"analyze": "分析 Plan",
+	"chunk_summaries": "长视频分块",
+	"keyframe_verify": "关键帧校验",
+}
+
+
+def _llm_pipeline_badge(llm: Mapping[str, Any]) -> str:
+	calls = llm.get("calls")
+	repairs = llm.get("repairs")
+	tokens = llm.get("tokens") if isinstance(llm.get("tokens"), dict) else {}
+	base = f"LLM {_esc(calls)} 次 · repair {_esc(repairs)}"
+	if tokens.get("available") and isinstance(tokens.get("total"), (int, float)):
+		return f"{base} · {_esc(_fmt_token_count(tokens.get('total')))} tokens"
+	return base
+
+
+def _token_source_note(source: Any) -> str:
+	s = str(source or "")
+	if s == "estimated":
+		return "部分或全部为字符粗估（chars/4），非 API 精确计费。"
+	if s == "mixed":
+		return "混合 API 返回值与粗估；请以 API 账单为准。"
+	return ""
+
+
+def _render_llm_tokens(llm: Mapping[str, Any]) -> str:
+	tokens = llm.get("tokens") if isinstance(llm.get("tokens"), dict) else {}
+	if not tokens.get("available"):
+		reason = tokens.get("reason") or "no_llm_usage_artifact"
+		return f"""
+		<section class="panel muted-panel">
+			<h2>LLM Token 消耗</h2>
+			<p class="panel-note">未统计（{_esc(reason)}）。历史 Job 或 verify 关闭时可能无数据。</p>
+		</section>
+		"""
+	source_note = _token_source_note(tokens.get("source"))
+	note_html = f'<p class="panel-note">{_esc(source_note)}</p>' if source_note else ""
+	summary = f"""
+		<div class="metric-grid">
+			<div class="metric-card"><span class="metric-label">Prompt</span><span class="metric-value">{_esc(_fmt_token_count(tokens.get('prompt')))}</span></div>
+			<div class="metric-card"><span class="metric-label">Completion</span><span class="metric-value">{_esc(_fmt_token_count(tokens.get('completion')))}</span></div>
+			<div class="metric-card"><span class="metric-label">Total</span><span class="metric-value">{_esc(_fmt_token_count(tokens.get('total')))}</span></div>
+			<div class="metric-card"><span class="metric-label">来源</span><span class="metric-value">{_esc(tokens.get('source'))}</span></div>
+		</div>
+	"""
+	by_stage = tokens.get("byStage") if isinstance(tokens.get("byStage"), dict) else {}
+	stage_rows: list[str] = []
+	if by_stage:
+		max_total = max(int(v.get("total") or 0) for v in by_stage.values() if isinstance(v, dict)) or 1
+		for stage, bucket in sorted(by_stage.items(), key=lambda x: -(int(x[1].get("total") or 0) if isinstance(x[1], dict) else 0)):
+			if not isinstance(bucket, dict):
+				continue
+			total = int(bucket.get("total") or 0)
+			width = max(2, round(total / max_total * 100)) if max_total > 0 else 2
+			label = _STAGE_DISPLAY.get(str(stage), str(stage))
+			stage_rows.append(
+				f'<div class="stage-row"><div class="stage-meta"><span class="stage-name">{_esc(label)}</span>'
+				f'<span class="stage-dur">{_esc(_fmt_token_count(total))}</span></div>'
+				f'<div class="stage-track" role="presentation"><div class="stage-fill neutral" style="width:{width}%"></div></div></div>'
+			)
+	stage_html = f'<div class="stage-list">{"".join(stage_rows)}</div>' if stage_rows else ""
+	by_task = tokens.get("byTask") if isinstance(tokens.get("byTask"), dict) else {}
+	task_rows: list[str] = []
+	for task, bucket in sorted(by_task.items(), key=lambda x: -(int(x[1].get("total") or 0) if isinstance(x[1], dict) else 0)):
+		if not isinstance(bucket, dict):
+			continue
+		task_rows.append(
+			f"<tr><td>{_esc(task)}</td><td>{_esc(bucket.get('calls'))}</td>"
+			f"<td>{_esc(_fmt_token_count(bucket.get('prompt')))}</td>"
+			f"<td>{_esc(_fmt_token_count(bucket.get('completion')))}</td>"
+			f"<td>{_esc(_fmt_token_count(bucket.get('total')))}</td></tr>"
+		)
+	task_table = ""
+	if task_rows:
+		task_table = f"""
+		<h3 class="subhead">按 Task</h3>
+		<table class="token-table">
+			<thead><tr><th>Task</th><th>Calls</th><th>Prompt</th><th>Completion</th><th>Total</th></tr></thead>
+			<tbody>{"".join(task_rows)}</tbody>
+		</table>
+		"""
+	return f"""
+	<section class="panel">
+		<div class="panel-head">
+			<h2>LLM Token 消耗</h2>
+			<span class="badge neutral">{_esc(_fmt_token_count(tokens.get('total')))} total</span>
+		</div>
+		{summary}
+		{note_html}
+		<h3 class="subhead">按流水线阶段</h3>
+		{stage_html or '<p class="panel-note">—</p>'}
+		{task_table}
+	</section>
+	"""
+
+
 def _fmt_ts(ms: Any) -> str:
 	if not isinstance(ms, (int, float)):
 		return "—"
@@ -458,6 +566,8 @@ def render_benchmark_report_html(report: Mapping[str, Any]) -> str:
 
 	llm = jm.get("llm") if isinstance(jm.get("llm"), dict) else {}
 	stages = jm.get("stages") if isinstance(jm.get("stages"), dict) else {}
+	tokens = llm.get("tokens") if isinstance(llm.get("tokens"), dict) else {}
+	token_total_display = _fmt_token_count(tokens.get("total")) if tokens.get("available") else "未统计"
 
 	structure_score = ss.get("score")
 	structure_passed = ss.get("passed")
@@ -669,6 +779,25 @@ def render_benchmark_report_html(report: Mapping[str, Any]) -> str:
 			animation: growBar .7s ease both;
 		}}
 		.stage-fill.fail {{ background: linear-gradient(90deg, #9f1239, var(--fail)); }}
+		.stage-fill.neutral {{ background: linear-gradient(90deg, #475569, var(--muted)); }}
+		.subhead {{
+			margin: 1.25rem 0 .65rem;
+			font-size: .9rem;
+			font-weight: 600;
+			color: var(--muted);
+		}}
+		.token-table {{
+			width: 100%;
+			border-collapse: collapse;
+			font-family: var(--font-mono);
+			font-size: .78rem;
+		}}
+		.token-table th, .token-table td {{
+			padding: .45rem .5rem;
+			border-bottom: 1px solid var(--line);
+			text-align: left;
+		}}
+		.token-table th {{ color: var(--muted); font-weight: 500; }}
 		.stage-details {{
 			margin: -.35rem 0 .85rem .25rem;
 			padding-left: .5rem;
@@ -840,16 +969,22 @@ def render_benchmark_report_html(report: Mapping[str, Any]) -> str:
 					<span class="metric-label">L2 结构分</span>
 					<span class="metric-value">{_esc(structure_score)}</span>
 				</div>
+				<div class="metric-card">
+					<span class="metric-label">LLM Tokens</span>
+					<span class="metric-value">{_esc(token_total_display)}</span>
+				</div>
 			</div>
 		</header>
 
 		<section class="panel">
 			<div class="panel-head">
 				<h2>流水线分阶段耗时</h2>
-				<span class="badge neutral">LLM {_esc(llm.get("calls"))} 次 · repair {_esc(llm.get("repairs"))}</span>
+				<span class="badge neutral">{_llm_pipeline_badge(llm)}</span>
 			</div>
 			{_render_stage_bars(stages)}
 		</section>
+
+		{_render_llm_tokens(llm)}
 
 		<section class="panel">
 			<div class="panel-head">

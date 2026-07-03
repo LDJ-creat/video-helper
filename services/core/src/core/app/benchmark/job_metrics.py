@@ -7,6 +7,8 @@ from typing import Any
 
 from core.app.pipeline.chunk_summaries import estimate_duration_ms
 
+from core.app.pipeline.llm_usage import aggregate_llm_usage, llm_usage_artifact_path
+
 
 def _read_json(path: Path) -> dict | list | None:
 	if not path.exists() or not path.is_file():
@@ -77,6 +79,11 @@ def _count_llm_artifacts(plan_dir: Path) -> dict[str, int]:
 		if isinstance(attempt, int) and attempt > 1:
 			retries += 1
 	return {"calls": calls, "repairs": repairs, "retries": retries}
+
+
+def _collect_llm_token_metrics(*, data_dir: Path, project_id: str, job_id: str) -> dict[str, Any]:
+	path = llm_usage_artifact_path(data_dir=data_dir, project_id=project_id, job_id=job_id)
+	return aggregate_llm_usage(path)
 
 
 def _load_job_row(db_path: Path, job_id: str) -> dict[str, Any] | None:
@@ -186,6 +193,8 @@ def collect_job_metrics(
 	chain = _read_json(chain_path)
 	if isinstance(chain, dict) and isinstance(chain.get("durationMs"), int):
 		llm.setdefault("chainDurationMs", int(chain["durationMs"]))
+
+	llm["tokens"] = _collect_llm_token_metrics(data_dir=data_dir, project_id=project_id, job_id=job_id)
 
 	error = row.get("error")
 	if isinstance(error, str):

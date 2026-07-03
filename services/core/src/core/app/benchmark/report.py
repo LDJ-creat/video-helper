@@ -115,6 +115,8 @@ def _render_markdown_summary(report: Mapping[str, Any]) -> str:
 	jm = report.get("jobMetrics") if isinstance(report.get("jobMetrics"), dict) else {}
 	ss = report.get("structureScore") if isinstance(report.get("structureScore"), dict) else {}
 	bd = report.get("baselineDiff") if isinstance(report.get("baselineDiff"), dict) else {}
+	llm = jm.get("llm") if isinstance(jm.get("llm"), dict) else {}
+	tokens = llm.get("tokens") if isinstance(llm.get("tokens"), dict) else {}
 	lines = [
 		"# Benchmark Report",
 		"",
@@ -129,13 +131,36 @@ def _render_markdown_summary(report: Mapping[str, Any]) -> str:
 		f"- e2eMs: {jm.get('e2eMs')}",
 		f"- executionMs: {jm.get('executionMs')}",
 		f"- speedFactor: {jm.get('speedFactor')}",
-		"",
-		"## Structure",
-		"",
-		f"- score: {ss.get('score')}",
-		f"- passed: {ss.get('passed')}",
-		"",
 	]
+	if tokens.get("available"):
+		lines.extend(
+			[
+				"",
+				"## LLM Tokens",
+				"",
+				f"- prompt: {tokens.get('prompt')}",
+				f"- completion: {tokens.get('completion')}",
+				f"- total: {tokens.get('total')}",
+				f"- source: {tokens.get('source')}",
+			]
+		)
+		by_stage = tokens.get("byStage") if isinstance(tokens.get("byStage"), dict) else {}
+		if by_stage:
+			lines.append("")
+			lines.append("### By stage")
+			for stage, bucket in sorted(by_stage.items()):
+				if isinstance(bucket, dict):
+					lines.append(f"- {stage}: total={bucket.get('total')} calls={bucket.get('calls')}")
+	lines.extend(
+		[
+			"",
+			"## Structure",
+			"",
+			f"- score: {ss.get('score')}",
+			f"- passed: {ss.get('passed')}",
+			"",
+		]
+	)
 	alerts = bd.get("alerts") if isinstance(bd.get("alerts"), list) else []
 	if alerts:
 		lines.extend(["## Alerts", ""])
