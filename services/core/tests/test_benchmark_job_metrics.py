@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from core.app.benchmark.baseline import compare_to_baseline
+from core.app.benchmark.job_metrics import collect_job_metrics
 from core.app.benchmark.report import build_benchmark_report, write_benchmark_report
 from core.app.benchmark.semantic_score import score_chapter_boundaries
 
@@ -74,3 +75,82 @@ def test_chapter_boundary_f1() -> None:
 	]
 	out = score_chapter_boundaries(predicted_blocks=predicted, expected_chapters=expected)
 	assert out["f1"] >= 0.7
+
+
+def _setup_sqlite_for_metrics(tmp_path: Path, job_id: str, project_id: str) -> None:
+	db = tmp_path / "core.sqlite3"
+	con = sqlite3.connect(str(db))
+	con.execute(
+		"""
+		CREATE TABLE jobs (
+			job_id TEXT PRIMARY KEY,
+			project_id TEXT,
+			status TEXT,
+			stage TEXT,
+			created_at_ms INTEGER,
+			started_at_ms INTEGER,
+			finished_at_ms INTEGER,
+			transcript_meta TEXT,
+			error TEXT
+		)
+		"""
+	)
+	con.execute(
+		"INSERT INTO jobs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		(
+			job_id,
+			project_id,
+			"succeeded",
+			"assemble_result",
+			1_000,
+			2_000,
+			62_000,
+			json.dumps({"durationMs": 60_000}),
+			None,
+		),
+	)
+	con.commit()
+	con.close()
+
+
+def test_collect_job_metrics_includes_llm_tokens(tmp_path: Path) -> None:
+	job_id = "11111111-1111-1111-1111-111111111111"
+	project_id = "22222222-2222-2222-2222-222222222222"
+	_setup_sqlite_for_metrics(tmp_path, job_id, project_id)
+	usage_path = tmp_path / project_id / "artifacts" / job_id / "llm_usage.jsonl"
+	usage_path.parent.mkdir(parents=True)
+	usage_path.write_text(
+		"\n".join(
+			[
+				json.dumps(
+					{
+						"task": "plan_content_blocks",
+						"stage": "analyze",
+						"promptTokens": 100,
+						"completionTokens": 50,
+						"totalTokens": 150,
+						"source": "api",
+					}
+				),
+				json.dumps(
+					{
+						"task": "chunk_summary",
+						"stage": "chunk_summaries",
+						"promptTokens": 200,
+						"completionTokens": 80,
+						"totalTokens": 280,
+						"source": "api",
+					}
+				),
+			]
+		)
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	out = collect_job_metrics(data_dir=tmp_path, job_id=job_id)
+	tokens = out["llm"]["tokens"]
+	assert tokens["available"] is True
+	assert tokens["total"] == 430
+	assert tokens["byStage"]["analyze"]["total"] == 150
+	assert tokens["byStage"]["chunk_summaries"]["total"] == 280
