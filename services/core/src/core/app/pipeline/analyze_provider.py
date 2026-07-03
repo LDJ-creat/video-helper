@@ -153,13 +153,59 @@ def _normalize_model_id(model: str) -> str:
 	return m
 
 
-def _parse_openai_sse_chunks(line_iter: Iterable[str]) -> tuple[str, int]:
+def _messages_char_len(messages: list[Any]) -> int:
+	return len(
+		"\n".join(f"{m.get('role','')}: {m.get('content','')}" for m in messages if isinstance(m, dict))
+	)
+
+
+def _record_llm_usage_after_call(
+	*,
+	task_name: str,
+	model: str,
+	attempt: int,
+	duration_ms: int,
+	usage: Any,
+	provider_kind: str,
+	prompt_chars: int,
+	completion_chars: int,
+) -> None:
+	if task_name == "benchmark_faithfulness_judge":
+		return
+	from core.app.pipeline.llm_usage import append_llm_usage_record, normalize_anthropic_usage, normalize_openai_usage, resolve_usage_for_record
+
+	normalized = None
+	if provider_kind == "anthropic" and isinstance(usage, dict):
+		normalized = normalize_anthropic_usage(
+			input_tokens=usage.get("input_tokens"),
+			output_tokens=usage.get("output_tokens"),
+		)
+	elif isinstance(usage, dict):
+		normalized = normalize_openai_usage(usage)
+
+	resolved = resolve_usage_for_record(
+		usage=normalized,
+		provider_kind=provider_kind,
+		prompt_chars=prompt_chars,
+		completion_chars=completion_chars,
+	)
+	append_llm_usage_record(
+		task=task_name,
+		model=model,
+		usage=resolved,
+		attempt=attempt,
+		duration_ms=duration_ms,
+	)
+
+
+def _parse_openai_sse_chunks(line_iter: Iterable[str]) -> tuple[str, int, dict[str, Any] | None]:
 	"""Parse OpenAI-compatible SSE stream, concatenate delta.content.
 
-	Returns (full_text, chunk_count).
+	Returns (full_text, chunk_count, usage_dict).
 	"""
 	parts: list[str] = []
 	chunk_count = 0
+	usage: dict[str, Any] | None = None
 	for line in line_iter:
 		line = line.strip()
 		if not line or line.startswith(":"):
@@ -170,6 +216,8 @@ def _parse_openai_sse_chunks(line_iter: Iterable[str]) -> tuple[str, int]:
 			payload_str = line[6:]
 			try:
 				obj = json.loads(payload_str)
+				if isinstance(obj.get("usage"), dict):
+					usage = obj["usage"]
 				choices = obj.get("choices")
 				if isinstance(choices, list) and choices:
 					delta = choices[0].get("delta", {})
@@ -179,17 +227,19 @@ def _parse_openai_sse_chunks(line_iter: Iterable[str]) -> tuple[str, int]:
 						chunk_count += 1
 			except json.JSONDecodeError:
 				pass
-	return "".join(parts), chunk_count
+	return "".join(parts), chunk_count, usage
 
 
-def _parse_anthropic_sse_chunks(line_iter: Iterable[str]) -> tuple[str, int]:
+def _parse_anthropic_sse_chunks(line_iter: Iterable[str]) -> tuple[str, int, dict[str, int] | None]:
 	"""Parse Anthropic SSE stream, concatenate content_block_delta delta.text.
 
-	Returns (full_text, chunk_count).
+	Returns (full_text, chunk_count, usage_dict with input_tokens/output_tokens).
 	"""
 	parts: list[str] = []
 	chunk_count = 0
 	current_event = ""
+	input_tokens: int | None = None
+	output_tokens: int | None = None
 	for line in line_iter:
 		line = line.strip()
 		if not line:
@@ -203,17 +253,35 @@ def _parse_anthropic_sse_chunks(line_iter: Iterable[str]) -> tuple[str, int]:
 			continue
 		if line.startswith("data: "):
 			payload_str = line[6:]
-			if current_event == "content_block_delta":
-				try:
-					obj = json.loads(payload_str)
-					delta = obj.get("delta", {})
-					text = delta.get("text")
-					if isinstance(text, str):
-						parts.append(text)
-						chunk_count += 1
-				except json.JSONDecodeError:
-					pass
-	return "".join(parts), chunk_count
+			try:
+				obj = json.loads(payload_str)
+			except json.JSONDecodeError:
+				continue
+			if current_event == "message_start":
+				message = obj.get("message") if isinstance(obj.get("message"), dict) else {}
+				msg_usage = message.get("usage") if isinstance(message.get("usage"), dict) else {}
+				in_tok = msg_usage.get("input_tokens")
+				if isinstance(in_tok, int):
+					input_tokens = in_tok
+			elif current_event == "message_delta":
+				msg_usage = obj.get("usage") if isinstance(obj.get("usage"), dict) else {}
+				out_tok = msg_usage.get("output_tokens")
+				if isinstance(out_tok, int):
+					output_tokens = out_tok
+			elif current_event == "content_block_delta":
+				delta = obj.get("delta", {})
+				text = delta.get("text")
+				if isinstance(text, str):
+					parts.append(text)
+					chunk_count += 1
+	usage: dict[str, int] | None = None
+	if input_tokens is not None or output_tokens is not None:
+		usage = {}
+		if input_tokens is not None:
+			usage["input_tokens"] = input_tokens
+		if output_tokens is not None:
+			usage["output_tokens"] = output_tokens
+	return "".join(parts), chunk_count, usage
 
 
 class LLMAnalyzeProvider:
@@ -268,6 +336,10 @@ class LLMAnalyzeProvider:
 			"stream": True,
 			"max_tokens": effective_max_tokens,
 		}
+		if _env_bool("LLM_STREAM_INCLUDE_USAGE", True):
+			payload["stream_options"] = {"include_usage": True}
+
+		prompt_chars = _messages_char_len(messages)
 
 		debug_enabled = _env_bool("LLM_DEBUG", False)
 		debug_meta: dict[str, Any] = {}
@@ -302,6 +374,7 @@ class LLMAnalyzeProvider:
 		status: int | None = None
 		chunk_count = 0
 		stream_elapsed_s = 0.0
+		raw_usage: dict[str, Any] | None = None
 		while attempt < max_attempts:
 			attempt += 1
 			try:
@@ -314,7 +387,7 @@ class LLMAnalyzeProvider:
 					if status >= 400:
 						_ = stream.read()
 						break
-					full_text, chunk_count = _parse_openai_sse_chunks(stream.iter_lines())
+					full_text, chunk_count, raw_usage = _parse_openai_sse_chunks(stream.iter_lines())
 				stream_elapsed_s = time.perf_counter() - t_stream_start
 			except httpx.TimeoutException:
 				if attempt < max_attempts:
@@ -394,9 +467,31 @@ class LLMAnalyzeProvider:
 			)
 
 		total_elapsed_s = time.perf_counter() - t_start
+		from core.app.pipeline.llm_usage import normalize_openai_usage
+
+		normalized_usage = normalize_openai_usage(raw_usage) if raw_usage else None
+		_record_llm_usage_after_call(
+			task_name=task_name,
+			model=self._model,
+			attempt=attempt,
+			duration_ms=int(total_elapsed_s * 1000),
+			usage=raw_usage,
+			provider_kind="openai_compat",
+			prompt_chars=prompt_chars,
+			completion_chars=len(full_text),
+		)
+		usage_source = normalized_usage.source if normalized_usage else "unavailable"
+		usage_total = normalized_usage.total_tokens if normalized_usage else None
+		usage_prompt = normalized_usage.prompt_tokens if normalized_usage else None
+		usage_completion = normalized_usage.completion_tokens if normalized_usage else None
+		if usage_total is None and _env_bool("LLM_USAGE_ESTIMATE_FALLBACK", True):
+			usage_source = "estimated"
+			usage_prompt = max(0, prompt_chars // 4)
+			usage_completion = max(0, len(full_text) // 4)
+			usage_total = usage_prompt + usage_completion
 		# Always log timing info for performance tracking (not gated by LLM_DEBUG).
 		logger.info(
-			"[LLM] ok task=%s model=%s maxTokens=%s streamDur=%.1fs chunks=%d contentLen=%d parseDur=%.2fs totalDur=%.1fs attempt=%s/%s",
+			"[LLM] ok task=%s model=%s maxTokens=%s streamDur=%.1fs chunks=%d contentLen=%d parseDur=%.2fs totalDur=%.1fs attempt=%s/%s promptTokens=%s completionTokens=%s totalTokens=%s usageSource=%s",
 			task_name,
 			self._model,
 			effective_max_tokens,
@@ -407,6 +502,10 @@ class LLMAnalyzeProvider:
 			total_elapsed_s,
 			attempt,
 			max_attempts,
+			usage_prompt,
+			usage_completion,
+			usage_total,
+			usage_source,
 		)
 		return parsed
 
@@ -504,6 +603,8 @@ class AnthropicAnalyzeProvider:
 		if system_parts:
 			payload["system"] = "\n\n".join([p for p in system_parts if p.strip()])
 
+		prompt_chars = _messages_char_len(messages)
+
 		debug_enabled = _env_bool("LLM_DEBUG", False)
 		debug_meta: dict[str, Any] = {}
 		if debug_enabled:
@@ -536,6 +637,7 @@ class AnthropicAnalyzeProvider:
 		status: int | None = None
 		chunk_count = 0
 		stream_elapsed_s = 0.0
+		raw_usage: dict[str, int] | None = None
 		while attempt < max_attempts:
 			attempt += 1
 			try:
@@ -547,7 +649,7 @@ class AnthropicAnalyzeProvider:
 					if status >= 400:
 						_ = stream.read()
 						break
-					full_text, chunk_count = _parse_anthropic_sse_chunks(stream.iter_lines())
+					full_text, chunk_count, raw_usage = _parse_anthropic_sse_chunks(stream.iter_lines())
 				stream_elapsed_s = time.perf_counter() - t_stream_start
 			except httpx.TimeoutException:
 				if attempt < max_attempts:
@@ -619,8 +721,35 @@ class AnthropicAnalyzeProvider:
 			)
 
 		total_elapsed_s = time.perf_counter() - t_start
+		from core.app.pipeline.llm_usage import normalize_anthropic_usage
+
+		normalized_usage = None
+		if raw_usage:
+			normalized_usage = normalize_anthropic_usage(
+				input_tokens=raw_usage.get("input_tokens"),
+				output_tokens=raw_usage.get("output_tokens"),
+			)
+		_record_llm_usage_after_call(
+			task_name=task_name,
+			model=self._model,
+			attempt=attempt,
+			duration_ms=int(total_elapsed_s * 1000),
+			usage=raw_usage,
+			provider_kind="anthropic",
+			prompt_chars=prompt_chars,
+			completion_chars=len(full_text),
+		)
+		usage_source = normalized_usage.source if normalized_usage else "unavailable"
+		usage_total = normalized_usage.total_tokens if normalized_usage else None
+		usage_prompt = normalized_usage.prompt_tokens if normalized_usage else None
+		usage_completion = normalized_usage.completion_tokens if normalized_usage else None
+		if usage_total is None and _env_bool("LLM_USAGE_ESTIMATE_FALLBACK", True):
+			usage_source = "estimated"
+			usage_prompt = max(0, prompt_chars // 4)
+			usage_completion = max(0, len(full_text) // 4)
+			usage_total = usage_prompt + usage_completion
 		logger.info(
-			"[LLM] ok task=%s model=%s maxTokens=%s streamDur=%.1fs chunks=%d contentLen=%d parseDur=%.2fs totalDur=%.1fs attempt=%s/%s provider=anthropic",
+			"[LLM] ok task=%s model=%s maxTokens=%s streamDur=%.1fs chunks=%d contentLen=%d parseDur=%.2fs totalDur=%.1fs attempt=%s/%s promptTokens=%s completionTokens=%s totalTokens=%s usageSource=%s provider=anthropic",
 			task_name,
 			self._model,
 			effective_max_tokens,
@@ -631,6 +760,10 @@ class AnthropicAnalyzeProvider:
 			total_elapsed_s,
 			attempt,
 			max_attempts,
+			usage_prompt,
+			usage_completion,
+			usage_total,
+			usage_source,
 		)
 		return parsed
 

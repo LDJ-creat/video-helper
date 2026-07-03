@@ -22,6 +22,7 @@ from core.app.pipeline.analyze_provider import AnalyzeError
 from core.app.pipeline.keyframes import extract_keyframes_at_times, map_keyframes_error
 from core.app.pipeline.chunk_summaries import ensure_chunk_summaries, estimate_duration_ms, should_use_long_video_path
 from core.app.pipeline.llm_plan import generate_plan, validate_plan
+from core.app.pipeline.llm_usage_context import clear_llm_usage_context, set_llm_usage_context
 from core.app.pipeline.keyframe_verify import (
     drop_retried_highlights_missing_asset,
     get_verify_budget,
@@ -491,7 +492,14 @@ class PipelineJobProcessor:
     async def process(self, *, job_id: str, project_id: str) -> None:
         # Pipeline steps are synchronous and can be long-running (yt-dlp/ffmpeg/ASR).
         # Run them in a thread so the FastAPI event loop stays responsive.
-        await asyncio.to_thread(self._process_sync, job_id=job_id, project_id=project_id)
+        def _run_with_llm_usage_context() -> None:
+            set_llm_usage_context(project_id=project_id, job_id=job_id)
+            try:
+                self._process_sync(job_id=job_id, project_id=project_id)
+            finally:
+                clear_llm_usage_context()
+
+        await asyncio.to_thread(_run_with_llm_usage_context)
 
     def _process_sync(self, *, job_id: str, project_id: str) -> None:
         SessionLocal = get_sessionmaker()
