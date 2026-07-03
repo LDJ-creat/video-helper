@@ -7,7 +7,7 @@
 | 层级 | 内容 | 入口 |
 |------|------|------|
 | L0 | 契约 / pytest | `make core-test` |
-| L1 | 性能（E2E、分阶段、speedFactor） | `collect_job_metrics.py` |
+| L1 | 性能（E2E、分阶段、speedFactor、**LLM token**） | `collect_job_metrics.py` |
 | L2 | Result 结构质量 | `score_result_structure.py` |
 | L3 | Golden 语义（章节 F1、LLM judge、人工 rubric） | `run_benchmark.py --with-semantic` 等 |
 
@@ -52,7 +52,33 @@ make core-metrics DATA_DIR=./data
 - 主动：`{date}_{git_sha}_{profile}.json`
 - 历史：`{date}_{git_sha}_job-{jobId}.json`
 - 字段：`jobMetrics`、`structureScore`、`baselineDiff`、`environment`、`keyframeVerify`（+ 可选 `semanticScore`、`humanRubric`）
+- L1 扩展：`jobMetrics.llm.tokens`（`prompt` / `completion` / `total`、`byTask`、`byStage`）；数据来自 `DATA_DIR/{projectId}/artifacts/{jobId}/llm_usage.jsonl`
 - 同批次另生成 `.md` 摘要与 `.html` 可视化报告（流水线耗时瀑布图、结构检查卡片、LLM judge / 人工 rubric 区块）
+
+## LLM Token 消耗（L1）
+
+Job 流水线每次 LLM 调用会在 Provider 层 best-effort 写入：
+
+`DATA_DIR/{projectId}/artifacts/{jobId}/llm_usage.jsonl`
+
+报告字段 `jobMetrics.llm.tokens`：
+
+- `prompt` / `completion` / `total`：Job 汇总
+- `byTask`：按 `task_name`（如 `plan_content_blocks`、`chunk_summary`、`keyframe_verify`）
+- `byStage`：映射到流水线阶段（`analyze`、`chunk_summaries`、`keyframe_verify`）
+- `source`：`api`（API 返回）| `estimated`（chars/4 粗估）| `mixed` | 无文件时 `available: false`
+
+环境变量（`services/core/.env`）：
+
+```bash
+LLM_STREAM_INCLUDE_USAGE=1    # OpenAI 兼容流式请求携带 usage（默认开）
+LLM_USAGE_ESTIMATE_FALLBACK=1 # API 无 usage 时用字符粗估（默认开）
+```
+
+说明：
+
+- 功能上线前运行的历史 Job 无 `llm_usage.jsonl`，报告显示「未统计」
+- `--with-llm-judge` 的 benchmark 评判 **暂不** 计入 Job token
 
 ## Keyframe verify 指标
 

@@ -22,6 +22,7 @@ make core-metrics DATA_DIR=./data
 
 - **目录**：`benchmarks/results/`
 - **Schema**：`jobMetrics` + `structureScore` + `baselineDiff` + `environment` + `keyframeVerify`（+ 可选 `semanticScore`、`humanRubric`）
+- **L1 LLM token**：`jobMetrics.llm.tokens`（见 [`docs/evaluation.md`](../docs/evaluation.md#llm-token-消耗l1)）
 - **格式**：同前缀 `.json`、`.md`、`.html`（HTML 为可读可视化，含分阶段耗时、结构检查、LLM judge / 人工 rubric）
 - **文件名**：
   - 主动：`{date}_{git_sha}_{profile}.json`
@@ -32,6 +33,7 @@ make core-metrics DATA_DIR=./data
 | 层级 | 指标 | 通过线 |
 |------|------|--------|
 | L1 | speedFactor | 见 `profiles.yaml` 各 profile |
+| L1 | llm.tokens.total | 仅展示，暂不做门禁 |
 | L2 | structure.score | ≥ 0.85 |
 | L2 | keyframe_coverage | ≥ 0.5 |
 | L2 | timestamp_in_range | 100% |
