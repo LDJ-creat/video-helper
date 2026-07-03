@@ -15,6 +15,7 @@ from core.llm.catalog import (
 	openai_compat_models_list_url,
 )
 from core.llm.catalog import ListingKind
+from core.llm.http_headers import http_header_value_error
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +110,8 @@ def fetch_remote_models_for_provider(
 	key = (api_key or "").strip()
 	if not key:
 		return [], "missing_api_key"
+	if http_header_value_error(key):
+		return [], "invalid_api_key"
 
 	kind = listing_kind_of_provider(provider)
 	url: str
@@ -146,6 +149,8 @@ def fetch_remote_models_for_provider(
 	client = httpx.Client(timeout=max(5.0, float(timeout_s)), transport=transport, headers=headers, trust_env=False)
 	try:
 		resp = client.get(url)
+	except UnicodeEncodeError:
+		return [], "invalid_api_key"
 	except httpx.RequestError as e:
 		logger.info("remote model list request error: %s", type(e).__name__)
 		return [], "provider_unavailable"

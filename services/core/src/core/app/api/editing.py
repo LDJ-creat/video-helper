@@ -12,6 +12,7 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from core.contracts.error_codes import ErrorCode
 from core.contracts.error_envelope import build_error_envelope
+from core.app.benchmark.editing_diff import append_editing_diff_stat
 from core.db.models.asset import Asset
 from core.db.repositories.assets import get_asset_by_id
 from core.db.repositories.projects import get_project_by_id
@@ -166,10 +167,18 @@ def save_content_blocks(
 		if not _is_non_empty_str(b.get("blockId")):
 			return _validation_error(request=request, message=f"contentBlocks[{idx}].blockId must be a non-empty string")
 
+	before_blocks = result.content_blocks
 	updated_at_ms = _now_ms()
 	result.content_blocks = blocks
 	result.updated_at_ms = updated_at_ms
 	flag_modified(result, "content_blocks")
+	append_editing_diff_stat(
+		data_dir=get_data_dir(),
+		project_id=projectId,
+		kind="content_blocks",
+		before=before_blocks,
+		after=blocks,
+	)
 	try:
 		session.commit()
 	except Exception:
@@ -207,9 +216,18 @@ def save_mindmap(
 	if msg:
 		return _validation_error(request=request, message=msg, details=details)
 
+	before_mindmap = result.mindmap
 	updated_at_ms = _now_ms()
 	result.mindmap = mindmap or {"nodes": [], "edges": []}
 	result.updated_at_ms = updated_at_ms
+	flag_modified(result, "mindmap")
+	append_editing_diff_stat(
+		data_dir=get_data_dir(),
+		project_id=projectId,
+		kind="mindmap",
+		before=before_mindmap,
+		after=result.mindmap,
+	)
 	try:
 		session.commit()
 	except Exception:

@@ -816,6 +816,22 @@ def _safe_progress(value: float | int | None) -> float | None:
 		return None
 
 
+def _job_to_dto(job: Job) -> JobDTO:
+	return JobDTO(
+		jobId=job.job_id,
+		projectId=job.project_id,
+		type=job.type,
+		status=job.status,
+		stage=_safe_public_stage(job.stage),
+		progress=_safe_progress(job.progress),
+		error=job.error,
+		createdAtMs=job.created_at_ms,
+		startedAtMs=job.started_at_ms,
+		finishedAtMs=job.finished_at_ms,
+		updatedAtMs=job.updated_at_ms,
+	)
+
+
 def _now_ms() -> int:
 	return int(time.time() * 1000)
 
@@ -847,16 +863,7 @@ def get_job(jobId: str, request: Request, session: Session = Depends(get_db_sess
 			),
 		)
 
-	return JobDTO(
-		jobId=job.job_id,
-		projectId=job.project_id,
-		type=job.type,
-		status=job.status,
-		stage=_safe_public_stage(job.stage),
-		progress=_safe_progress(job.progress),
-		error=job.error,
-		updatedAtMs=job.updated_at_ms,
-	)
+	return _job_to_dto(job)
 
 
 
@@ -1637,16 +1644,7 @@ def retry_job(jobId: str, request: Request, session: Session = Depends(get_db_se
 		message="status=queued",
 	)
 
-	return JobDTO(
-		jobId=job.job_id,
-		projectId=job.project_id,
-		type=job.type,
-		status=job.status,
-		stage=_safe_public_stage(job.stage),
-		progress=_safe_progress(job.progress),
-		error=job.error,
-		updatedAtMs=job.updated_at_ms,
-	)
+	return _job_to_dto(job)
 
 
 @router.post("/projects/{projectId}/jobs/resume", response_model=JobDTO)
@@ -1773,13 +1771,4 @@ def resume_project_job(projectId: str, request: Request, payload: ResumeProjectJ
 		message="status=queued",
 	)
 
-	return JobDTO(
-		jobId=job.job_id,
-		projectId=job.project_id,
-		type=job.type,
-		status=job.status,
-		stage=_safe_public_stage(job.stage),
-		progress=_safe_progress(job.progress),
-		error=job.error,
-		updatedAtMs=job.updated_at_ms,
-	)
+	return _job_to_dto(job)

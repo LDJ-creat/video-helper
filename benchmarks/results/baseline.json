@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "2026-06-22",
+  "note": "Update after running each profile 3 times and taking median values. Document hardware/GPU in environment.",
+  "profiles": {
+    "short-local": {
+      "e2eMs": null,
+      "executionMs": null,
+      "speedFactor": null,
+      "structureScore": null,
+      "environment": {}
+    },
+    "medium-url": {
+      "e2eMs": null,
+      "executionMs": null,
+      "speedFactor": null,
+      "structureScore": null,
+      "environment": {}
+    }
+  }
+}

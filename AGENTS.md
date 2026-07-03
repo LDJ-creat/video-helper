@@ -33,7 +33,7 @@
 | 桌面端 | `apps/desktop` | Electron 33；Sidecar 拉起 `core`（:8000）+ Next standalone（:3000） |
 | 后端 API | `services/core` | FastAPI、Python ≥3.12、**uv** 包管理 |
 | 数据库 | `DATA_DIR/core.sqlite3` | SQLite + SQLAlchemy 2.x + Alembic |
-| 转写 | `core/external/asr_faster_whisper.py` | faster-whisper（ctranslate2） |
+| 转写 | `core/external/asr_faster_whisper.py` + `core/app/pipeline/asr_router.py` | 云端 ASR（DashScope / OpenAI / Volcengine）优先，失败可降级 faster-whisper |
 | 下载 | `core/external/ytdlp.py` | yt-dlp |
 | 媒体处理 | `core/external/ffmpeg.py` | FFmpeg（关键帧、音频等） |
 | LLM 调用 | `core/app/pipeline/analyze_provider.py` | OpenAI 兼容 `chat/completions` + JSON 输出 |
@@ -128,9 +128,9 @@ ORM 入口：`services/core/src/core/db/models/`（`Project`、`Job`、`Result`�
 | Public stage | 典型内部 stage | 职责 |
 |--------------|----------------|------|
 | `ingest` | `download`, `upload`, … | yt-dlp 下载或接收上传、元数据 |
-| `transcribe` | `speech_to_text` | faster-whisper 转写，写入 transcript |
+| `transcribe` | `speech_to_text` | 云端 ASR 或 faster-whisper 转写，写入 transcript |
 | `analyze` | `chunk_summaries`, `plan`, … | LLM 生成 plan（摘要 + 导图结构） |
-| `extract_keyframes` | `keyframes`, `keyframe_verify` | FFmpeg 按 plan 时间点抽帧，可选 LLM 校验 |
+| `extract_keyframes` | `keyframes`, `keyframe_verify` | FFmpeg 按 plan 时间点抽帧；默认 **multimodal** LLM verify（低置信度复核 + 重抽后再验证；上游拒图时降级 OCR）。`KEYFRAME_VERIFY_MODE=off` 可关闭 |
 | `assemble_result` | — | 写入 `results` 表，更新 `latest_result_id` |
 
 前端阶段映射：`apps/web/src/lib/constants/stageMapping.ts`。
@@ -144,12 +144,12 @@ ORM 入口：`services/core/src/core/db/models/`（`Project`、`Job`、`Result`�
 ### 5.2 短视频路径（标准）
 
 1. Ingest → 音频/视频落盘  
-2. Transcribe → `transcript.json`（带时间戳片段）  
+2. Transcribe → `transcribe_real.py` 经 `asr_router.py` 调用云端或本地 ASR，写入 `transcript.json`（带时间戳片段）  
 3. **Plan**（`core/app/pipeline/llm_plan.py`）  
    - 调用 `AnalyzeProvider.generate_json`  
    - Pydantic 校验 `PlanOutput`（`contentBlocks` + `mindmap`）  
    - 失败时 `llm_json_repair.py` 尝试修复 JSON  
-4. Keyframes → `keyframes.py` / `keyframe_verify.py`  
+4. Keyframes → `keyframes.py` / `keyframe_verify.py`（默认 multimodal verify，可用 `KEYFRAME_VERIFY_MODE=off|ocr` 覆盖）
 5. `assemble_result()` → `core/pipeline/stages/assemble_result.py`
 
 Plan 产物会缓存到 `DATA_DIR/{projectId}/artifacts/plan/{jobId}/`，便于失败后重试、调试。
@@ -177,7 +177,24 @@ Plan 产物会缓存到 `DATA_DIR/{projectId}/artifacts/plan/{jobId}/`，便于�
 
 环境变量兜底（优先级低于 DB 设置）：`LLM_API_BASE`、`LLM_API_KEY`、`LLM_MODEL`（见 `services/core/.env.example`）。
 
-### 5.5 External 模式（AI 编辑器 Skill）
+### 5.5 云端 ASR 子系统
+
+Settings 页（`/settings`）或 API 配置云端语音识别；启用后转写阶段**优先云端**，失败且 `fallbackToLocal=true` 时自动降级本地 faster-whisper。
+
+| 模块 | 路径 | 作用 |
+|------|------|------|
+| 路由与 fallback | `app/pipeline/asr_router.py` | 云端/本地选择、错误映射、计时 |
+| 转写入口 | `app/pipeline/transcribe_real.py` | Worker 调用的转写实现 |
+| Provider 适配 | `external/asr_providers/` | DashScope、OpenAI Whisper、火山引擎 |
+| 设置解析 | `asr/runtime.py` | DB active + 加密密钥 + 环境变量兜底 |
+| 设置 API | `app/api/settings.py` | catalog / active / secret / test |
+| 本地降级参数 | 环境变量 | `TRANSCRIBE_MODEL_SIZE`、`TRANSCRIBE_DEVICE`（不由前端配置） |
+
+首期后端支持 provider：`dashscope`、`openai`、`volcengine`。环境变量兜底：`DASHSCOPE_API_KEY`、`OPENAI_API_KEY`、`VOLCENGINE_ASR_API_KEY`、`ASR_CLOUD_ENABLED` 等（见 `.env.example`）。契约见 `docs/api.md` ASR 章节；测试见 `tests/test_asr_settings_and_router.py`。
+
+Job 日志含 `asr_fallback` 时，前端 `AnalysisProgressPanel` 会提示已降级本地转写。
+
+### 5.6 External 模式（AI 编辑器 Skill）
 
 Job 创建时可设 `llmMode: "external"`。Worker 在 transcribe 后等待外部提交：
 
@@ -206,16 +223,17 @@ services/core/src/core/
 │   │   ├── ai.py           # chat、quiz
 │   │   └── health.py
 │   ├── worker/worker_loop.py   # ★ 流水线主编排
-│   ├── pipeline/           # ingest 后各阶段实现
+│   ├── pipeline/           # ingest 后各阶段实现（含 asr_router.py）
 │   ├── sse/                # Job SSE
 │   ├── logs/               # job_logs、pipeline_timings
 │   └── smoke/              # 闭环 smoke 校验
+├── asr/                    # 云端 ASR catalog、runtime、连通性测试
 ├── contracts/              # stages、error_codes、SSE、progress（前后端契约）
 ├── db/
 │   ├── models/
-│   ├── repositories/       # jobs、projects、results、job_queue...
+│   ├── repositories/       # jobs、projects、results、llm_settings、asr_settings...
 │   └── session.py          # DATA_DIR、SQLite engine
-├── external/               # ffmpeg、ytdlp、asr
+├── external/               # ffmpeg、ytdlp、asr_faster_whisper、asr_providers/
 ├── llm/                    # catalog、interaction、secrets
 ├── schemas/                # Pydantic DTO（API 响应/请求）
 └── storage/                # layout、safe_paths
@@ -387,12 +405,13 @@ uv run alembic upgrade head
 | 新增/修改流水线阶段 | `app/worker/worker_loop.py` → 对应 `app/pipeline/*.py` |
 | 调整 LLM Prompt / Plan schema | `app/pipeline/llm_plan.py` |
 | 长视频分块策略 | `app/pipeline/chunk_summaries.py` |
-| 转写质量/性能 | `external/asr_faster_whisper.py`、`.env` 中 `TRANSCRIBE_*` |
+| 转写质量/性能 / 云端 ASR | `app/pipeline/asr_router.py`、`external/asr_providers/`、Settings 页 ASR 区块；本地参数见 `.env` 中 `TRANSCRIBE_*` |
 | 下载失败 / 平台兼容 | `external/ytdlp.py`、`jobs.py` ingest |
 | 关键帧抽取 | `app/pipeline/keyframes.py`、`keyframe_verify.py` |
 | 新 REST 接口 | `app/api/*.py` + `schemas/` + `docs/api.md` |
 | 结果页 UI / 联动 | `projects/[projectId]/results/page.tsx` + `features/editor/*` |
 | LLM 设置 UI | `components/features/settings/SettingsForm.tsx` + `settings.py` |
+| ASR / 云端转写设置 | `components/features/settings/AsrSettingsSection.tsx` + `settings.py` ASR API |
 | Electron 打包 | `apps/desktop/PACKAGING.md`、`scripts/build-all.ps1` |
 
 ---

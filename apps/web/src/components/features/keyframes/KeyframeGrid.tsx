@@ -30,9 +30,9 @@ export function KeyframeGrid({ keyframes, onKeyframeClick, isLoading = false }: 
 
     return (
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-            {keyframes.map((keyframe) => (
+            {keyframes.map((keyframe, idx) => (
                 <button
-                    key={`${keyframe.assetId}`}
+                    key={`${keyframe.assetId}-${idx}`}
                     onClick={() => onKeyframeClick(keyframe.timeMs)}
                     className="group relative bg-white rounded-lg border border-stone-200 overflow-hidden hover:border-stone-300 hover:shadow-md transition-all duration-200"
                 >

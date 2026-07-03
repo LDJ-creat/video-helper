@@ -15,7 +15,10 @@ from core.db.models.project import Project
 from core.db.session import get_data_dir
 from core.external.ffmpeg import FfmpegError, extract_audio_wav_16k_mono
 from core.external.ytdlp import YtDlpError, download_with_ytdlp, fetch_video_title
-from core.external.asr_faster_whisper import AsrError, transcribe_with_faster_whisper
+from core.app.pipeline.asr_router import transcribe_with_router
+from core.asr.runtime import asr_runtime_for_jobs
+from core.external.asr_faster_whisper import AsrError
+from core.external.asr_providers.base import AsrCloudError
 
 
 @dataclass(frozen=True)
@@ -168,8 +171,21 @@ def map_transcribe_error(exc: Exception) -> dict:
 	if isinstance(exc, (YtDlpError, FfmpegError)) and getattr(exc, "kind", None) == "timeout":
 		step = "download" if isinstance(exc, YtDlpError) else "ffmpeg"
 		return {"code": ErrorCode.JOB_STAGE_FAILED, "message": "Stage timed out", "details": {"reason": "timeout", "step": step}}
-	if isinstance(exc, AsrError) and exc.kind == "timeout":
-		return {"code": ErrorCode.JOB_STAGE_FAILED, "message": "Stage timed out", "details": {"reason": "timeout", "step": "asr"}}
+	if isinstance(exc, AsrCloudError) and exc.kind == "timeout":
+		return {"code": ErrorCode.JOB_STAGE_FAILED, "message": "Stage timed out", "details": {"reason": "timeout", "step": "asr", "provider": "cloud"}}
+	if isinstance(exc, AsrCloudError) and exc.fallback_eligible:
+		# Should have been handled by router fallback; surface as stage failure if it bubbles up.
+		return {
+			"code": ErrorCode.JOB_STAGE_FAILED,
+			"message": "Cloud ASR failed",
+			"details": {"reason": exc.kind, "step": "asr", "provider": "cloud", **(exc.details or {})},
+		}
+	if isinstance(exc, AsrCloudError):
+		return {
+			"code": ErrorCode.JOB_STAGE_FAILED,
+			"message": str(exc) or "Cloud ASR failed",
+			"details": {"reason": exc.kind, "step": "asr", "provider": "cloud", **(exc.details or {})},
+		}
 
 	# Content issues.
 	if isinstance(exc, FfmpegError) and exc.kind == "no_audio":
@@ -246,6 +262,7 @@ def run_real_transcribe(
 	default_duration_ms: int,
 	progress_cb: object | None = None,
 	log_cb: object | None = None,
+	session: object | None = None,
 ) -> TranscribeArtifacts:
 	"""Real transcribe closed-loop: (optional) yt-dlp → ffmpeg → faster-whisper → transcript file.
 
@@ -323,30 +340,20 @@ def run_real_transcribe(
 	_progress(0.35, f"audio=ok wav={audio_result.rel_path} ms={audio_ms} durS={int(audio_dur_s) if audio_dur_s else 'unknown'}")
 
 	# ASR
-	_progress(0.40, "asr=starting provider=faster-whisper")
-	model_size = (os.environ.get("TRANSCRIBE_MODEL_SIZE") or "base").strip() or "base"
-	device = (os.environ.get("TRANSCRIBE_DEVICE") or "auto").strip() or "auto"
-	compute_type = _env_str("TRANSCRIBE_COMPUTE_TYPE")
-	device_index = _env_int("TRANSCRIBE_DEVICE_INDEX", 0)
-	vad_filter = _env_bool("TRANSCRIBE_VAD_FILTER", True)
-	beam_size = _env_int("TRANSCRIBE_BEAM_SIZE", 0)
-	best_of = _env_int("TRANSCRIBE_BEST_OF", 0)
-	if beam_size <= 0:
-		beam_size = 0
-	if best_of <= 0:
-		best_of = 0
+	asr_settings = asr_runtime_for_jobs(session if session is not None else None)
 	asr_start = time.perf_counter()
 	with time_pipeline_step(project_id=project.project_id, task_id=job_id, step="transcribe.asr"):
-		asr = transcribe_with_faster_whisper(
+		def _asr_progress(msg: str) -> None:
+			_progress(0.42, msg)
+
+		router_result = transcribe_with_router(
 			audio_path=audio_result.abs_path,
-			model_size=model_size,
-			device=device,
-			device_index=device_index,
-			compute_type=compute_type,
-			vad_filter=vad_filter,
-			beam_size=(beam_size or None),
-			best_of=(best_of or None),
+			settings=asr_settings,
+			audio_duration_s=audio_dur_s,
+			progress_cb=_asr_progress,
+			log_cb=(lambda msg: log_cb(msg) if log_cb and callable(log_cb) else None),
 		)
+		asr = router_result.result
 	asr_ms = int(max(0.0, (time.perf_counter() - asr_start) * 1000.0))
 	rtf = None
 	if audio_dur_s and audio_dur_s > 0.01:
@@ -354,7 +361,9 @@ def run_real_transcribe(
 	transcript = asr.to_transcript_dict()
 	_progress(
 		0.45,
-		f"asr=ok language={asr.language or 'unknown'} ms={asr_ms} rtf={rtf:.3f}" if rtf is not None else f"asr=ok language={asr.language or 'unknown'} ms={asr_ms}",
+		f"asr=ok mode={router_result.asr_mode} provider={asr.provider} language={asr.language or 'unknown'} ms={asr_ms} rtf={rtf:.3f}"
+		if rtf is not None
+		else f"asr=ok mode={router_result.asr_mode} provider={asr.provider} language={asr.language or 'unknown'} ms={asr_ms}",
 	)
 
 	# Persist transcript file
@@ -367,6 +376,10 @@ def run_real_transcribe(
 		"language": transcript.get("language"),
 		"audioRef": audio_result.rel_path,
 		"sha256": stored.sha256,
+		"asrMode": router_result.asr_mode,
+		"fallbackFrom": router_result.fallback_from,
+		"fallbackReason": router_result.fallback_reason,
+		"asrTimingsMs": router_result.timings_ms,
 	}
 
 	return TranscribeArtifacts(

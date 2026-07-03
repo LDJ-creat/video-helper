@@ -18,6 +18,9 @@ class JobDTO(BaseModel):
     stage: PublicStage
     progress: float | None
     error: dict[str, Any] | None
+    createdAtMs: int | None = None
+    startedAtMs: int | None = None
+    finishedAtMs: int | None = None
     updatedAtMs: int
 
 

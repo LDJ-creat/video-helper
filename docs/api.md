@@ -199,6 +199,9 @@ data: {"eventId":"13","tsMs":1738030000456,"jobId":"...","projectId":"...","stag
 	"stage": "transcribe",
 	"progress": 0.42,
 	"error": null,
+	"createdAtMs": 1738030000000,
+	"startedAtMs": 1738030000100,
+	"finishedAtMs": null,
 	"updatedAtMs": 1738030000456
 }
 ```
@@ -729,6 +732,69 @@ vNext 使用 SQLite：
 - 每个 provider 的加密密钥：`llm_profile_secrets`
 
 可选运维兜底：仍允许通过环境变量 `LLM_API_KEY` 注入（不落盘），但 UI 场景以 Secret Store 为准。
+
+#### ASR Settings（语音转写）
+
+**GET /api/v1/settings/asr/catalog**
+
+Response（示例）：
+
+```json
+{
+  "providers": [
+    {
+      "providerId": "dashscope",
+      "displayName": "阿里云百炼 (DashScope)",
+      "hasKey": true,
+      "secretUpdatedAtMs": 1738030000000,
+      "models": [{"modelId": "paraformer-v2", "displayName": "Paraformer v2", "isCustom": false}],
+      "notes": "需将音频上传至临时 OSS 后异步识别；配置 API Key 后从上游拉取可用模型"
+    }
+  ],
+  "updatedAtMs": 1738030000000
+}
+```
+
+**GET /api/v1/settings/asr/active**
+
+**PUT /api/v1/settings/asr/active**
+
+Request Body（示例）：
+
+```json
+{
+  "cloudEnabled": true,
+  "providerId": "dashscope",
+  "modelId": "paraformer-v2",
+  "fallbackToLocal": true
+}
+```
+
+`localModelSize` / `localDevice` 由服务端根据环境变量 `TRANSCRIBE_MODEL_SIZE`、`TRANSCRIBE_DEVICE` 自动解析，不在前端配置；GET active 响应中仍会返回当前生效值供调试。
+
+**GET /api/v1/settings/asr/providers/{providerId}/remote-models**
+
+使用已保存的 API Key 从上游拉取可用 ASR 模型（服务端代理，不下发密钥）。Response 形态与 LLM `remote-models` 相同：`{ ok, models: [{ modelId, displayName }], error? }`。
+
+**POST /api/v1/settings/asr/providers/{providerId}/models**
+
+添加自定义 ASR 模型 ID（body: `{ modelId, displayName? }`）。
+
+**DELETE /api/v1/settings/asr/providers/{providerId}/models/{modelId}**
+
+删除自定义 ASR 模型。
+
+**PUT/DELETE /api/v1/settings/asr/providers/{providerId}/secret**
+
+**POST /api/v1/settings/asr/active/test**
+
+**POST /api/v1/settings/asr/providers/{providerId}/test**
+
+**POST /api/v1/settings/asr/prefetch** — 预下载本地 faster-whisper 模型（body: `{ "modelSize": "base" }`）
+
+环境变量兜底（优先级低于 DB）：`DASHSCOPE_API_KEY`、`OPENAI_API_KEY`、`VOLCENGINE_ASR_API_KEY`、`ASR_CLOUD_ENABLED`、`ASR_PROVIDER_ID`、`ASR_MODEL_ID`。
+
+vNext SQLite 表：`asr_active`（单例）、`asr_profile_secrets`（加密 API Key）。
 
 ---
 

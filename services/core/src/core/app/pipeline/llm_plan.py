@@ -121,6 +121,37 @@ def _as_int(v: object) -> int | None:
     return None
 
 
+def _keyframe_dedupe_key(kf: dict) -> int | None:
+    tm = _as_int(kf.get("timeMs"))
+    if tm is None:
+        return None
+    return int(tm)
+
+
+def _dedupe_keyframes(valid_kfs: list[dict]) -> list[dict]:
+    """Collapse duplicate keyframes by timeMs, preserving first-seen order."""
+
+    deduped: list[dict] = []
+    seen: set[int] = set()
+    for kf in valid_kfs:
+        if not isinstance(kf, dict):
+            continue
+        key = _keyframe_dedupe_key(kf)
+        if key is None:
+            continue
+        if key in seen:
+            for existing in deduped:
+                if _keyframe_dedupe_key(existing) == key:
+                    for opt in ("assetId", "contentUrl", "caption"):
+                        if existing.get(opt) in (None, "") and kf.get(opt) not in (None, ""):
+                            existing[opt] = kf.get(opt)
+                    break
+            continue
+        seen.add(key)
+        deduped.append(dict(kf))
+    return deduped
+
+
 def _parse_jsonish_string(value: object) -> object:
     if not isinstance(value, str):
         return value
@@ -332,6 +363,8 @@ def _normalize_plan_payload(plan: dict) -> dict:
                     if opt in kf and (kf.get(opt) is None or isinstance(kf.get(opt), (str, int))):
                         kf2[opt] = kf.get(opt)
                 valid_kfs.append(kf2)
+
+            valid_kfs = _dedupe_keyframes(valid_kfs)
 
             if valid_kfs:
                 h["keyframe"] = valid_kfs[0]
@@ -803,10 +836,9 @@ def _env_bool(name: str, default: bool) -> bool:
 
 
 def _keyframe_verify_enabled() -> bool:
-    # Must match worker_loop behavior:
-    # verify_mode = get_verify_mode(); if verify_mode != "off":
-    mode = (os.environ.get("KEYFRAME_VERIFY_MODE") or "off").strip().lower()
-    return mode != "off"
+    from core.app.pipeline.keyframe_verify import get_verify_mode
+
+    return get_verify_mode() != "off"
 
 
 def _json_dumps_compact(obj: object) -> str:

@@ -193,14 +193,9 @@ async def stream_chat(
         return
 
     # OpenAI-compatible streaming
-    url = api_base.rstrip("/")
-    lower = url.lower()
-    if lower.endswith("/v1"):
-        url += "/chat/completions"
-    elif lower.endswith("/chat/completions") or lower.endswith("/v1/chat/completions") or lower.endswith("/responses") or lower.endswith("/v1/responses"):
-        pass
-    else:
-        url += "/v1/chat/completions"
+    from core.llm.openai_compat_url import resolve_openai_compat_chat_endpoint
+
+    url = resolve_openai_compat_chat_endpoint(api_base)
 
     headers = {
         "Authorization": f"Bearer {api_key}",

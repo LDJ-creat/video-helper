@@ -100,22 +100,9 @@ def find_provider(provider_id: str) -> LLMCatalogProvider | None:
 def openai_compat_models_list_url(base_url: str) -> str:
 	"""Derive ``GET .../models`` URL from a chat-completions style or ``/v1`` root ``base_url``."""
 
-	u = (base_url or "").strip().rstrip("/")
-	if not u:
-		return ""
-	lower = u.lower()
-	if lower.endswith("/v1/chat/completions"):
-		u = u[: -len("/chat/completions")].rstrip("/")
-		lower = u.lower()
-	elif lower.endswith("/chat/completions"):
-		u = u[: -len("/chat/completions")].rstrip("/")
-		lower = u.lower()
-	if lower.endswith("/v1/responses"):
-		u = u[: -len("/responses")].rstrip("/")
-		lower = u.lower()
-	if lower.endswith("/models"):
-		return u
-	return f"{u}/models"
+	from core.llm.openai_compat_url import openai_compat_models_list_url as _resolve
+
+	return _resolve(base_url)
 
 
 def anthropic_models_list_url(base_url: str) -> str:

@@ -48,6 +48,18 @@ export const endpoints = {
     // Custom provider endpoints
     llmCustomProviders: () => `${API_V1}/settings/llm/custom-providers`,
     llmCustomProvider: (providerId: string) => `${API_V1}/settings/llm/custom-providers/${providerId}`,
+    // ASR Settings endpoints
+    asrCatalog: () => `${API_V1}/settings/asr/catalog`,
+    asrActive: () => `${API_V1}/settings/asr/active`,
+    asrProviderSecret: (providerId: string) => `${API_V1}/settings/asr/providers/${providerId}/secret`,
+    asrTest: () => `${API_V1}/settings/asr/active/test`,
+    asrProviderTest: (providerId: string) => `${API_V1}/settings/asr/providers/${providerId}/test`,
+    asrRemoteModels: (providerId: string) =>
+        `${API_V1}/settings/asr/providers/${encodeURIComponent(providerId)}/remote-models`,
+    asrProviderModels: (providerId: string) => `${API_V1}/settings/asr/providers/${providerId}/models`,
+    asrProviderModel: (providerId: string, modelId: string) =>
+        `${API_V1}/settings/asr/providers/${providerId}/models/${encodeURIComponent(modelId)}`,
+    asrPrefetch: () => `${API_V1}/settings/asr/prefetch`,
     // AI Features
     chat: () => `${API_V1}/chat/completions`,
     chatSessions: (projectId: string) => `${API_V1}/chat/sessions?projectId=${projectId}`,

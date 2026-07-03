@@ -47,6 +47,18 @@ from core.schemas.settings import (
 	LLMActiveTestDTO,
 	ProviderLLMTestRequestDTO,
 	AsrPrefetchRequestDTO,
+	AsrCatalogDTO,
+	AsrCatalogModelDTO,
+	AsrCatalogProviderDTO,
+	AsrRemoteModelsDTO,
+	AsrRemoteModelDTO,
+	AsrRemoteModelsErrorDTO,
+	AddCustomAsrModelRequestDTO,
+	AsrActiveDTO,
+	PutAsrActiveRequestDTO,
+	PutAsrProviderSecretRequestDTO,
+	AsrActiveTestDTO,
+	ProviderAsrTestRequestDTO,
 	OkDTO,
 	PutLLMActiveRequestDTO,
 	PutLLMProviderSecretRequestDTO,
@@ -61,6 +73,21 @@ from core.settings import get_effective_analyze_settings
 from core.db.session import get_data_dir
 
 from core.external.asr_faster_whisper import AsrError, prefetch_faster_whisper_model
+from core.asr.catalog import asr_model_exists, find_asr_provider, list_asr_catalog_providers
+from core.asr.remote_model_list import fetch_remote_asr_models_for_provider
+from core.asr.runtime import AsrRuntimeSettings, _local_transcribe_settings, asr_runtime_for_jobs, validate_asr_runtime
+from core.asr.active_test import AsrActiveTestError, run_asr_connectivity_test
+from core.db.repositories.asr_settings import (
+	add_custom_asr_model,
+	delete_asr_provider_secret,
+	delete_custom_asr_model,
+	get_asr_active,
+	get_asr_provider_secret_ciphertext,
+	get_asr_provider_secret_meta,
+	list_custom_asr_models,
+	set_asr_active,
+	upsert_asr_provider_secret_ciphertext,
+)
 
 
 router = APIRouter(tags=["settings"])
@@ -234,6 +261,7 @@ def _remote_models_error_dto(code: str) -> LLMRemoteModelsErrorDTO:
 		"invalid_credentials": "The stored API key could not be decrypted or was rejected.",
 		"invalid_base_url": "Provider base URL is missing or invalid.",
 		"missing_api_key": "No API key available for this provider.",
+		"invalid_api_key": "API key contains characters that cannot be sent in HTTP headers. Check for extra spaces or non-ASCII text.",
 		"provider_unavailable": "Could not reach the provider to list models.",
 		"list_models_failed": "The provider rejected the models list request.",
 		"invalid_response": "Unexpected response when listing models.",
@@ -519,9 +547,10 @@ def _llm_connectivity_test_response(
 			model=runtime_model,
 		)
 	except LLMActiveTestError as e:
-		status = 400 if e.reason in {"invalid_credentials", "model_not_found"} else 503
+		status = 400 if e.reason in {"invalid_credentials", "model_not_found", "invalid_api_key"} else 503
 		msg = {
 			"invalid_credentials": "Invalid credentials",
+			"invalid_api_key": "API key contains invalid characters",
 			"model_not_found": "Model not found",
 			"provider_unavailable": "Provider unavailable",
 		}.get(e.reason, "Provider unavailable")
@@ -1020,6 +1049,349 @@ def get_ytdlp_cookies_status(request: Request):
 			updatedAtMs=int(stat.st_mtime * 1000),
 		)
 	return YtdlpCookiesStatusDTO(hasFile=False)
+
+
+# ─── ASR Settings ───────────────────────────────────────────────────────────
+
+
+@router.get("/settings/asr/catalog", response_model=AsrCatalogDTO)
+def get_asr_catalog_api(request: Request, session: Session = Depends(get_db_session)):
+	providers_out: list[AsrCatalogProviderDTO] = []
+	for provider in list_asr_catalog_providers():
+		meta = get_asr_provider_secret_meta(session, provider_id=provider.provider_id)
+		has_key = bool(meta.get("hasKey")) if isinstance(meta, dict) else False
+		models: list[AsrCatalogModelDTO] = []
+		for cm in list_custom_asr_models(session, provider_id=provider.provider_id):
+			models.append(
+				AsrCatalogModelDTO(
+					modelId=cm["modelId"],
+					displayName=cm["displayName"],
+					isCustom=True,
+				)
+			)
+		providers_out.append(
+			AsrCatalogProviderDTO(
+				providerId=provider.provider_id,
+				displayName=provider.display_name,
+				hasKey=has_key,
+				secretUpdatedAtMs=int(meta.get("secretUpdatedAtMs")) if isinstance(meta, dict) and meta.get("secretUpdatedAtMs") else None,
+				models=models,
+				notes=provider.notes,
+			)
+		)
+	return AsrCatalogDTO(providers=providers_out, updatedAtMs=_now_ms())
+
+
+def _asr_remote_models_error_dto(code: str) -> AsrRemoteModelsErrorDTO:
+	msgs: dict[str, str] = {
+		"missing_credentials": "Save an API key for this provider first.",
+		"invalid_credentials": "The stored API key could not be decrypted or was rejected.",
+		"missing_api_key": "No API key available for this provider.",
+		"invalid_api_key": "API key contains characters that cannot be sent in HTTP headers.",
+		"provider_unavailable": "Could not reach the provider to list models.",
+		"list_models_failed": "The provider rejected the models list request.",
+		"invalid_response": "Unexpected response when listing models.",
+		"unknown_provider": "Unknown provider.",
+	}
+	return AsrRemoteModelsErrorDTO(code=code, message=msgs.get(code, code))
+
+
+@router.get("/settings/asr/providers/{provider_id}/remote-models", response_model=AsrRemoteModelsDTO)
+def get_asr_remote_models(
+	provider_id: str,
+	_: Request,
+	session: Session = Depends(get_db_session),
+):
+	pid = (provider_id or "").strip().lower()
+	if find_asr_provider(pid) is None:
+		return AsrRemoteModelsDTO(ok=False, models=[], error=_asr_remote_models_error_dto("unknown_provider"))
+
+	ciphertext = get_asr_provider_secret_ciphertext(session, provider_id=pid)
+	if not ciphertext:
+		return AsrRemoteModelsDTO(ok=False, models=[], error=_asr_remote_models_error_dto("missing_credentials"))
+
+	try:
+		api_key = decrypt_api_key(ciphertext)
+	except Exception:
+		return AsrRemoteModelsDTO(ok=False, models=[], error=_asr_remote_models_error_dto("invalid_credentials"))
+
+	items, err = fetch_remote_asr_models_for_provider(provider_id=pid, api_key=api_key)
+	if err:
+		return AsrRemoteModelsDTO(ok=False, models=[], error=_asr_remote_models_error_dto(err))
+
+	return AsrRemoteModelsDTO(
+		ok=True,
+		models=[AsrRemoteModelDTO(modelId=i.model_id, displayName=i.display_name) for i in items],
+		error=None,
+	)
+
+
+@router.get("/settings/asr/active", response_model=AsrActiveDTO)
+def get_asr_active_api(request: Request, session: Session = Depends(get_db_session)):
+	active = get_asr_active(session)
+	if active is None:
+		return AsrActiveDTO(configured=False, cloudEnabled=True, providerId=None, modelId=None, hasKey=False)
+
+	provider_id = str(active.get("providerId") or "").strip()
+	model_id = str(active.get("modelId") or "").strip()
+	meta = get_asr_provider_secret_meta(session, provider_id=provider_id)
+	has_key = bool(meta.get("hasKey")) if isinstance(meta, dict) else False
+	local_model_size, local_device = _local_transcribe_settings()
+
+	return AsrActiveDTO(
+		configured=True,
+		cloudEnabled=bool(active.get("cloudEnabled", True)),
+		providerId=provider_id or None,
+		modelId=model_id or None,
+		localModelSize=local_model_size,
+		localDevice=local_device,
+		fallbackToLocal=bool(active.get("fallbackToLocal", True)),
+		hasKey=has_key,
+		updatedAtMs=int(active.get("updatedAtMs") or 0),
+	)
+
+
+@router.put("/settings/asr/active", response_model=OkDTO)
+def put_asr_active_api(
+	body: PutAsrActiveRequestDTO,
+	request: Request,
+	session: Session = Depends(get_db_session),
+):
+	provider_id = (body.providerId or "").strip().lower()
+	model_id = (body.modelId or "").strip()
+	if find_asr_provider(provider_id) is None:
+		return JSONResponse(
+			status_code=400,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message="Unknown ASR provider",
+				details={"reason": "unknown_provider", "providerId": provider_id},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+	if not asr_model_exists(provider_id=provider_id, model_id=model_id):
+		return JSONResponse(
+			status_code=400,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message="Unknown ASR model",
+				details={"reason": "unknown_model", "providerId": provider_id, "modelId": model_id},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
+	local_model_size, local_device = _local_transcribe_settings()
+	set_asr_active(
+		session,
+		cloud_enabled=bool(body.cloudEnabled),
+		provider_id=provider_id,
+		model_id=model_id,
+		local_model_size=local_model_size,
+		local_device=local_device,
+		fallback_to_local=bool(body.fallbackToLocal),
+		now_ms=_now_ms(),
+	)
+	session.commit()
+	return OkDTO(ok=True)
+
+
+@router.put("/settings/asr/providers/{provider_id}/secret", response_model=OkDTO)
+def put_asr_provider_secret_api(
+	provider_id: str,
+	body: PutAsrProviderSecretRequestDTO,
+	request: Request,
+	session: Session = Depends(get_db_session),
+):
+	if find_asr_provider(provider_id) is None:
+		return JSONResponse(
+			status_code=400,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message="Unknown ASR provider",
+				details={"reason": "unknown_provider", "providerId": provider_id},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+	api_key = (body.apiKey or "").strip()
+	if not api_key:
+		return JSONResponse(
+			status_code=400,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message="Invalid request",
+				details={"reason": "invalid_api_key"},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+	pid = provider_id.strip().lower()
+	ciphertext = encrypt_api_key(api_key)
+	upsert_asr_provider_secret_ciphertext(session, provider_id=pid, ciphertext_b64=ciphertext, now_ms=_now_ms())
+	session.commit()
+	return OkDTO(ok=True)
+
+
+@router.delete("/settings/asr/providers/{provider_id}/secret", response_model=OkDTO)
+def delete_asr_provider_secret_api(
+	provider_id: str,
+	request: Request,
+	session: Session = Depends(get_db_session),
+):
+	if find_asr_provider(provider_id) is None:
+		return JSONResponse(
+			status_code=400,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message="Unknown ASR provider",
+				details={"reason": "unknown_provider", "providerId": provider_id},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+	_ = delete_asr_provider_secret(session, provider_id=provider_id.strip().lower())
+	session.commit()
+	return OkDTO(ok=True)
+
+
+def _asr_runtime_from_request(
+	session: Session,
+	*,
+	provider_id: str | None = None,
+	model_id: str | None = None,
+) -> AsrRuntimeSettings:
+	runtime = asr_runtime_for_jobs(session)
+	if provider_id:
+		api_key = None
+		ciphertext = get_asr_provider_secret_ciphertext(session, provider_id=provider_id.strip().lower())
+		if ciphertext:
+			try:
+				api_key = decrypt_api_key(ciphertext)
+			except Exception:
+				api_key = None
+		return AsrRuntimeSettings(
+			cloud_enabled=True,
+			provider_id=provider_id.strip().lower(),
+			model_id=(model_id or runtime.model_id).strip(),
+			local_model_size=runtime.local_model_size,
+			local_device=runtime.local_device,
+			fallback_to_local=runtime.fallback_to_local,
+			api_key=api_key,
+			configured=True,
+		)
+	return runtime
+
+
+@router.post("/settings/asr/active/test", response_model=AsrActiveTestDTO)
+def post_asr_active_test_api(request: Request, session: Session = Depends(get_db_session)):
+	runtime = asr_runtime_for_jobs(session)
+	err = validate_asr_runtime(runtime)
+	if err:
+		return AsrActiveTestDTO(ok=False, latencyMs=0, mode=None, message=err)
+	try:
+		ok, latency_ms, mode, message = run_asr_connectivity_test(runtime)
+		return AsrActiveTestDTO(ok=ok, latencyMs=latency_ms, mode=mode, message=message)
+	except AsrActiveTestError as exc:
+		return AsrActiveTestDTO(ok=False, latencyMs=0, mode="cloud", message=f"{exc.code}: {exc.message}")
+
+
+@router.post("/settings/asr/providers/{provider_id}/test", response_model=AsrActiveTestDTO)
+def post_asr_provider_test_api(
+	provider_id: str,
+	body: ProviderAsrTestRequestDTO,
+	request: Request,
+	session: Session = Depends(get_db_session),
+):
+	pid = provider_id.strip().lower()
+	if find_asr_provider(pid) is None:
+		return AsrActiveTestDTO(ok=False, latencyMs=0, message="unknown_provider")
+	model_id = (body.modelId or "").strip()
+	if not asr_model_exists(provider_id=pid, model_id=model_id):
+		return AsrActiveTestDTO(ok=False, latencyMs=0, message="unknown_model")
+	runtime = _asr_runtime_from_request(
+		session,
+		provider_id=pid,
+		model_id=model_id,
+	)
+	try:
+		ok, latency_ms, mode, message = run_asr_connectivity_test(runtime)
+		return AsrActiveTestDTO(ok=ok, latencyMs=latency_ms, mode=mode, message=message)
+	except AsrActiveTestError as exc:
+		return AsrActiveTestDTO(ok=False, latencyMs=0, mode="cloud", message=f"{exc.code}: {exc.message}")
+
+
+@router.post("/settings/asr/providers/{provider_id}/models", response_model=OkDTO)
+def add_custom_asr_model_api(
+	provider_id: str,
+	body: AddCustomAsrModelRequestDTO,
+	request: Request,
+	session: Session = Depends(get_db_session),
+):
+	if find_asr_provider(provider_id) is None:
+		return JSONResponse(
+			status_code=400,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message="Unknown ASR provider",
+				details={"reason": "unknown_provider", "providerId": provider_id},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
+	model_id = (body.modelId or "").strip()
+	display_name = (body.displayName or "").strip() or model_id
+	if not model_id:
+		return JSONResponse(
+			status_code=400,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message="modelId is required",
+				details={"reason": "missing_model_id"},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
+	pid = provider_id.strip().lower()
+	custom_existing = list_custom_asr_models(session, provider_id=pid)
+	if any(c["modelId"] == model_id for c in custom_existing):
+		return JSONResponse(
+			status_code=400,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message="Model already exists",
+				details={"reason": "model_already_exists", "modelId": model_id},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+
+	add_custom_asr_model(
+		session,
+		provider_id=pid,
+		model_id=model_id,
+		display_name=display_name,
+		now_ms=_now_ms(),
+	)
+	session.commit()
+	return OkDTO(ok=True)
+
+
+@router.delete("/settings/asr/providers/{provider_id}/models/{model_id:path}", response_model=OkDTO)
+def delete_custom_asr_model_api(
+	provider_id: str,
+	model_id: str,
+	request: Request,
+	session: Session = Depends(get_db_session),
+):
+	deleted = delete_custom_asr_model(session, provider_id=provider_id.strip().lower(), model_id=model_id.strip())
+	if not deleted:
+		return JSONResponse(
+			status_code=404,
+			content=build_error_envelope(
+				code=ErrorCode.VALIDATION_ERROR,
+				message="Custom model not found",
+				details={"reason": "model_not_found", "providerId": provider_id, "modelId": model_id},
+				request_id=getattr(request.state, "request_id", None),
+			),
+		)
+	session.commit()
+	return OkDTO(ok=True)
 
 
 # ─── ASR Model Prefetch ─────────────────────────────────────────────────────

@@ -94,7 +94,19 @@
         "refreshRemoteModels": "Refresh model list",
         "remoteModelsManualHint": "Could not fetch the model list automatically. Add a custom model ID below.",
         "noModelsYet": "No models yet — refresh the list or add a custom model ID",
-        "unknownError": "Unknown error"
+        "unknownError": "Unknown error",
+        "asr": {
+            "title": "Speech-to-Text (ASR)",
+            "desc": "Configure cloud ASR providers. When enabled, cloud transcription is preferred; failures can fall back to local faster-whisper.",
+            "privacyNote": "Cloud ASR uploads audio to third-party services. Consider privacy and per-minute billing.",
+            "cloudEnabled": "Enable cloud ASR (when API key is configured)",
+            "apiKey": "API Key",
+            "fallbackToLocal": "Fall back to faster-whisper when cloud ASR is unavailable",
+            "saveActive": "Save ASR settings",
+            "saved": "ASR settings saved",
+            "testSuccess": "ASR test OK, latency {latency}ms",
+            "testFailedDetail": "ASR test failed: {detail}"
+        }
     },
     "Projects": {
         "title": "My Projects",
@@ -244,6 +256,7 @@
             "succeededTitle": "Analysis complete",
             "succeededHint": "Opening results…",
             "viewLogs": "View run logs",
+            "asrFallbackNotice": "Cloud ASR was unavailable; transcription continued with local faster-whisper.",
             "stages": {
                 "ingest": "Import",
                 "transcribe": "Transcribe",

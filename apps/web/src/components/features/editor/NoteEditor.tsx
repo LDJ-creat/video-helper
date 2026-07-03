@@ -193,8 +193,8 @@ const ParagraphBlock = ({ node, updateAttributes, editor, getPos, HTMLAttributes
         e.target.value = '';
     };
 
-    const handleDeleteKeyframe = (assetId: string) => {
-        const newKeyframes = keyframes.filter(k => k.assetId !== assetId);
+    const handleDeleteKeyframe = (index: number) => {
+        const newKeyframes = keyframes.filter((_, i) => i !== index);
         updateAttributes({ keyframes: newKeyframes });
     };
 
@@ -246,7 +246,7 @@ const ParagraphBlock = ({ node, updateAttributes, editor, getPos, HTMLAttributes
                     {keyframes.length > 0 && (
                         <div contentEditable={false} className="mb-4 flex flex-col gap-4 select-none">
                             {keyframes.map((kf: Keyframe, idx: number) => (
-                                <div key={kf.assetId || idx} className="relative group/image w-full">
+                                <div key={`${kf.assetId}-${idx}`} className="relative group/image w-full">
                                     {/* eslint-disable-next-line @next/next/no-img-element */}
                                     <img
                                         src={kf.contentUrl}
@@ -258,7 +258,7 @@ const ParagraphBlock = ({ node, updateAttributes, editor, getPos, HTMLAttributes
                                         onClick={() => setZoomedImage(kf.contentUrl)}
                                     />
                                     <button
-                                        onClick={() => handleDeleteKeyframe(kf.assetId)}
+                                        onClick={() => handleDeleteKeyframe(idx)}
                                         className="absolute top-2 right-2 p-1.5 bg-black/60 hover:bg-red-500/80 text-white rounded-full opacity-0 group-hover/image:opacity-100 transition-all backdrop-blur-sm shadow-sm"
                                         title={t("removeImage")}
                                     >

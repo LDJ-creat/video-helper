@@ -11,13 +11,19 @@ from core.app.logs.pipeline_timings import append_pipeline_timing, time_pipeline
 from core.app.pipeline.analyze_provider import AnalyzeError, llm_provider_from_env, llm_provider_from_runtime
 from core.app.pipeline.llm_json_repair import build_repair_request
 from core.app.pipeline.llm_plan import generate_plan, validate_plan
+from core.app.pipeline.llm_usage_context import clear_llm_usage_context, set_llm_usage_context
 from core.contracts.error_codes import ErrorCode
 
 
-def _openai_sse_body(content: str) -> bytes:
+def _openai_sse_body(content: str, *, usage: dict | None = None) -> bytes:
 	"""Build an OpenAI-style SSE response body from a content string."""
 	chunk = json.dumps({"id": "chatcmpl-test", "choices": [{"delta": {"content": content}}]})
-	return f"data: {chunk}\ndata: [DONE]\n".encode("utf-8")
+	lines = [f"data: {chunk}"]
+	if usage is not None:
+		usage_chunk = json.dumps({"id": "chatcmpl-test", "choices": [], "usage": usage})
+		lines.append(f"data: {usage_chunk}")
+	lines.append("data: [DONE]")
+	return "\n".join(lines).encode("utf-8")
 
 
 def _mock_transcript() -> dict:
@@ -59,6 +65,44 @@ def test_llm_provider_builds_request_and_parses_json() -> None:
 	assert captured["auth"] == "Bearer sk-test-SECRET"
 	assert captured["payload"]["model"] == "minimaxai/minimax-m2.1"
 	assert captured["url"].endswith("/v1/chat/completions")
+
+
+def test_llm_provider_records_usage_from_sse(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+	monkeypatch.setenv("DATA_DIR", str(tmp_path))
+	set_llm_usage_context(project_id="proj-1", job_id="job-1")
+	try:
+
+		def handler(request: httpx.Request) -> httpx.Response:
+			payload = httpx.Response(200, content=request.content).json()
+			assert payload.get("stream_options") == {"include_usage": True}
+			return httpx.Response(
+				200,
+				content=_openai_sse_body('{"ok": true}', usage={"prompt_tokens": 12, "completion_tokens": 8, "total_tokens": 20}),
+				headers={"Content-Type": "text/event-stream"},
+			)
+
+		transport = httpx.MockTransport(handler)
+		_set_env(
+			LLM_API_BASE="https://example.invalid",
+			LLM_API_KEY="sk-test-SECRET",
+			LLM_MODEL="minimax-2.1",
+			LLM_TIMEOUT_S="5",
+		)
+		provider = llm_provider_from_env(transport=transport)
+		out = provider.generate_json("plan_content_blocks", {"messages": [{"role": "user", "content": "{}"}]})
+		assert out == {"ok": True}
+	finally:
+		clear_llm_usage_context()
+
+	path = tmp_path / "proj-1" / "artifacts" / "job-1" / "llm_usage.jsonl"
+	assert path.exists()
+	rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+	assert len(rows) == 1
+	assert rows[0]["task"] == "plan_content_blocks"
+	assert rows[0]["promptTokens"] == 12
+	assert rows[0]["completionTokens"] == 8
+	assert rows[0]["totalTokens"] == 20
+	assert rows[0]["source"] == "api"
 
 
 def test_llm_provider_maps_rate_limit_without_leaking_key() -> None:

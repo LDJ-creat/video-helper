@@ -64,6 +64,105 @@ def test_validate_plan_ok() -> None:
     assert len(plan["contentBlocks"]) == 2
 
 
+def test_validate_plan_dedupes_duplicate_keyframe_sources() -> None:
+    from core.app.pipeline.llm_plan import validate_plan
+
+    plan = _valid_plan()
+    hl = plan["contentBlocks"][0]["highlights"][0]
+    hl["keyframe"] = {"timeMs": 1000}
+    hl["keyframes"] = [{"timeMs": 1000}, {"timeMs": 1000, "assetId": "asset-a"}]
+
+    out = validate_plan(plan)
+    kfs = out["contentBlocks"][0]["highlights"][0]["keyframes"]
+    assert len(kfs) == 1
+    assert kfs[0]["timeMs"] == 1000
+    assert kfs[0].get("assetId") == "asset-a"
+
+
+def test_validate_plan_keyframes_normalize_is_idempotent() -> None:
+    from core.app.pipeline.llm_plan import validate_plan
+
+    plan = {
+        "schemaVersion": "2026-02-06",
+        "contentBlocks": [
+            {
+                "blockId": "b0",
+                "idx": 0,
+                "title": "Block",
+                "startMs": 0,
+                "endMs": 60000,
+                "highlights": [
+                    {
+                        "highlightId": "h0_0",
+                        "idx": 0,
+                        "text": "point",
+                        "startMs": 1000,
+                        "endMs": 5000,
+                        "keyframeConfidence": 0.9,
+                        "keyframe": {"timeMs": 2000},
+                        "keyframes": [{"timeMs": 2000}],
+                    }
+                ],
+            }
+        ],
+        "mindmap": {"nodes": [], "edges": []},
+    }
+
+    first = validate_plan(plan)
+    for _ in range(3):
+        plan = validate_plan(plan)
+    kfs = plan["contentBlocks"][0]["highlights"][0]["keyframes"]
+    assert kfs == first["contentBlocks"][0]["highlights"][0]["keyframes"]
+    assert len(kfs) == 1
+
+
+def test_validate_plan_keyframes_stable_across_generate_plan_stages() -> None:
+    """Regression: generate_plan validates content_blocks three times on the same list."""
+
+    from core.app.pipeline.llm_plan import validate_plan, validate_plan_content_blocks, validate_plan_mindmap
+
+    content_blocks = [
+        {
+            "blockId": "b0",
+            "idx": 0,
+            "title": "Block",
+            "startMs": 0,
+            "endMs": 60000,
+            "highlights": [
+                {
+                    "highlightId": "h0_0",
+                    "idx": 0,
+                    "text": "point",
+                    "startMs": 1000,
+                    "endMs": 5000,
+                    "keyframeConfidence": 0.9,
+                    "keyframe": {"timeMs": 2000},
+                    "keyframes": [{"timeMs": 2000}],
+                }
+            ],
+        }
+    ]
+    mindmap = {
+        "nodes": [
+            {"id": "root", "type": "root", "label": "Root", "level": 0, "data": {}},
+            {"id": "t0", "type": "topic", "label": "Topic", "level": 1, "data": {"targetBlockId": "b0"}},
+        ],
+        "edges": [{"id": "e0", "source": "root", "target": "t0"}],
+    }
+
+    validate_plan_content_blocks({"schemaVersion": "2026-02-06", "contentBlocks": content_blocks})
+    validate_plan_mindmap(
+        payload={"mindmap": mindmap},
+        content_blocks=content_blocks,
+        schema_version="2026-02-06",
+    )
+    validate_plan({"schemaVersion": "2026-02-06", "contentBlocks": content_blocks, "mindmap": mindmap})
+
+    kfs = content_blocks[0]["highlights"][0]["keyframes"]
+    assert len(kfs) == 1
+    assert kfs[0]["timeMs"] == 2000
+
+
 def test_validate_plan_rejects_bad_target_block() -> None:
     from core.app.pipeline.llm_plan import validate_plan
 
