@@ -16,7 +16,7 @@ from typing import Literal
 
 from sqlalchemy.orm import Session
 
-from core.app.pipeline.analyze_provider import AnalyzeError, AnalyzeProvider, llm_provider_for_jobs
+from core.app.pipeline.analyze_provider import AnalyzeError, AnalyzeProvider, is_vision_rejection_error, llm_provider_for_jobs
 from core.contracts.error_codes import ErrorCode
 from core.db.models.asset import Asset
 from core.db.session import get_data_dir
@@ -24,6 +24,14 @@ from core.db.session import get_data_dir
 logger = logging.getLogger(__name__)
 
 VerifyPhase = Literal["initial", "retry"]
+
+
+class VerifyPrepareError(Exception):
+	"""Verify input could not be prepared (OCR/image missing, fallback failed, etc.)."""
+
+	def __init__(self, reason: str):
+		self.reason = reason
+		super().__init__(reason)
 
 
 def _now_ms() -> int:
@@ -57,7 +65,20 @@ def _clamp_int(v: int, lo: int, hi: int) -> int:
 
 
 def get_verify_mode() -> str:
-    return (_env_str("KEYFRAME_VERIFY_MODE") or "off").strip().lower()
+    return (_env_str("KEYFRAME_VERIFY_MODE") or "multimodal").strip().lower()
+
+
+def compute_max_verify_per_job(*, duration_ms: int | None) -> int:
+    """Scale initial verify cap with video duration while keeping a hard ceiling."""
+
+    base = max(0, _env_int("KEYFRAME_VERIFY_MAX_PER_JOB", 5))
+    abs_max = max(base, _env_int("KEYFRAME_VERIFY_MAX_PER_JOB_ABS", 25))
+    bonus_per_5min = max(0, _env_int("KEYFRAME_VERIFY_DURATION_BONUS_PER_5MIN", 1))
+    bonus_max = max(0, _env_int("KEYFRAME_VERIFY_DURATION_BONUS_MAX", 15))
+    if duration_ms is None or duration_ms <= 0:
+        return base
+    bonus = min(bonus_max, (int(duration_ms) // (5 * 60_000)) * bonus_per_5min)
+    return min(abs_max, base + bonus)
 
 
 def get_verify_threshold() -> float:
@@ -91,7 +112,7 @@ class VerifyStats:
     verify_used_job: int = 0
 
 
-def get_verify_budget() -> VerifyBudget:
+def get_verify_budget(*, duration_ms: int | None = None) -> VerifyBudget:
     retry_per_hl = _env_str("KEYFRAME_RETRY_MAX_PER_HIGHLIGHT")
     if retry_per_hl is not None:
         retry_max = max(0, _env_int("KEYFRAME_RETRY_MAX_PER_HIGHLIGHT", 1))
@@ -99,10 +120,19 @@ def get_verify_budget() -> VerifyBudget:
         retry_max = max(0, _env_int("KEYFRAME_RETRY_MAX", 1))
     return VerifyBudget(
         max_verify_per_highlight=max(0, _env_int("KEYFRAME_VERIFY_MAX_PER_HIGHLIGHT", 1)),
-        max_verify_per_job=max(0, _env_int("KEYFRAME_VERIFY_MAX_PER_JOB", 5)),
+        max_verify_per_job=compute_max_verify_per_job(duration_ms=duration_ms),
         retry_max_per_highlight=retry_max,
         local_search_window_ms=max(1_000, _env_int("KEYFRAME_LOCAL_SEARCH_WINDOW_MS", 10_000)),
     )
+
+
+@dataclass
+class VerifyPassState:
+    """Shared state across initial + retry verify passes within one job."""
+
+    requested_mode: str
+    vision_unavailable: bool = False
+    lock: threading.Lock = field(default_factory=threading.Lock)
 
 
 @dataclass
@@ -129,6 +159,8 @@ class _VerifyLlmOutcome:
     llm_reason: str | None
     retry_direction: str | None = None
     retry_offset_ms: int | None = None
+    effective_mode: str | None = None
+    fallback_reason: str | None = None
     error: Exception | None = None
 
 
@@ -309,6 +341,8 @@ def _call_llm_with_backoff(*, provider: AnalyzeProvider, messages: list[dict], m
             return res
         except AnalyzeError as e:
             reason = str((e.details or {}).get("reason") or "")
+            if is_vision_rejection_error(e):
+                raise
             if reason in {"rate_limited", "upstream_error", "timeout"} and attempt < max_attempts:
                 sleep_s = min(6.0, 0.5 * (2 ** (attempt - 1)))
                 sleep_s = sleep_s * (0.8 + random.random() * 0.4)
@@ -509,6 +543,25 @@ def _collect_candidates(
     return candidates
 
 
+def _multimodal_messages_include_image(messages: list[dict]) -> bool:
+	for m in messages:
+		if not isinstance(m, dict):
+			continue
+		content = m.get("content")
+		if not isinstance(content, list):
+			continue
+		for part in content:
+			if not isinstance(part, dict):
+				continue
+			if str(part.get("type") or "").strip().lower() != "image_url":
+				continue
+			image_url = part.get("image_url")
+			url = image_url.get("url") if isinstance(image_url, dict) else None
+			if isinstance(url, str) and url.startswith("data:image/"):
+				return True
+	return False
+
+
 def _prepare_candidate_messages(
     *,
     candidate: _VerifyCandidate,
@@ -534,21 +587,64 @@ def _prepare_candidate_messages(
     data_url = _encode_image_data_url(image_abs=image_abs)
     if data_url is None:
         return None
-    return build_verify_request_multimodal(
+    messages = build_verify_request_multimodal(
         highlight_text=candidate.highlight_text,
         time_range=(candidate.start_ms, candidate.end_ms),
         image_data_url=data_url,
         output_language=output_language,
     )
+    if not _multimodal_messages_include_image(messages):
+        logger.warning(
+            "[keyframe_verify] multimodal prepare missing image highlightId=%s assetId=%s",
+            candidate.highlight_id,
+            candidate.asset_id,
+        )
+        return None
+    return messages
+
+
+def _resolve_effective_verify_mode(*, requested_mode: str, pass_state: VerifyPassState) -> str:
+    mode = (requested_mode or "multimodal").strip().lower()
+    if mode in {"off", "ocr"}:
+        return mode
+    with pass_state.lock:
+        if pass_state.vision_unavailable:
+            return "ocr"
+    return "multimodal"
+
+
+def _mark_vision_unavailable(pass_state: VerifyPassState) -> None:
+    with pass_state.lock:
+        pass_state.vision_unavailable = True
+
+
+def _parse_llm_verify_response(res: dict) -> tuple[bool | None, float | None, str | None, str | None, int | None]:
+    keep: bool | None = None
+    llm_confidence: float | None = None
+    llm_reason: str | None = None
+    retry_direction: str | None = None
+    retry_offset_ms: int | None = None
+    if isinstance(res, dict):
+        if "keep" in res:
+            keep = bool(res.get("keep"))
+        llm_confidence = _coerce_confidence(res.get("confidence"))
+        reason_raw = res.get("reason")
+        if isinstance(reason_raw, str):
+            llm_reason = reason_raw
+        retry_direction, retry_offset_ms = _parse_retry_hint(res)
+    return keep, llm_confidence, llm_reason, retry_direction, retry_offset_ms
 
 
 def _run_llm_outcomes_parallel(
     *,
-    mode: str,
-    prepared: list[tuple[_VerifyCandidate, list[dict]]],
+    requested_mode: str,
+    pass_state: VerifyPassState,
+    candidates: list[_VerifyCandidate],
+    session: Session,
+    output_language: str | None,
     concurrency: int,
 ) -> list[_VerifyLlmOutcome]:
-    if not prepared:
+    if not candidates:
         return []
 
     thread_local = threading.local()
@@ -557,7 +653,7 @@ def _run_llm_outcomes_parallel(
         cached = getattr(thread_local, "provider", None)
         if cached is not None:
             return cached
-        provider = _resolve_provider(mode)
+        provider = _resolve_provider(requested_mode)
         if provider is None:
             raise AnalyzeError(
                 code=ErrorCode.JOB_STAGE_FAILED,
@@ -569,24 +665,49 @@ def _run_llm_outcomes_parallel(
 
     outcomes: list[_VerifyLlmOutcome] = []
 
-    def _one(item: tuple[_VerifyCandidate, list[dict]]) -> _VerifyLlmOutcome:
-        candidate, messages = item
+    def _verify_one_candidate(candidate: _VerifyCandidate) -> _VerifyLlmOutcome:
+        effective_mode = _resolve_effective_verify_mode(requested_mode=requested_mode, pass_state=pass_state)
+        messages = _prepare_candidate_messages(
+            candidate=candidate,
+            mode=effective_mode,
+            session=session,
+            output_language=output_language,
+        )
+        if messages is None:
+            return _VerifyLlmOutcome(
+                candidate=candidate,
+                keep=None,
+                llm_confidence=None,
+                llm_reason=None,
+                effective_mode=effective_mode,
+                error=VerifyPrepareError("verify_input_unavailable"),
+            )
+
+        # Another worker may have marked vision unavailable while we prepared multimodal input.
+        if effective_mode == "multimodal":
+            effective_mode_retry = _resolve_effective_verify_mode(requested_mode=requested_mode, pass_state=pass_state)
+            if effective_mode_retry == "ocr":
+                effective_mode = "ocr"
+                messages = _prepare_candidate_messages(
+                    candidate=candidate,
+                    mode=effective_mode,
+                    session=session,
+                    output_language=output_language,
+                )
+                if messages is None:
+                    return _VerifyLlmOutcome(
+                        candidate=candidate,
+                        keep=None,
+                        llm_confidence=None,
+                        llm_reason=None,
+                        effective_mode=effective_mode,
+                        error=VerifyPrepareError("verify_input_unavailable"),
+                    )
+
+        provider = _provider_for_thread()
         try:
-            provider = _provider_for_thread()
             res = _call_llm_with_backoff(provider=provider, messages=messages, max_tokens=512)
-            keep: bool | None = None
-            llm_confidence: float | None = None
-            llm_reason: str | None = None
-            retry_direction: str | None = None
-            retry_offset_ms: int | None = None
-            if isinstance(res, dict):
-                if "keep" in res:
-                    keep = bool(res.get("keep"))
-                llm_confidence = _coerce_confidence(res.get("confidence"))
-                reason_raw = res.get("reason")
-                if isinstance(reason_raw, str):
-                    llm_reason = reason_raw
-                retry_direction, retry_offset_ms = _parse_retry_hint(res)
+            keep, llm_confidence, llm_reason, retry_direction, retry_offset_ms = _parse_llm_verify_response(res)
             return _VerifyLlmOutcome(
                 candidate=candidate,
                 keep=keep,
@@ -594,6 +715,61 @@ def _run_llm_outcomes_parallel(
                 llm_reason=llm_reason,
                 retry_direction=retry_direction,
                 retry_offset_ms=retry_offset_ms,
+                effective_mode=effective_mode,
+            )
+        except AnalyzeError as exc:
+            if requested_mode == "multimodal" and effective_mode == "multimodal" and is_vision_rejection_error(exc):
+                _mark_vision_unavailable(pass_state)
+                logger.info(
+                    "[keyframe_verify] multimodal rejected by upstream; falling back to ocr highlightId=%s",
+                    candidate.highlight_id,
+                )
+                ocr_messages = _prepare_candidate_messages(
+                    candidate=candidate,
+                    mode="ocr",
+                    session=session,
+                    output_language=output_language,
+                )
+                if ocr_messages is None:
+                    return _VerifyLlmOutcome(
+                        candidate=candidate,
+                        keep=None,
+                        llm_confidence=None,
+                        llm_reason=None,
+                        effective_mode="ocr",
+                        fallback_reason="vision_rejected_ocr_unavailable",
+                        error=VerifyPrepareError("vision_rejected_ocr_unavailable"),
+                    )
+                try:
+                    res = _call_llm_with_backoff(provider=provider, messages=ocr_messages, max_tokens=512)
+                except Exception:
+                    return _VerifyLlmOutcome(
+                        candidate=candidate,
+                        keep=None,
+                        llm_confidence=None,
+                        llm_reason=None,
+                        effective_mode="ocr",
+                        fallback_reason="vision_rejected_ocr_failed",
+                        error=VerifyPrepareError("vision_rejected_ocr_failed"),
+                    )
+                keep, llm_confidence, llm_reason, retry_direction, retry_offset_ms = _parse_llm_verify_response(res)
+                return _VerifyLlmOutcome(
+                    candidate=candidate,
+                    keep=keep,
+                    llm_confidence=llm_confidence,
+                    llm_reason=llm_reason,
+                    retry_direction=retry_direction,
+                    retry_offset_ms=retry_offset_ms,
+                    effective_mode="ocr",
+                    fallback_reason="vision_rejected",
+                )
+            return _VerifyLlmOutcome(
+                candidate=candidate,
+                keep=None,
+                llm_confidence=None,
+                llm_reason=None,
+                effective_mode=effective_mode,
+                error=exc,
             )
         except Exception as e:
             return _VerifyLlmOutcome(
@@ -601,12 +777,13 @@ def _run_llm_outcomes_parallel(
                 keep=None,
                 llm_confidence=None,
                 llm_reason=None,
+                effective_mode=effective_mode,
                 error=e,
             )
 
-    workers = min(max(1, concurrency), len(prepared))
+    workers = min(max(1, concurrency), len(candidates))
     with ThreadPoolExecutor(max_workers=workers) as executor:
-        futures = [executor.submit(_one, item) for item in prepared]
+        futures = [executor.submit(_verify_one_candidate, c) for c in candidates]
         for fut in as_completed(futures):
             outcomes.append(fut.result())
     return outcomes
@@ -623,8 +800,10 @@ def _apply_skipped_prepare(
     project_id: str,
     job_id: str,
     mode: str,
+    requested_mode: str | None = None,
     stats: VerifyStats,
     skip_reason: str,
+    fallback_reason: str | None = None,
 ) -> None:
     """Drop keyframes when verify input cannot be prepared (OCR/image missing, etc.)."""
 
@@ -646,11 +825,14 @@ def _apply_skipped_prepare(
             "assetId": candidate.asset_id,
             "timeMs": candidate.time_ms,
             "mode": mode,
+            "requestedMode": requested_mode or mode,
+            "effectiveMode": mode,
             "phase": candidate.phase,
             "keep": False,
             "reason": skip_reason,
             "inputConfidence": candidate.input_confidence,
             "action": action,
+            **({"fallbackReason": fallback_reason} if fallback_reason else {}),
             **({"retryTimeMs": candidate.time_ms} if candidate.phase == "retry" else {}),
         },
     )
@@ -746,6 +928,7 @@ def _run_verify_pass(
     output_language: str | None,
     mode: str,
     budget: VerifyBudget,
+    pass_state: VerifyPassState,
     phase: VerifyPhase,
     retried_highlight_ids: set[str] | None = None,
     verify_used_job: int = 0,
@@ -776,33 +959,35 @@ def _run_verify_pass(
         verify_used_job=verify_used_job,
     )
 
-    prepared: list[tuple[_VerifyCandidate, list[dict]]] = []
-    for c in candidates:
-        messages = _prepare_candidate_messages(
-            candidate=c,
-            mode=mode,
-            session=session,
-            output_language=output_language,
-        )
-        if messages is None:
+    outcomes = _run_llm_outcomes_parallel(
+        requested_mode=mode,
+        pass_state=pass_state,
+        candidates=candidates,
+        session=session,
+        output_language=output_language,
+        concurrency=concurrency,
+    )
+
+    for outcome in outcomes:
+        c = outcome.candidate
+        h = c.highlight
+        effective_mode = outcome.effective_mode or mode
+
+        if isinstance(outcome.error, VerifyPrepareError):
             _apply_skipped_prepare(
                 candidate=c,
                 project_id=project_id,
                 job_id=job_id,
-                mode=mode,
+                mode=effective_mode,
+                requested_mode=mode,
                 stats=stats,
-                skip_reason="verify_input_unavailable",
+                skip_reason=outcome.error.reason,
+                fallback_reason=outcome.fallback_reason,
             )
             continue
-        prepared.append((c, messages))
 
-    outcomes = _run_llm_outcomes_parallel(mode=mode, prepared=prepared, concurrency=concurrency)
-
-    for outcome in outcomes:
         stats.verify_used_job += 1
         stats.verified_count += 1
-        c = outcome.candidate
-        h = c.highlight
 
         if outcome.error is not None:
             if isinstance(outcome.error, AnalyzeError):
@@ -818,13 +1003,17 @@ def _run_verify_pass(
             "blockId": c.block_id,
             "assetId": c.asset_id,
             "timeMs": c.time_ms,
-            "mode": mode,
+            "mode": effective_mode,
+            "requestedMode": mode,
+            "effectiveMode": effective_mode,
             "phase": phase,
             "keep": outcome.keep,
             "confidence": outcome.llm_confidence,
             "reason": outcome.llm_reason,
             "inputConfidence": c.input_confidence,
         }
+        if outcome.fallback_reason:
+            base_record["fallbackReason"] = outcome.fallback_reason
 
         if phase == "retry":
             base_record["retryTimeMs"] = c.time_ms
@@ -902,9 +1091,10 @@ def _run_verify_pass(
 
     total_dur = time.perf_counter() - t_start
     logger.info(
-        "[keyframe_verify] phase=%s mode=%s verified=%d dropped=%d skipped_prepare=%d retry_scheduled=%d retried_kept=%d retried_dropped=%d dur=%.1fs",
+        "[keyframe_verify] phase=%s requested_mode=%s vision_unavailable=%s verified=%d dropped=%d skipped_prepare=%d retry_scheduled=%d retried_kept=%d retried_dropped=%d dur=%.1fs",
         phase,
         mode,
+        pass_state.vision_unavailable,
         stats.verified_count,
         stats.dropped_count,
         stats.skipped_prepare_count,
@@ -925,10 +1115,12 @@ def verify_keyframes_initial(
     output_language: str | None,
     mode: str,
     budget: VerifyBudget | None = None,
+    pass_state: VerifyPassState | None = None,
 ) -> tuple[list[int], list[str], VerifyStats]:
     """First-pass verify. Returns (retry_times_ms, scheduled_highlight_ids, stats)."""
 
     b = budget or get_verify_budget()
+    state = pass_state or VerifyPassState(requested_mode=mode)
     highlight_retry_used: dict[str, int] = {}
     retry_times, scheduled_ids, stats, _ = _run_verify_pass(
         session=session,
@@ -938,6 +1130,7 @@ def verify_keyframes_initial(
         output_language=output_language,
         mode=mode,
         budget=b,
+        pass_state=state,
         phase="initial",
         verify_used_job=0,
         highlight_retry_used=highlight_retry_used,
@@ -956,6 +1149,7 @@ def verify_keyframes_after_retry(
     retried_highlight_ids: list[str],
     budget: VerifyBudget | None = None,
     verify_used_job: int = 0,
+    pass_state: VerifyPassState | None = None,
 ) -> VerifyStats:
     """Second-pass verify for retried highlights only."""
 
@@ -963,6 +1157,7 @@ def verify_keyframes_after_retry(
         return VerifyStats(verify_used_job=verify_used_job)
 
     b = budget or get_verify_budget()
+    state = pass_state or VerifyPassState(requested_mode=mode)
     _, _, stats, _ = _run_verify_pass(
         session=session,
         project_id=project_id,
@@ -971,6 +1166,7 @@ def verify_keyframes_after_retry(
         output_language=output_language,
         mode=mode,
         budget=b,
+        pass_state=state,
         phase="retry",
         retried_highlight_ids=set(retried_highlight_ids),
         verify_used_job=verify_used_job,

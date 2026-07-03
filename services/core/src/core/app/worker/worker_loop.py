@@ -24,6 +24,7 @@ from core.app.pipeline.chunk_summaries import ensure_chunk_summaries, estimate_d
 from core.app.pipeline.llm_plan import generate_plan, validate_plan
 from core.app.pipeline.llm_usage_context import clear_llm_usage_context, set_llm_usage_context
 from core.app.pipeline.keyframe_verify import (
+    VerifyPassState,
     drop_retried_highlights_missing_asset,
     get_verify_budget,
     get_verify_mode,
@@ -1006,10 +1007,22 @@ class PipelineJobProcessor:
                     session.commit()
 
                     _log(job_id=job.job_id, project_id=job.project_id, stage=job.stage, level="info", message=f"keyframe_verify started mode={verify_mode}")
+                    if verify_mode == "multimodal" and not (os.environ.get("KEYFRAME_VERIFY_MODE") or "").strip():
+                        _log(
+                            job_id=job.job_id,
+                            project_id=job.project_id,
+                            stage=job.stage,
+                            level="info",
+                            message="keyframe_verify default multimodal enabled; set KEYFRAME_VERIFY_MODE=off to disable or ocr for text-only models",
+                        )
                     GLOBAL_JOB_EVENT_BUS.emit_state(job_id=job.job_id, project_id=job.project_id, stage=job.stage, message="status=running")
                     GLOBAL_JOB_EVENT_BUS.emit_progress(job_id=job.job_id, project_id=job.project_id, stage=job.stage, progress=job.progress, message="progress=0.975")
 
-                    budget = get_verify_budget()
+                    verify_duration_ms = project.duration_ms if isinstance(getattr(project, "duration_ms", None), int) and project.duration_ms else None
+                    if verify_duration_ms is None:
+                        verify_duration_ms = estimate_duration_ms(transcript=job.transcript or {}, transcript_meta=job.transcript_meta)
+                    budget = get_verify_budget(duration_ms=verify_duration_ms)
+                    verify_pass_state = VerifyPassState(requested_mode=verify_mode)
                     start_ts = time.perf_counter()
                     retry_times: list[int] = []
                     scheduled_highlight_ids: list[str] = []
@@ -1024,6 +1037,7 @@ class PipelineJobProcessor:
                             output_language=getattr(job, "output_language", None),
                             mode=verify_mode,
                             budget=budget,
+                            pass_state=verify_pass_state,
                         )
 
                         if retry_times:
@@ -1086,6 +1100,7 @@ class PipelineJobProcessor:
                                 retried_highlight_ids=eligible_ids,
                                 budget=budget,
                                 verify_used_job=initial_stats.verify_used_job if initial_stats else 0,
+                                pass_state=verify_pass_state,
                             )
                     finally:
                         append_pipeline_timing(
@@ -1115,7 +1130,8 @@ class PipelineJobProcessor:
                         level="info",
                         message=(
                             f"keyframe_verify finished verified={verified_count} dropped={dropped_count} "
-                            f"retry_scheduled={len(retry_times)} retried_kept={retried_kept} retried_dropped={retried_dropped}"
+                            f"retry_scheduled={len(retry_times)} retried_kept={retried_kept} retried_dropped={retried_dropped} "
+                            f"vision_unavailable={verify_pass_state.vision_unavailable}"
                         ),
                     )
                     GLOBAL_JOB_EVENT_BUS.emit_state(job_id=job.job_id, project_id=job.project_id, stage=job.stage, message="keyframe_verify=done")

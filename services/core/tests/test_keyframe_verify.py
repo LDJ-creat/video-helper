@@ -8,11 +8,15 @@ import pytest
 from core.app.pipeline import keyframe_verify as kv
 from core.app.pipeline.keyframe_verify import (
     VerifyBudget,
+    compute_max_verify_per_job,
     compute_retry_time_ms,
     drop_retried_highlights_missing_asset,
+    get_verify_mode,
     verify_keyframes_after_retry,
     verify_keyframes_initial,
 )
+from core.app.pipeline.analyze_provider import AnalyzeError
+from core.contracts.error_codes import ErrorCode
 
 
 class _MockProvider:
@@ -555,3 +559,125 @@ def test_verify_orchestration_sequence(monkeypatch: pytest.MonkeyPatch, tmp_path
     )
     assert calls == ["initial", "retry"]
     assert retry_stats.retried_kept_count == 1
+
+
+def test_get_verify_mode_defaults_to_multimodal(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("KEYFRAME_VERIFY_MODE", raising=False)
+    assert get_verify_mode() == "multimodal"
+
+
+def test_compute_max_verify_per_job_scales_with_duration(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("KEYFRAME_VERIFY_MAX_PER_JOB", "5")
+    monkeypatch.setenv("KEYFRAME_VERIFY_MAX_PER_JOB_ABS", "25")
+    monkeypatch.setenv("KEYFRAME_VERIFY_DURATION_BONUS_PER_5MIN", "1")
+    monkeypatch.setenv("KEYFRAME_VERIFY_DURATION_BONUS_MAX", "15")
+    assert compute_max_verify_per_job(duration_ms=None) == 5
+    assert compute_max_verify_per_job(duration_ms=4 * 60_000) == 5
+    assert compute_max_verify_per_job(duration_ms=15 * 60_000) == 8
+    assert compute_max_verify_per_job(duration_ms=120 * 60_000) == 20
+
+
+class _VisionRejectThenOcrProvider:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def generate_json(self, task_name: str, input_dict: dict, *, max_tokens: int | None = None) -> dict:
+        del task_name, max_tokens
+        self.calls += 1
+        messages = input_dict.get("messages")
+        user = messages[1] if isinstance(messages, list) and len(messages) > 1 else {}
+        content = user.get("content") if isinstance(user, dict) else None
+        if isinstance(content, list):
+            raise AnalyzeError(
+                code=ErrorCode.JOB_STAGE_FAILED,
+                message="LLM returned error",
+                details={"reason": "upstream_error", "httpStatus": 400, "errorBody": "image input not supported"},
+            )
+        return {"keep": True, "confidence": 0.8, "reason": "ocr ok"}
+
+
+def test_multimodal_vision_rejection_uses_ocr_for_subsequent(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _patch_verify_env(monkeypatch, tmp_path)
+    provider = _VisionRejectThenOcrProvider()
+    monkeypatch.setattr(kv, "llm_provider_for_jobs", lambda: provider)
+    monkeypatch.setattr(kv, "_run_tesseract_ocr", lambda **kwargs: "Slide text")
+
+    blocks = [
+        {
+            "blockId": "b0",
+            "highlights": [
+                {
+                    "highlightId": "h0",
+                    "text": "a",
+                    "startMs": 1000,
+                    "endMs": 10000,
+                    "keyframeConfidence": 0.1,
+                    "keyframes": [{"timeMs": 1000, "assetId": "asset-1"}],
+                },
+                {
+                    "highlightId": "h1",
+                    "text": "b",
+                    "startMs": 1000,
+                    "endMs": 10000,
+                    "keyframeConfidence": 0.1,
+                    "keyframes": [{"timeMs": 2000, "assetId": "asset-1"}],
+                },
+            ],
+        }
+    ]
+    monkeypatch.setenv("KEYFRAME_VERIFY_MAX_PER_JOB", "5")
+
+    verify_keyframes_initial(
+        session=MagicMock(),
+        project_id="p1",
+        job_id="j1",
+        content_blocks=blocks,
+        output_language=None,
+        mode="multimodal",
+    )
+
+    # First highlight: multimodal fail + ocr success. Second: ocr only.
+    assert provider.calls == 3
+
+
+def test_multimodal_vision_rejection_falls_back_to_ocr(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _patch_verify_env(monkeypatch, tmp_path)
+    provider = _VisionRejectThenOcrProvider()
+    monkeypatch.setattr(kv, "llm_provider_for_jobs", lambda: provider)
+    monkeypatch.setattr(kv, "_run_tesseract_ocr", lambda **kwargs: "Slide title: Topic")
+
+    blocks = _content_blocks()
+    _, _, stats = verify_keyframes_initial(
+        session=MagicMock(),
+        project_id="p1",
+        job_id="j1",
+        content_blocks=blocks,
+        output_language=None,
+        mode="multimodal",
+    )
+
+    assert stats.verified_count == 1
+    assert provider.calls == 2
+
+
+def test_vision_rejected_ocr_unavailable_drops_not_fail_job(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _patch_verify_env(monkeypatch, tmp_path)
+    provider = _VisionRejectThenOcrProvider()
+    monkeypatch.setattr(kv, "llm_provider_for_jobs", lambda: provider)
+    monkeypatch.setattr(kv, "_run_tesseract_ocr", lambda **kwargs: None)
+
+    blocks = _content_blocks()
+    _, _, stats = verify_keyframes_initial(
+        session=MagicMock(),
+        project_id="p1",
+        job_id="j1",
+        content_blocks=blocks,
+        output_language=None,
+        mode="multimodal",
+    )
+
+    assert stats.verified_count == 0
+    assert stats.skipped_prepare_count == 1
+    assert stats.dropped_count == 1
+    assert blocks[0]["highlights"][0]["keyframes"] == []
+    assert provider.calls == 1
