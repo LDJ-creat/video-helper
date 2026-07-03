@@ -747,8 +747,8 @@ Response（示例）：
       "displayName": "阿里云百炼 (DashScope)",
       "hasKey": true,
       "secretUpdatedAtMs": 1738030000000,
-      "models": [{"modelId": "paraformer-v2", "displayName": "Paraformer v2"}],
-      "notes": "需将音频上传至临时 OSS 后异步识别"
+      "models": [{"modelId": "paraformer-v2", "displayName": "Paraformer v2", "isCustom": false}],
+      "notes": "需将音频上传至临时 OSS 后异步识别；配置 API Key 后从上游拉取可用模型"
     }
   ],
   "updatedAtMs": 1738030000000
@@ -766,12 +766,23 @@ Request Body（示例）：
   "cloudEnabled": true,
   "providerId": "dashscope",
   "modelId": "paraformer-v2",
-  "languageHints": ["zh", "en"],
   "fallbackToLocal": true
 }
 ```
 
 `localModelSize` / `localDevice` 由服务端根据环境变量 `TRANSCRIBE_MODEL_SIZE`、`TRANSCRIBE_DEVICE` 自动解析，不在前端配置；GET active 响应中仍会返回当前生效值供调试。
+
+**GET /api/v1/settings/asr/providers/{providerId}/remote-models**
+
+使用已保存的 API Key 从上游拉取可用 ASR 模型（服务端代理，不下发密钥）。Response 形态与 LLM `remote-models` 相同：`{ ok, models: [{ modelId, displayName }], error? }`。
+
+**POST /api/v1/settings/asr/providers/{providerId}/models**
+
+添加自定义 ASR 模型 ID（body: `{ modelId, displayName? }`）。
+
+**DELETE /api/v1/settings/asr/providers/{providerId}/models/{modelId}**
+
+删除自定义 ASR 模型。
 
 **PUT/DELETE /api/v1/settings/asr/providers/{providerId}/secret**
 
