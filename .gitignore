@@ -54,3 +54,4 @@ benchmarks/results/*
 
 # Local human rubric scores (optional baseline median may be committed separately)
 benchmarks/golden/*/scores/
+services/benchmarks/results/*
