@@ -130,7 +130,7 @@ ORM 入口：`services/core/src/core/db/models/`（`Project`、`Job`、`Result`�
 | `ingest` | `download`, `upload`, … | yt-dlp 下载或接收上传、元数据 |
 | `transcribe` | `speech_to_text` | 云端 ASR 或 faster-whisper 转写，写入 transcript |
 | `analyze` | `chunk_summaries`, `plan`, … | LLM 生成 plan（摘要 + 导图结构） |
-| `extract_keyframes` | `keyframes`, `keyframe_verify` | FFmpeg 按 plan 时间点抽帧；可选两阶段 LLM verify（低置信度复核 + 重抽后再验证，支持 LLM retry hint） |
+| `extract_keyframes` | `keyframes`, `keyframe_verify` | FFmpeg 按 plan 时间点抽帧；默认 **multimodal** LLM verify（低置信度复核 + 重抽后再验证；上游拒图时降级 OCR）。`KEYFRAME_VERIFY_MODE=off` 可关闭 |
 | `assemble_result` | — | 写入 `results` 表，更新 `latest_result_id` |
 
 前端阶段映射：`apps/web/src/lib/constants/stageMapping.ts`。
@@ -149,7 +149,7 @@ ORM 入口：`services/core/src/core/db/models/`（`Project`、`Job`、`Result`�
    - 调用 `AnalyzeProvider.generate_json`  
    - Pydantic 校验 `PlanOutput`（`contentBlocks` + `mindmap`）  
    - 失败时 `llm_json_repair.py` 尝试修复 JSON  
-4. Keyframes → `keyframes.py` / `keyframe_verify.py`  
+4. Keyframes → `keyframes.py` / `keyframe_verify.py`（默认 multimodal verify，可用 `KEYFRAME_VERIFY_MODE=off|ocr` 覆盖）
 5. `assemble_result()` → `core/pipeline/stages/assemble_result.py`
 
 Plan 产物会缓存到 `DATA_DIR/{projectId}/artifacts/plan/{jobId}/`，便于失败后重试、调试。
