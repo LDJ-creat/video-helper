@@ -256,7 +256,7 @@ A: Powered by `yt-dlp`, we support Bilibili, YouTube, and many other platforms. 
 A: You can integrate your own API keys (OpenAI, Claude, etc.). If using as an AI Skill, you can use the model provided by your AI editor.
 
 **Q: How does it handle long videos? Is it slow?**
-A: For long videos, we use a MapReduce strategy: the video content is split and analyzed concurrently by multiple LLM calls, then aligned and aggregated by a master LLM. A 1-hour video typically takes 15-20 minutes to process.
+A: For long videos, we use a MapReduce strategy: the video content is split and analyzed concurrently by multiple LLM calls, then aligned and aggregated by a master LLM. For a 1-hour video, processing typically takes about 1–2 minutes when cloud ASR is configured; with local faster-whisper transcription, expect roughly 15–20 minutes depending on your hardware and machine performance.
 
 **Q: Do I have to use cloud ASR?**
 A: No. Local faster-whisper transcription works out of the box. If you enable cloud ASR in Settings and provide an API key, the pipeline prefers cloud services for speed and accuracy; when cloud is unavailable it can fall back to local transcription (fallback can be disabled in Settings). Enabling cloud ASR uploads audio to third-party services — consider privacy and billing.
