@@ -133,11 +133,16 @@ if (!gotTheLock) {
         safeLog('main', 'Starting services...');
 
         try {
-            await startBackend();
-            safeLog('main', `✅ Backend ready on port ${BACKEND_PORT}`);
-
-            await startFrontend();
-            safeLog('main', `✅ Frontend ready on port ${FRONTEND_PORT}`);
+            // Backend and Frontend have no runtime dependency on each other at
+            // process-spawn time; start them in parallel to overlap cold starts.
+            await Promise.all([
+                startBackend().then(() => {
+                    safeLog('main', `✅ Backend ready on port ${BACKEND_PORT}`);
+                }),
+                startFrontend().then(() => {
+                    safeLog('main', `✅ Frontend ready on port ${FRONTEND_PORT}`);
+                }),
+            ]);
 
             navigateToApp();
         } catch (error: any) {
