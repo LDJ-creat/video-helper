@@ -34,7 +34,7 @@ https://github.com/user-attachments/assets/1d3824b2-feec-40da-9dee-0b6c689e2a8a
 
 ## <a id="features"></a>✨ Key Features
 
-- **Smart Pipeline Analysis**: Automated handling of video downloading, audio transcription, content extraction, and structured analysis. Transcription supports **cloud ASR** (DashScope / OpenAI / Volcengine, configurable in Settings) with automatic fallback to local faster-whisper on failure; LLM-guided keyframe extraction via FFmpeg provides visual context alongside key summaries.
+- **Smart Pipeline Analysis**: Automated handling of video downloading, audio transcription, content extraction, and structured analysis. **Cloud ASR is recommended** (DashScope / OpenAI / Volcengine, configurable in Settings) for significantly faster transcription; falls back to local faster-whisper when unconfigured or on failure. LLM-guided keyframe extraction via FFmpeg provides visual context alongside key summaries.
 - **Dynamic Mind Map**: Generates visual knowledge structure maps supporting zooming, dragging, and adding/deleting/editing nodes.
 - **Bi-directional Interaction**:
     - **Mind Map -> Content**: Click a map node to automatically locate the corresponding key content module.
@@ -170,7 +170,7 @@ uv run python main.py
 
 Common command: `uv run pytest -q` (run tests)
 
-> **Cloud ASR (optional)**: Configure provider and API key under **Settings → Speech-to-Text (ASR)** in the Web UI, or set `DASHSCOPE_API_KEY` / `OPENAI_API_KEY` / `VOLCENGINE_ASR_API_KEY` in `services/core/.env` (see `.env.example` and [`docs/api.md`](docs/api.md)). Local fallback uses faster-whisper; model size and device are controlled by `TRANSCRIBE_MODEL_SIZE` and `TRANSCRIBE_DEVICE` — no separate frontend settings required.
+> **💡 Recommended: Cloud ASR (faster)**: Transcription is often the slowest stage of the pipeline. For long videos or when you want results quickly, we **strongly recommend** configuring a cloud provider and API key under **Settings → Speech-to-Text (ASR)** in the Web UI (DashScope / OpenAI / Volcengine), or via `DASHSCOPE_API_KEY` / `OPENAI_API_KEY` / `VOLCENGINE_ASR_API_KEY` in `services/core/.env` (see `.env.example` and [`docs/api.md`](docs/api.md)). With cloud ASR, transcribing a 1-hour video typically takes minutes instead of 15–20 minutes with local faster-whisper. When cloud is unavailable, the pipeline falls back to local transcription; model size and device are controlled by `TRANSCRIBE_MODEL_SIZE` and `TRANSCRIBE_DEVICE` — no separate frontend settings required.
 
 #### 3. Start the frontend
 
