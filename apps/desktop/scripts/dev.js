@@ -128,8 +128,7 @@ async function main() {
     console.log('✅ TypeScript compiled\n');
 
     try {
-        await startBackend();
-        await startFrontend();
+        await Promise.all([startBackend(), startFrontend()]);
     } catch (e) {
         console.error('❌ Service startup failed:', e.message);
         cleanup();

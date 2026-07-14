@@ -34,7 +34,7 @@ https://github.com/user-attachments/assets/708b6ee1-0e4f-4cf7-b153-b0c713d6331f
 
 ## <a id="features"></a>✨ 核心功能
 
-- **智能流水线分析**: 自动化处理视频下载、音频转录、内容提取与结构化分析。转写支持**云端 ASR**（阿里云百炼 / OpenAI / 火山引擎，Settings 配置）并在失败时自动降级本地 faster-whisper；系统支持由 LLM 智能决策并利用 FFmpeg 截取关联关键帧，与重点摘要同步展示，使用户能够更直观地理解知识点。
+- **智能流水线分析**: 自动化处理视频下载、音频转录、内容提取与结构化分析。**推荐配置云端 ASR**（阿里云百炼 / OpenAI / 火山引擎，Settings 配置）以获得显著更快的转写速度；未配置或云端不可用时自动降级本地 faster-whisper。系统支持由 LLM 智能决策并利用 FFmpeg 截取关联关键帧，与重点摘要同步展示，使用户能够更直观地理解知识点。
 - **动态思维导图**: 生成可视化的知识结构图，支持缩放、拖拽与增删改。
 - **双向联动交互**:
     - **导图 -> 内容**: 点击导图节点，自动定位到对应的重点内容模块。
@@ -172,7 +172,7 @@ uv run python main.py
 
 常用命令：`uv run pytest -q`（运行测试）
 
-> **云端 ASR（可选）**：在 Web 端 **设置 → 语音转写 (ASR)** 配置提供方与 API Key，或在 `services/core/.env` 中设置 `DASHSCOPE_API_KEY` / `OPENAI_API_KEY` / `VOLCENGINE_ASR_API_KEY` 等（详见 `.env.example` 与 [`docs/api.md`](docs/api.md)）。本地降级使用的 faster-whisper 模型大小与设备由 `TRANSCRIBE_MODEL_SIZE`、`TRANSCRIBE_DEVICE` 控制，无需在前端单独配置。
+> **💡 推荐：云端 ASR（速度更快）**：转写是流水线中最耗时的环节之一。对于长视频或希望快速出结果的用户，**强烈推荐**在 Web 端 **设置 → 语音转写 (ASR)** 配置云端提供方与 API Key（阿里云百炼 / OpenAI / 火山引擎），或在 `services/core/.env` 中设置 `DASHSCOPE_API_KEY` / `OPENAI_API_KEY` / `VOLCENGINE_ASR_API_KEY` 等（详见 `.env.example` 与 [`docs/api.md`](docs/api.md)）。配置后 1 小时视频的转写通常可在数分钟内完成，而本地 faster-whisper 可能需要 15–20 分钟。云端不可用时自动降级本地转写；本地模型大小与设备由 `TRANSCRIBE_MODEL_SIZE`、`TRANSCRIBE_DEVICE` 控制，无需在前端单独配置。
 
 #### 3. 启动前端
 
